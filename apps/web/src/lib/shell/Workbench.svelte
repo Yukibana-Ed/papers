@@ -225,7 +225,8 @@
             const at = await preview?.centre();
             if (at) openFile(at.file, at.line);
         } else {
-            preview?.show({ file: s.cursor.file, line: s.cursor.line });
+            // With the column: the preview flashes the word the cursor is in, where it can place it.
+            preview?.show({ file: s.cursor.file, line: s.cursor.line, column: s.cursor.col });
             preview?.focus();
         }
     }
@@ -235,10 +236,17 @@
         // The frame may point into files the build made (paper.bbl): only project files open.
         if (!(at.file in s.files)) return;
         if (narrow()) s.narrowPane = 'source';
+        s.openFile(at.file);
+        // A column from the frame is exact, to the character the click was on: the caret goes there.
+        if (at.column !== undefined) {
+            const column = at.column;
+            setTimeout(() => editor?.reveal(at.file, at.line, column), 0);
+            return;
+        }
+        // Only the line is known: the first place the clicked word appears on it.
         const text = editor?.lineText(at.file, at.line) ?? '';
         const i = word ? text.indexOf(word) : -1;
-        const col = i >= 0 ? i + 1 : (at.column ?? 1);
-        s.openFile(at.file);
+        const col = i >= 0 ? i + 1 : 1;
         setTimeout(() => {
             if (word && i >= 0) editor?.reveal(at.file, at.line, col, { select: { startLineNumber: at.line, startColumn: col, endLineNumber: at.line, endColumn: col + word.length } });
             else editor?.reveal(at.file, at.line, col);

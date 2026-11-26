@@ -117,7 +117,7 @@ export class SourceEditor {
                 const s = ev.selection;
                 const f = this.fileOf(e.getModel());
                 if (f === null) return;
-                this.on.selection(s.isEmpty() ? null : { file: f, startLine: s.startLineNumber, endLine: s.endLineNumber });
+                this.on.selection(s.isEmpty() ? null : { file: f, startLine: s.startLineNumber, endLine: s.endLineNumber, startColumn: s.startColumn, endColumn: s.endColumn });
                 this.placeSelectionButton();
             }),
             e.onDidScrollChange(() => this.placeSelectionButton()),
@@ -379,11 +379,19 @@ export class SourceEditor {
         }
     }
 
-    /** The lines the preview's selection came from, highlighted; null clears them. */
+    /** Where the preview's selection came from, highlighted: the exact text when the preview could place both ends
+     *  to the word, else whole lines; null clears it. */
     setMirror(lines: Lines | null): void {
         for (const [f, m] of this.models) {
+            const exact = lines?.startColumn !== undefined && lines.endColumn !== undefined;
             const list =
-                lines && lines.file === f ? [{ range: new monaco.Range(lines.startLine, 1, lines.endLine, 1), options: { isWholeLine: true, className: 'mirror-line' } }] : [];
+                lines && lines.file === f
+                    ? [
+                          exact
+                              ? { range: new monaco.Range(lines.startLine, lines.startColumn ?? 1, lines.endLine, lines.endColumn ?? 1), options: { className: 'mirror-range' } }
+                              : { range: new monaco.Range(lines.startLine, 1, lines.endLine, 1), options: { isWholeLine: true, className: 'mirror-line' } },
+                      ]
+                    : [];
             this.D(f).mirror = m.deltaDecorations(this.D(f).mirror, list);
         }
     }

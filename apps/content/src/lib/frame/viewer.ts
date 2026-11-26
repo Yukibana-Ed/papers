@@ -3,6 +3,7 @@ import { getDocument, GlobalWorkerOptions, TextLayer, type PDFDocumentLoadingTas
 // oxlint-disable-next-line import/default
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type { PreviewMark, PreviewPresence, SourceLines, SourcePoint } from '@yukibana/papers-frame-protocol';
+import { docWords, preciseMap, type PreciseMap } from '#lib/precise.ts';
 import { mergeLineRects, type Rect } from '#lib/rects.ts';
 import type { PageText, SourceMap } from '#lib/sourcemap.ts';
 import type { PageBox } from '@yukibana/papers-tex';
@@ -70,6 +71,10 @@ export class Viewer {
     /** The shown build's loading task, which owns its document. */
     #task: PDFDocumentLoadingTask | null = null;
     #sync: SourceMap | null = null;
+    /** The sync to the word, over `#sync`, once the shown build's text is read; null until then or without sources. */
+    #precise: PreciseMap | null = null;
+    #sources: ReadonlyMap<string, string> = new Map();
+    #format: 'latex' | 'typst' = 'latex';
     #pages: PageView[] = [];
     #zoom = 1;
     #fit = 1;
@@ -104,6 +109,26 @@ export class Viewer {
     setSourceMap(map: SourceMap | null): void {
         this.#sync = map;
         this.#drawOverlays();
+        void this.#makePrecise();
+    }
+
+    /** The sources of the builds to come (path → text) and their format, for the sync to the word. */
+    setSources(sources: ReadonlyMap<string, string>, format: 'latex' | 'typst'): void {
+        this.#sources = sources;
+        this.#format = format;
+    }
+
+    /** Reads the shown build's text and aligns it with the sources, for `#precise`. A newer build or map replaces it. */
+    async #makePrecise(): Promise<void> {
+        this.#precise = null;
+        const sync = this.#sync;
+        if (sync === null) return;
+        const words = docWords(await this.pageTexts());
+        if (this.#sync !== sync) return;
+        this.#precise = preciseMap(sync, words, this.#sources, this.#format);
+        this.#drawOverlays();
+        // Development only (gone from builds): the maps, for the sync-accuracy probe to measure.
+        if (import.meta.env.DEV) Object.assign(window, { papersSync: { coarse: sync, precise: this.#precise, words, sources: this.#sources } });
     }
 
     /** The text runs of every page of the shown build, in PDF points from each page's top-left, reading order. */
@@ -161,6 +186,7 @@ export class Viewer {
         });
         this.#relayout();
         this.#drawOverlays();
+        void this.#makePrecise();
         // Not awaited: PDF.js draws in animation frames, which a hidden page does not get, and the build's result must
         // not wait for the page to be seen. The old document goes once the new pages are drawn.
         void this.#renderVisible().then(() => old?.destroy());
@@ -314,7 +340,16 @@ export class Viewer {
             }
         };
         for (const m of this.#marks) paint(m, `pv-hl-${m.kind}`);
-        if (this.#mirror !== null) paint(this.#mirror, 'pv-hl-mirror');
+        if (this.#mirror !== null) {
+            const exact = this.#exactBoxes(this.#mirror);
+            if (exact === null) paint(this.#mirror, 'pv-hl-mirror');
+            else
+                for (const [n, rects] of exact) {
+                    const page = this.#pages[n - 1];
+                    if (page === undefined) continue;
+                    for (const r of rects) page.marks.append(box(r, s, 'pv-hl pv-hl-mirror', 1.5));
+                }
+        }
         if (this.#cursor !== null) {
             const at = this.#firstBox(this.#cursor);
             const page = at === null ? undefined : this.#pages[at.page - 1];
@@ -340,9 +375,30 @@ export class Viewer {
         }
     }
 
+    /** Where `at` shows: its word (its character) when it has a column the sync to the word can place, else the first
+     *  box of its line. */
     #firstBox(at: SourcePoint): PageBox | null {
         if (this.#sync === null) return null;
+        if (at.column !== undefined) {
+            const word = this.#precise?.locate({ file: at.file, line: at.line, column: at.column - 1 }) ?? null;
+            if (word !== null) return word;
+        }
         return this.#sync.segments(at.file, at.line)[0] ?? null;
+    }
+
+    /** The boxes of a range with columns, word by word and merged per typeset line, by page; null when it has no
+     *  columns or the sync to the word cannot place both ends. */
+    #exactBoxes(lines: SourceLines): Map<number, Rect[]> | null {
+        if (lines.startColumn === undefined || lines.endColumn === undefined || this.#precise === null) return null;
+        const boxes = this.#precise.range(
+            { file: lines.file, line: lines.startLine, column: lines.startColumn - 1 },
+            { file: lines.file, line: lines.endLine, column: lines.endColumn - 1 },
+        );
+        if (boxes === null || boxes.length === 0) return null;
+        const out = new Map<number, Rect[]>();
+        for (const b of boxes) out.set(b.page, [...(out.get(b.page) ?? []), b]);
+        for (const [page, rects] of out) out.set(page, mergeLineRects(rects, 0, 0.15));
+        return out;
     }
 
     // --- navigation ----------------------------------------------------------------------------------------------------
@@ -364,7 +420,8 @@ export class Viewer {
         const behavior = document.visibilityState === 'visible' ? 'smooth' : 'instant';
         if (mode === 'jump' || !inView) view.scrollTo({ top: top - view.clientHeight / 3, behavior });
         if (mode === 'jump' && this.#sync !== null) {
-            for (const seg of this.#sync.segments(at.file, at.line)) {
+            const word = at.column === undefined ? null : (this.#precise?.locate({ file: at.file, line: at.line, column: at.column - 1 }) ?? null);
+            for (const seg of word === null ? this.#sync.segments(at.file, at.line) : [word]) {
                 const p = this.#pages[seg.page - 1];
                 if (p === undefined) continue;
                 // Among the highlights, which multiply with the page, so the flash too leaves the glyphs dark.
@@ -467,7 +524,14 @@ export class Viewer {
         const n = Number(pageEl.dataset['page']);
         const rect = pageEl.getBoundingClientRect();
         const s = this.scale;
-        const hit = this.#sync.backward(n, (e.clientX - rect.left) / s, (e.clientY - rect.top) / s);
+        const x = (e.clientX - rect.left) / s;
+        const y = (e.clientY - rect.top) / s;
+        const exact = this.#precise?.pointToSource(n, x, y) ?? null;
+        if (exact !== null) {
+            this.#events.jump({ file: exact.file, line: exact.line, column: exact.column + 1 }, wordAt(e.clientX, e.clientY));
+            return;
+        }
+        const hit = this.#sync.backward(n, x, y);
         if (hit === null) return;
         this.#events.jump({ file: hit.file, line: hit.line }, wordAt(e.clientX, e.clientY));
     };
@@ -621,6 +685,20 @@ export class Viewer {
         const sync = this.#sync;
         if (sync === null) return null;
         const s = this.scale;
+        // To the character, when the sync to the word places both ends: the first character inside the first line's
+        // rectangle, the last inside the last one's (the rectangles are padded by a pixel and grown by their leading).
+        const precise = this.#precise;
+        if (precise !== null) {
+            const mid = (r: Rect): number => (r.y + r.height / 2) / s;
+            const a = precise.pointToSource(this.#pages.indexOf(first.page) + 1, (first.rect.x + 2) / s, mid(first.rect));
+            const b = precise.pointToSource(this.#pages.indexOf(last.page) + 1, (last.rect.x + last.rect.width - 2) / s, mid(last.rect));
+            if (a !== null && b !== null && a.file === b.file && (a.line < b.line || (a.line === b.line && a.column <= b.column))) {
+                // Exclusive end: after the last character, or after the whole word where the source spells it otherwise.
+                const startColumn = a.exact ? a.column : a.start;
+                const endColumn = b.exact ? b.column + 1 : b.start + b.length;
+                return { file: a.file, startLine: a.line, endLine: b.line, startColumn: startColumn + 1, endColumn: endColumn + 1 };
+            }
+        }
         const at = (e: { page: PageView; rect: Rect }, edge: 'start' | 'end'): { file: string; line: number } | null =>
             sync.backward(this.#pages.indexOf(e.page) + 1, (edge === 'start' ? e.rect.x + 4 : e.rect.x + e.rect.width - 4) / s, (e.rect.y + e.rect.height * 0.7) / s);
         const a = at(first, 'start');
