@@ -16,3 +16,6 @@
 # SvelteKit's generated files and the Workers' builds.
 .svelte-kit/
 /apps/*/build/
+
+# Local agent worktrees.
+/.claude/

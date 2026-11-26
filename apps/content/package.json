@@ -9,7 +9,7 @@
   },
   "scripts": {
     "prepare": "svelte-kit sync",
-    "dev": "vite dev --port 5181",
+    "dev": "vite dev --port 5185",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",

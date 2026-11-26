@@ -20,8 +20,10 @@
     "@sveltejs/adapter-cloudflare": "catalog:",
     "@sveltejs/kit": "catalog:",
     "@sveltejs/vite-plugin-svelte": "catalog:",
+    "@types/markdown-it": "catalog:",
     "@types/node": "catalog:",
     "@yukibana/design": "catalog:",
+    "happy-dom": "catalog:",
     "monaco-editor": "catalog:",
     "svelte": "catalog:",
     "svelte-check": "catalog:",
@@ -32,6 +34,7 @@
   },
   "dependencies": {
     "@yukibana/papers-frame-protocol": "catalog:",
+    "markdown-it": "catalog:",
     "prosemirror-commands": "catalog:",
     "prosemirror-history": "catalog:",
     "prosemirror-inputrules": "catalog:",

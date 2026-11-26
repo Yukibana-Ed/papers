@@ -5,7 +5,9 @@
     /* SvelteKit's `redirect()` and `error()` never return; the rule cannot see that. */
     "typescript/consistent-return": "off",
     /* `export {}` is how a .d.ts becomes a module, per SvelteKit's own template. */
-    "unicorn/require-module-specifiers": "off"
+    "unicorn/require-module-specifiers": "off",
+    /* A Svelte 5 component renders itself recursively by importing itself (svelte:self is deprecated). */
+    "import/no-self-import": "off"
   },
   "ignorePatterns": ["build/**", ".svelte-kit/**", "static/**", "node_modules/**"]
 }
