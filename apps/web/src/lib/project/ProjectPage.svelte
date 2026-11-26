@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onDestroy, onMount } from 'svelte';
-    import type { BaseFile } from '@yukibana/papers-room/protocol';
+    import type { BaseFile } from '@yukibana/papers-room-protocol';
     import { GitHubError, commit, wipBackup } from '#lib/github/api.ts';
     import { githubToken, session as githubSession, type Viewer } from '#lib/github/token.ts';
     import type { User } from '#lib/model/types.ts';

@@ -3,7 +3,7 @@ import * as encoding from 'lib0/encoding';
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness';
 import { readSyncMessage, writeSyncStep1, writeUpdate } from 'y-protocols/sync';
 import * as Y from 'yjs';
-import { DOC_REVIEW, DOC_TEXT, MSG_AWARENESS, MSG_SYNC, type BaseFile, type DocId, type Identity, type ServerMessage, type SyncMode } from '@yukibana/papers-room/protocol';
+import { DOC_REVIEW, DOC_TEXT, MSG_AWARENESS, MSG_SYNC, type BaseFile, type DocId, type Identity, type ServerMessage, type SyncMode } from '@yukibana/papers-room-protocol';
 
 export interface RoomEvents {
     welcome(you: Identity, base: string | null, files: readonly BaseFile[]): void;

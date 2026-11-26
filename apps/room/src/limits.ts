@@ -1,4 +1,4 @@
-import type { SyncMode } from './protocol.ts';
+import type { SyncMode } from '@yukibana/papers-room-protocol';
 
 /** A room's usage budget. Rooms are cheap while people type at human speed; these limits are for the rest: a script
  *  hammering a room, or a huge file pasted again and again. */

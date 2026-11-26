@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { backward, forward, inputPath, lineSegments, nearestForward, parseSynctex } from '#lib/synctex.ts';
+import { backward, forward, inputPath, lineSegments, nearestForward, parseSynctex } from '../src/index.ts';
 
 // One point (bp) is 65781.76 sp; with Unit:1 the numbers below are sp.
 const bp = (n: number): number => Math.round(n * 65781.76);
@@ -60,8 +60,8 @@ describe('synctex', () => {
     });
 
     it('searches backward from a point on a text line', () => {
-        expect(backward(sync, 1, 250, 96)).toEqual({ file: 'sections/intro.tex', line: 3 });
-        expect(backward(sync, 1, 100, 108)).toEqual({ file: 'sections/intro.tex', line: 4 });
+        expect(backward(sync, 1, 250, 96)).toMatchObject({ file: 'sections/intro.tex', line: 3 });
+        expect(backward(sync, 1, 100, 108)).toMatchObject({ file: 'sections/intro.tex', line: 4 });
         expect(backward(sync, 2, 100, 100)).toBeNull();
     });
 
@@ -92,9 +92,9 @@ describe('synctex', () => {
                 '}1',
             ].join('\n'),
         );
-        expect(backward(para, 1, 76, 322)).toEqual({ file: 'sections/intro.tex', line: 2 });
-        expect(backward(para, 1, 250, 322)).toEqual({ file: 'sections/intro.tex', line: 2 });
-        expect(backward(para, 1, 500, 322)).toEqual({ file: 'sections/intro.tex', line: 3 });
+        expect(backward(para, 1, 76, 322)).toMatchObject({ file: 'sections/intro.tex', line: 2 });
+        expect(backward(para, 1, 250, 322)).toMatchObject({ file: 'sections/intro.tex', line: 2 });
+        expect(backward(para, 1, 500, 322)).toMatchObject({ file: 'sections/intro.tex', line: 3 });
         // Line 2's words start the typeset line: its highlight starts at the box's left edge, not at the first kern.
         expect(lineSegments(para, 'sections/intro.tex', 2)[0]?.x).toBeCloseTo(72, 3);
         expect(lineSegments(para, 'sections/intro.tex', 3)[0]?.x).toBeCloseTo(438, 3);

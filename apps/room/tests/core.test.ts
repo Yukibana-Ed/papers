@@ -7,7 +7,7 @@ import { readSyncMessage, writeSyncStep1, writeUpdate } from 'y-protocols/sync';
 import * as Y from 'yjs';
 import { RoomCore, type Peer } from '../src/core.ts';
 import { DEFAULT_LIMITS } from '../src/limits.ts';
-import { DOC_REVIEW, DOC_TEXT, MSG_AWARENESS, MSG_SYNC, type Access, type ServerMessage } from '../src/protocol.ts';
+import { DOC_REVIEW, DOC_TEXT, MSG_AWARENESS, MSG_SYNC, type Access, type ServerMessage } from '@yukibana/papers-room-protocol';
 import { RoomStore, type Sql, type SqlValue } from '../src/store.ts';
 
 /** node:sqlite behind the Durable Object SQL interface. */

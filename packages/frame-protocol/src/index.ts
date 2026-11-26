@@ -161,32 +161,134 @@ export function isReady(x: unknown): x is Ready {
     return isRecord(x) && x['kind'] === READY && typeof x['version'] === 'number';
 }
 
-const APP_TYPES: ReadonlySet<string> = new Set([
-    'project',
-    'files',
-    'root',
-    'reveal',
-    'mirror',
-    'marks',
-    'presence',
-    'zoom',
-    'centre?',
-    'theme',
-    'builder',
-    'output',
-    'lsp-start',
-    'lsp',
-]);
-const FRAME_TYPES: ReadonlySet<string> = new Set(['built', 'status', 'jump', 'selection', 'action', 'centre', 'scale', 'key', 'lsp', 'lsp-status']);
+// --- validation ---------------------------------------------------------------------------------------------------------
+// Each side checks every field of what it receives: the frame runs user content, so the app treats its messages as
+// untrusted; the frame checks the app's messages against version skew. A message that is not exactly one of the shapes
+// above is dropped, never half-used.
 
-/** Whether `x` is shaped as an app message: an object with a known `type`. The port is private to the two sides, so this
- *  guards against version skew, not against an attacker. */
-export function isAppMessage(x: unknown): x is AppMessage {
-    return isRecord(x) && typeof x['type'] === 'string' && APP_TYPES.has(x['type']);
+const isString = (x: unknown): x is string => typeof x === 'string';
+const isNumber = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
+const isBool = (x: unknown): x is boolean => typeof x === 'boolean';
+const isLine = (x: unknown): x is number => isNumber(x) && Number.isInteger(x) && x >= 0;
+const isBytes = (x: unknown): x is Uint8Array => x instanceof Uint8Array;
+const isContents = (x: unknown): x is FileContents => isString(x) || isBytes(x);
+
+/** Whether `x` is one of `values`. */
+function oneOf(x: unknown, ...values: readonly string[]): boolean {
+    return isString(x) && values.includes(x);
 }
 
-/** Whether `x` is shaped as a frame message. The frame runs user content, so the app must still treat every field as
- *  untrusted: a path is only ever looked up, never used to build a URL or HTML. */
+/** Whether `x` is an array whose every item passes `item`. */
+function arrayOf(x: unknown, item: (y: unknown) => boolean): boolean {
+    return Array.isArray(x) && x.every(item);
+}
+
+function isPoint(x: unknown): x is SourcePoint {
+    return isRecord(x) && isString(x['file']) && isLine(x['line']) && (x['column'] === undefined || isLine(x['column']));
+}
+function isLines(x: unknown): x is SourceLines {
+    return isRecord(x) && isString(x['file']) && isLine(x['startLine']) && isLine(x['endLine']) && x['startLine'] <= x['endLine'];
+}
+function isDiagnostic(x: unknown): boolean {
+    return isRecord(x) && isString(x['file']) && isLine(x['line']) && oneOf(x['severity'], 'error', 'warning') && isString(x['message']);
+}
+function isMark(x: unknown): boolean {
+    return isLines(x) && isString(Reflect.get(x, 'id')) && oneOf(Reflect.get(x, 'kind'), 'comment', 'active', 'suggestion');
+}
+function isPresence(x: unknown): boolean {
+    return isPoint(x) && isString(Reflect.get(x, 'user')) && isString(Reflect.get(x, 'initial')) && isNumber(Reflect.get(x, 'hue'));
+}
+function isPackage(x: unknown): boolean {
+    return isRecord(x) && isString(x['namespace']) && isString(x['name']) && isString(x['version']) && isString(x['sha256']);
+}
+function isChange(x: unknown): boolean {
+    return isRecord(x) && isString(x['path']) && (x['contents'] === null || isContents(x['contents']));
+}
+
+/** Whether the fields of `x` (whose `type` is a string) match the app message of that type. */
+function appFieldsMatch(x: Record<string, unknown>): boolean {
+    switch (x['type']) {
+        case 'project':
+            return isRecord(x['files']) && Object.values(x['files']).every(isContents) && isString(x['root']) && oneOf(x['engine'], 'pdflatex', 'xelatex', 'lualatex', 'typst');
+        case 'files':
+            return arrayOf(x['changes'], isChange);
+        case 'root':
+            return isString(x['root']) && oneOf(x['engine'], 'pdflatex', 'xelatex', 'lualatex', 'typst');
+        case 'reveal':
+            return isPoint(x['at']) && oneOf(x['mode'], 'follow', 'jump');
+        case 'mirror':
+            return x['lines'] === null || isLines(x['lines']);
+        case 'marks':
+            return arrayOf(x['marks'], isMark);
+        case 'presence':
+            return arrayOf(x['presence'], isPresence);
+        case 'zoom':
+            return isNumber(x['zoom']);
+        case 'centre?':
+            return true;
+        case 'theme':
+            return isBool(x['dark']);
+        case 'builder':
+            return oneOf(x['builder'], 'browser', 'external');
+        case 'output':
+            return (
+                isBool(x['ok']) &&
+                (x['pdf'] === null || isBytes(x['pdf'])) &&
+                (x['synctex'] === null || isBytes(x['synctex'])) &&
+                isNumber(x['ms']) &&
+                arrayOf(x['diagnostics'], isDiagnostic)
+            );
+        case 'lsp-start':
+            return oneOf(x['server'], 'tinymist');
+        case 'lsp':
+            return oneOf(x['server'], 'tinymist') && 'message' in x;
+        default:
+            return false;
+    }
+}
+
+/** Whether the fields of `x` (whose `type` is a string) match the frame message of that type. */
+function frameFieldsMatch(x: Record<string, unknown>): boolean {
+    switch (x['type']) {
+        case 'built':
+            return (
+                isBool(x['ok']) &&
+                isLine(x['pages']) &&
+                isNumber(x['ms']) &&
+                arrayOf(x['diagnostics'], isDiagnostic) &&
+                (x['packages'] === undefined || arrayOf(x['packages'], isPackage))
+            );
+        case 'status':
+            return oneOf(x['status'], 'loading', 'compiling', 'idle');
+        case 'jump':
+            return isPoint(x['at']) && (x['word'] === null || isString(x['word']));
+        case 'selection':
+            return (x['lines'] === null || isLines(x['lines'])) && isString(x['text']);
+        case 'action':
+            return oneOf(x['action'], 'comment', 'suggest', 'source') && isLines(x['lines']) && isString(x['text']);
+        case 'centre':
+            return x['at'] === null || isPoint(x['at']);
+        case 'scale':
+            return isNumber(x['scale']) && x['scale'] > 0;
+        case 'key':
+            return isString(x['key']) && isString(x['code']) && isBool(x['ctrl']) && isBool(x['shift']) && isBool(x['alt']);
+        case 'lsp':
+            return oneOf(x['server'], 'tinymist') && 'message' in x;
+        case 'lsp-status':
+            return oneOf(x['server'], 'tinymist') && oneOf(x['status'], 'starting', 'ready', 'failed') && (x['detail'] === undefined || isString(x['detail']));
+        default:
+            return false;
+    }
+}
+
+/** Whether `x` is exactly one of `AppMessage`'s shapes: every field is checked, not only `type`. */
+export function isAppMessage(x: unknown): x is AppMessage {
+    return isRecord(x) && isString(x['type']) && appFieldsMatch(x);
+}
+
+/** Whether `x` is exactly one of `FrameMessage`'s shapes: every field is checked, not only `type`. The frame runs user
+ *  content, so a message that is not exactly right is dropped; and the app still uses the fields only as data (a path
+ *  is only ever looked up, never used to build a URL or HTML). */
 export function isFrameMessage(x: unknown): x is FrameMessage {
-    return isRecord(x) && typeof x['type'] === 'string' && FRAME_TYPES.has(x['type']);
+    return isRecord(x) && isString(x['type']) && frameFieldsMatch(x);
 }

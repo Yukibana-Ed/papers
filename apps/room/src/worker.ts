@@ -1,14 +1,10 @@
 import { DurableObject } from 'cloudflare:workers';
 import { RoomCore, type Peer } from './core.ts';
-import type { Identity } from './protocol.ts';
+import { IDENTITY_HEADER, type Identity } from '@yukibana/papers-room-protocol';
 import { RoomStore } from './store.ts';
 
 /** How long after the last change the room compacts its logs and asks for a WIP backup. */
 const TICK_MS = 5 * 60 * 1000;
-
-/** The header the app's Worker sets on the upgrade it forwards: the identity it checked against GitHub. The room
- *  Worker has no route of its own, so only the app's Worker (through its Durable Object binding) can set it. */
-export const IDENTITY_HEADER = 'X-Yukibana-Identity';
 
 interface Env {
     readonly ROOM: DurableObjectNamespace<Room>;

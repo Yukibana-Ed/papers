@@ -9,6 +9,10 @@
  *  Binary frames carry Yjs: `[doc: u8][y-protocols message]`, where the message is a sync message (`0`) or an
  *  awareness update (`1`), as y-protocols writes them. Text frames carry the JSON control messages below. */
 
+/** The header the app's Worker sets on the room upgrade it forwards: the identity it checked (a JSON `Identity`). The
+ *  room Worker has no route of its own, so only the app's Worker, through its Durable Object binding, can set it. */
+export const IDENTITY_HEADER = 'X-Yukibana-Identity';
+
 export const DOC_TEXT = 0;
 export const DOC_REVIEW = 1;
 export type DocId = typeof DOC_TEXT | typeof DOC_REVIEW;

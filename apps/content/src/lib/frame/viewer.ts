@@ -5,7 +5,7 @@ import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type { PreviewMark, PreviewPresence, SourceLines, SourcePoint } from '@yukibana/papers-frame-protocol';
 import { mergeLineRects, type Rect } from '#lib/rects.ts';
 import type { PageText, SourceMap } from '#lib/sourcemap.ts';
-import type { PageBox } from '#lib/synctex.ts';
+import type { PageBox } from '@yukibana/papers-tex';
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
