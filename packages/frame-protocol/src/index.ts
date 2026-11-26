@@ -82,6 +82,8 @@ export type AppMessage =
       }
     /** Starts `server` in the frame (once; later starts are ignored). Its messages then flow as `lsp`. */
     | { readonly type: 'lsp-start'; readonly server: LanguageServer }
+    /** Stops `server` (its worker ends); a later `lsp-start` starts a fresh one. */
+    | { readonly type: 'lsp-stop'; readonly server: LanguageServer }
     /** A JSON-RPC message for `server`: a request, a notification, or the response to one of the server's requests. */
     | { readonly type: 'lsp'; readonly server: LanguageServer; readonly message: unknown };
 
@@ -239,6 +241,7 @@ function appFieldsMatch(x: Record<string, unknown>): boolean {
                 arrayOf(x['diagnostics'], isDiagnostic)
             );
         case 'lsp-start':
+        case 'lsp-stop':
             return oneOf(x['server'], 'tinymist');
         case 'lsp':
             return oneOf(x['server'], 'tinymist') && 'message' in x;

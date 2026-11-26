@@ -123,6 +123,10 @@ export class Frame {
             case 'lsp':
                 this.#servers.get(m.server)?.postMessage(m.message);
                 return;
+            case 'lsp-stop':
+                this.#servers.get(m.server)?.terminate();
+                this.#servers.delete(m.server);
+                return;
         }
     }
 
@@ -201,7 +205,9 @@ export class Frame {
                 return this.#bridge.send({ type: 'lsp-status', server, status: 'failed', detail: String(data.failed) });
             this.#bridge.send({ type: 'lsp', server, message: data });
         });
-        worker.addEventListener('error', e => this.#bridge.send({ type: 'lsp-status', server, status: 'failed', detail: e.message }));
+        // A worker that cannot load or throws: the server crashed, and says so instead of leaving the editor waiting.
+        worker.addEventListener('error', e => this.#bridge.send({ type: 'lsp-status', server, status: 'failed', detail: `crashed: ${e.message || 'the worker failed'}` }));
+        worker.addEventListener('messageerror', () => this.#bridge.send({ type: 'lsp-status', server, status: 'failed', detail: 'crashed: a message could not be read' }));
         this.#servers.set(server, worker);
     }
 

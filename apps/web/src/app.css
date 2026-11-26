@@ -1114,6 +1114,47 @@ button {
     color: var(--yk-danger);
 }
 
+/* --- the language server's state, quiet in the source tabs' bar ---------------------------------------------------- */
+.lsp-state {
+    display: inline-grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border: 0;
+    border-radius: var(--yk-radius-sm);
+    background: transparent;
+    color: var(--yk-soft);
+}
+.lsp-state.is-failed {
+    color: var(--yk-warn);
+    cursor: pointer;
+}
+.lsp-state.is-failed:hover {
+    background: var(--yk-sunken);
+}
+.lsp-spin {
+    width: 12px;
+    height: 12px;
+}
+
+/* --- a line break a suggestion adds or strikes: a mark at the end of its line (SourceEditor's suggestions) --------- */
+.sg-nl {
+    font-size: 0.85em;
+    padding: 0 1px;
+    margin-left: 1px;
+    border-radius: 2px;
+}
+.sg-nl-ins {
+    color: var(--yk-chip-violet-fg) !important;
+    background: var(--yk-chip-violet-bg);
+}
+.sg-nl-del {
+    color: var(--yk-danger) !important;
+    text-decoration: line-through;
+    text-decoration-thickness: 1.5px;
+    opacity: 0.85;
+}
+
 /* The reply field at the bottom of an open thread or suggestion: a quiet one-line field until it is used. */
 .cm-reply-field {
     display: block;
