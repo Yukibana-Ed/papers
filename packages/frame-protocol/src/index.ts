@@ -66,7 +66,20 @@ export type AppMessage =
     | { readonly type: 'zoom'; readonly zoom: number }
     /** Asks for a `centre` reply: the source line in the middle of the view. */
     | { readonly type: 'centre?' }
-    | { readonly type: 'theme'; readonly dark: boolean };
+    | { readonly type: 'theme'; readonly dark: boolean }
+    /** Who builds: `browser` (the frame's own engine, the default) or `external` (the user's computer, through the app):
+     *  then the frame keeps the files only for display and shows the `output`s it is sent. */
+    | { readonly type: 'builder'; readonly builder: 'browser' | 'external' }
+    /** A build made elsewhere: the PDF, its SyncTeX (gzip as the engine writes it, or plain), and its diagnostics. The
+     *  frame renders it as one of its own builds; `ok` false keeps the last good pages. */
+    | {
+          readonly type: 'output';
+          readonly ok: boolean;
+          readonly pdf: Uint8Array | null;
+          readonly synctex: Uint8Array | null;
+          readonly ms: number;
+          readonly diagnostics: readonly Diagnostic[];
+      };
 
 /** The actions of the preview's selection toolbar. */
 export type SelectionAction = 'comment' | 'suggest' | 'source';
@@ -129,7 +142,7 @@ export function isReady(x: unknown): x is Ready {
     return isRecord(x) && x['kind'] === READY && typeof x['version'] === 'number';
 }
 
-const APP_TYPES: ReadonlySet<string> = new Set(['project', 'files', 'root', 'reveal', 'mirror', 'marks', 'presence', 'zoom', 'centre?', 'theme']);
+const APP_TYPES: ReadonlySet<string> = new Set(['project', 'files', 'root', 'reveal', 'mirror', 'marks', 'presence', 'zoom', 'centre?', 'theme', 'builder', 'output']);
 const FRAME_TYPES: ReadonlySet<string> = new Set(['built', 'status', 'jump', 'selection', 'action', 'centre', 'scale', 'key']);
 
 /** Whether `x` is shaped as an app message: an object with a known `type`. The port is private to the two sides, so this

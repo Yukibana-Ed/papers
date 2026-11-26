@@ -40,6 +40,7 @@ export type ServerMessage =
     /** After a valid `hello`: what this machine builds with. */
     | { readonly type: 'ready'; readonly protocol: number; readonly sandbox: string; readonly toolchain: string }
     | { readonly type: 'status'; readonly id: string; readonly step: string }
+    /** The build is done; its `artifact`s, if any, came before this. */
     | { readonly type: 'built'; readonly id: string; readonly ok: boolean; readonly pages: number; readonly ms: number; readonly diagnostics: readonly RunnerDiagnostic[] }
     /** The next frame is binary: this build's PDF or SyncTeX (gzip) bytes. */
     | { readonly type: 'artifact'; readonly id: string; readonly name: 'pdf' | 'synctex'; readonly bytes: number }

@@ -35,6 +35,7 @@
   "dependencies": {
     "@yukibana/papers-frame-protocol": "catalog:",
     "@yukibana/papers-room": "catalog:",
+    "@yukibana/papers-runner": "catalog:",
     "lib0": "catalog:",
     "markdown-it": "catalog:",
     "prosemirror-commands": "catalog:",

@@ -1064,3 +1064,32 @@ button {
         display: none;
     }
 }
+
+/* --- where the preview is built ------------------------------------------------------------------------------------ */
+.backend {
+    border: 0;
+    cursor: pointer;
+}
+.backend:hover,
+.backend.is-open {
+    background: var(--yk-sunken);
+    color: var(--yk-ink);
+}
+.pop-builder {
+    right: 6px;
+    top: 34px;
+    width: 280px;
+    display: grid;
+}
+.pop-builder .pop-row {
+    padding: 4px 2px 2px;
+}
+.pop-builder .yk-input {
+    flex: 1;
+    min-width: 0;
+    text-transform: uppercase;
+}
+.pop-failure {
+    padding: 4px 6px 2px;
+    color: var(--yk-danger);
+}

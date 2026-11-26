@@ -412,6 +412,9 @@ importers:
       '@yukibana/papers-room':
         specifier: 'catalog:'
         version: link:../room
+      '@yukibana/papers-runner':
+        specifier: 'catalog:'
+        version: link:../../packages/runner
       lib0:
         specifier: 'catalog:'
         version: 0.2.120
