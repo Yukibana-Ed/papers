@@ -1,6 +1,6 @@
 /** The GitHub calls of the app, with a user's short-lived access token. The page makes them directly against
- *  api.github.com (our servers are not on the data path); the Worker makes only `viewer` and `repoInfo`, once, to
- *  check who joins a room. Every function takes the token as an argument and keeps nothing. */
+ *  api.github.com (our servers are not on the data path); the Worker makes only `viewer`, `repoInfo` and `branchHead`,
+ *  once, to check who joins which room. Every function takes the token as an argument and keeps nothing. */
 
 const API = 'https://api.github.com';
 const UA = 'yukibana-papers';
@@ -57,6 +57,15 @@ export async function repoInfo(token: string, owner: string, repo: string): Prom
     );
     if (!r.permissions?.pull) throw new GitHubError(404, 'Not found');
     return { fullName: r.full_name, defaultBranch: r.default_branch, private: r.private, access: r.permissions.push ? 'write' : 'comment' };
+}
+
+/** The head commit of `branch`. Throws a GitHubError 404 when the repository has no branch of exactly that name (a
+ *  branch whose name only starts with it does not count). */
+export async function branchHead(token: string, owner: string, repo: string, branch: string): Promise<string> {
+    const name = branch.split('/').map(encodeURIComponent).join('/');
+    const r = await json<{ ref?: unknown; object?: { sha?: unknown } }>(await fetch(`${API}/repos/${repoPath(owner, repo)}/git/ref/heads/${name}`, { headers: headers(token) }));
+    if (r.ref !== `refs/heads/${branch}` || typeof r.object?.sha !== 'string') throw new GitHubError(404, 'No such branch');
+    return r.object.sha;
 }
 
 export interface TreeEntry {
