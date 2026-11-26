@@ -349,7 +349,8 @@ export class Viewer {
     #drawOverlays(): void {
         this.#drawHover();
         for (const p of this.#pages) {
-            p.marks.replaceChildren();
+            // A jump's flash outlives a redraw (its words' boxes may be refined meanwhile); it removes itself.
+            p.marks.replaceChildren(...p.marks.querySelectorAll(':scope > .pv-flash'));
             p.decor.replaceChildren();
         }
         const s = this.scale;
