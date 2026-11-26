@@ -273,14 +273,16 @@ export class Frame {
         });
     }
 
-    /** Keyboard shortcuts belong to the app: the frame forwards Ctrl/⌘ combinations, except copying and selecting all,
-     *  which act on the preview's text. */
+    /** Keyboard shortcuts belong to the app: the frame forwards Ctrl/⌘ combinations, except copying, selecting all and
+     *  the keys that move a selection's end, which act on the preview's text. */
     #onKey = (e: KeyboardEvent): void => {
         const ctrl = e.ctrlKey || e.metaKey;
         if (!ctrl) return;
         const k = e.key.toLowerCase();
         if (!e.altKey && !e.shiftKey && (k === 'c' || k === 'a')) return;
         if (k === 'control' || k === 'meta' || k === 'shift' || k === 'alt') return;
+        // The arrows, Home and End move the end of the preview's selection (`Viewer`).
+        if (k.startsWith('arrow') || k === 'home' || k === 'end') return;
         e.preventDefault();
         e.stopPropagation();
         this.#bridge.send({ type: 'key', key: e.key, code: e.code, ctrl, shift: e.shiftKey, alt: e.altKey });
