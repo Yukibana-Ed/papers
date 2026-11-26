@@ -112,6 +112,17 @@ export async function branchHead(token: string, owner: string, repo: string, bra
     return r.object.sha;
 }
 
+/** The names of `owner/repo`'s branches (the first 300). */
+export async function branchNames(token: string, owner: string, repo: string): Promise<string[]> {
+    const out: string[] = [];
+    for (let page = 1; page <= 3; page++) {
+        const list = await json<{ name: string }[]>(await githubFetch(`${API}/repos/${repoPath(owner, repo)}/branches?per_page=100&page=${page}`, { headers: headers(token) }));
+        out.push(...list.map(b => b.name));
+        if (list.length < 100) break;
+    }
+    return out;
+}
+
 export interface TreeEntry {
     readonly path: string;
     readonly sha: string;

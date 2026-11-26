@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { E2E_CLIENT_SECRET, E2E_SESSION_KEY } from './e2e/test-env.ts';
 
 /** Browser tests against the BUILT app: both Workers run under `wrangler dev` (workerd, as in production), each told
  *  the other's local origin, so the page's CSP, cross-origin isolation and the frame handshake are the real ones.
@@ -27,7 +28,8 @@ export default defineConfig({
             ? []
             : [
                   {
-                      command: `pnpm exec wrangler dev --port 4173 --ip 127.0.0.1 --local --var CONTENT_ORIGIN:${CONTENT}`,
+                      // Test values for sign-in (e2e/test-env.ts): the app runs signed in when a test seals a session cookie.
+                      command: `pnpm exec wrangler dev --port 4173 --ip 127.0.0.1 --local --var CONTENT_ORIGIN:${CONTENT} --var GITHUB_CLIENT_SECRET:${E2E_CLIENT_SECRET} --var SESSION_KEY:${E2E_SESSION_KEY}`,
                       url: `${APP}/`,
                       reuseExistingServer: !process.env['CI'],
                       timeout: 120_000,

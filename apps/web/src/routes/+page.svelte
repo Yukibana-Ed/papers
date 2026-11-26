@@ -1,42 +1,27 @@
 <script lang="ts">
-    import { goto } from '$app/navigation';
+    import MyProjects from '#lib/home/MyProjects.svelte';
     import type { PageProps } from './$types';
 
     let { data }: PageProps = $props();
-    let repo = $state('');
-
-    /** `owner/repo`, or a github.com URL of one, as the editor's path; null if it is neither. */
-    function target(input: string): string | null {
-        const m = /^(?:https?:\/\/github\.com\/)?([A-Za-z0-9-]{1,39})\/([A-Za-z0-9._-]{1,100}?)(?:\.git)?\/?$/.exec(input.trim());
-        return m ? `/p/${m[1]}/${m[2]}` : null;
-    }
 </script>
 
 <main class="home">
     <img src="/logo.svg" alt="" width="44" height="44" />
     <h1>Yukibana Papers</h1>
     <p class="tagline">LaTeX and Typst papers in your GitHub repository, written together.</p>
-    <div class="actions">
-        {#if data.me}
-            <form
-                class="open"
-                onsubmit={(e) => {
-                    e.preventDefault();
-                    const t = target(repo);
-                    if (t) void goto(t);
-                }}
-            >
-                <input class="yk-input mono" placeholder="owner/repository" aria-label="Repository" bind:value={repo} />
-                <button class="yk-btn yk-btn--primary" type="submit" disabled={target(repo) === null}>Open</button>
-            </form>
+    {#if data.me}
+        <MyProjects install={data.install} />
+        <div class="actions">
             <a class="yk-btn yk-btn--secondary" href="/new">New paper</a>
             <a class="yk-btn yk-btn--ghost" href="/demo">Demo</a>
-        {:else}
+        </div>
+    {:else}
+        <div class="actions">
             {#if data.signIn}<a class="yk-btn yk-btn--primary" href="/auth/login">Sign in with GitHub</a>{/if}
             <a class="yk-btn {data.signIn ? 'yk-btn--secondary' : 'yk-btn--primary'}" href="/new">New paper</a>
             <a class="yk-btn yk-btn--ghost" href="/demo">Open the demo</a>
-        {/if}
-    </div>
+        </div>
+    {/if}
 </main>
 
 <style>
@@ -66,12 +51,5 @@
         justify-content: center;
         gap: 8px;
         margin-top: 12px;
-    }
-    .open {
-        display: flex;
-        gap: 8px;
-    }
-    .open input {
-        width: min(320px, 70vw);
     }
 </style>
