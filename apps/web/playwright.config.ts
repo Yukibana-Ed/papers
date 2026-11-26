@@ -4,9 +4,14 @@ import { defineConfig, devices } from '@playwright/test';
  *  the other's local origin, so the page's CSP, cross-origin isolation and the frame handshake are the real ones.
  *  Run `pnpm build` first (CI does); `pnpm -F @yukibana/papers-web e2e` then starts the Workers itself.
  *
- *  Specs live in e2e/ (one folder per area, e.g. e2e/editor/); shared helpers in e2e/support.ts. */
+ *  Specs live in e2e/ (one folder per area, e.g. e2e/editor/); shared helpers in e2e/support.ts.
+ *
+ *  With E2E_BASE_URL (a dev server, or the deployed app), the tests run against that instead, and no Workers start:
+ *  `E2E_ENGINE=1 E2E_BASE_URL=https://papers.yukibana.dev pnpm -F @yukibana/papers-web e2e preview` checks the
+ *  preview with the real TeX engine. */
 const APP = 'http://127.0.0.1:4173';
 const CONTENT = 'http://127.0.0.1:4174';
+const BASE = process.env['E2E_BASE_URL'];
 
 export default defineConfig({
     testDir: './e2e',
@@ -15,23 +20,26 @@ export default defineConfig({
     retries: process.env['CI'] ? 1 : 0,
     reporter: process.env['CI'] ? [['list'], ['html', { open: 'never' }]] : 'list',
     timeout: 60_000,
-    use: { baseURL: APP, trace: 'off', screenshot: 'only-on-failure' },
+    use: { baseURL: BASE ?? APP, trace: 'off', screenshot: 'only-on-failure' },
     projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } }],
-    webServer: [
-        {
-            command: `pnpm exec wrangler dev --port 4173 --ip 127.0.0.1 --local --var CONTENT_ORIGIN:${CONTENT}`,
-            url: `${APP}/`,
-            reuseExistingServer: !process.env['CI'],
-            timeout: 120_000,
-        },
-        {
-            command: `pnpm exec wrangler dev --port 4174 --ip 127.0.0.1 --local --var APP_ORIGIN:${APP}`,
-            cwd: '../content',
-            url: `${CONTENT}/`,
-            reuseExistingServer: !process.env['CI'],
-            timeout: 120_000,
-        },
-    ],
+    webServer:
+        BASE !== undefined
+            ? []
+            : [
+                  {
+                      command: `pnpm exec wrangler dev --port 4173 --ip 127.0.0.1 --local --var CONTENT_ORIGIN:${CONTENT}`,
+                      url: `${APP}/`,
+                      reuseExistingServer: !process.env['CI'],
+                      timeout: 120_000,
+                  },
+                  {
+                      command: `pnpm exec wrangler dev --port 4174 --ip 127.0.0.1 --local --var APP_ORIGIN:${APP}`,
+                      cwd: '../content',
+                      url: `${CONTENT}/`,
+                      reuseExistingServer: !process.env['CI'],
+                      timeout: 120_000,
+                  },
+              ],
 });
 
 export { APP, CONTENT };

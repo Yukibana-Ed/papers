@@ -34,4 +34,28 @@ describe('mergeLineRects', () => {
         expect(mergeLineRects([{ x: 5, y: 5, width: 0, height: 10 }])).toEqual([]);
         expect(mergeLineRects([{ x: 5, y: 5, width: 10, height: 10 }], 2)).toEqual([{ x: 3, y: 3, width: 14, height: 14 }]);
     });
+
+    it('takes a subscript into its line', () => {
+        const out = mergeLineRects([
+            { x: 0, y: 100, width: 40, height: 10 },
+            { x: 40, y: 105, width: 8, height: 7 },
+        ]);
+        expect(out).toEqual([{ x: 0, y: 100, width: 48, height: 12 }]);
+    });
+
+    it('grows lines by their leading, meeting halfway between close lines', () => {
+        expect(mergeLineRects([{ x: 0, y: 100, width: 10, height: 10 }], 0, 0.2)).toEqual([{ x: 0, y: 98, width: 10, height: 14 }]);
+        const out = mergeLineRects(
+            [
+                { x: 0, y: 100, width: 10, height: 10 },
+                { x: 0, y: 113, width: 10, height: 10 },
+            ],
+            0,
+            0.2,
+        );
+        expect(out.map(r => [r.y, r.height])).toEqual([
+            [98, 13.5],
+            [111.5, 13.5],
+        ]);
+    });
 });

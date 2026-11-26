@@ -13,21 +13,37 @@ GlobalWorkerOptions.workerSrc = workerUrl;
 const GUTTER = 76;
 /** Fitting never scales a page beyond this, so a wide pane does not blow a page up. */
 const MAX_FIT = 1.6;
+/** The selection toolbar's size with its gap to the text, in CSS pixels: lying across (above or below the selection)
+ *  and standing up (in the margin beside the page). */
+const TOOLBAR = { width: 100, height: 42, side: 36 };
+
+/** Where the selection toolbar goes, in the scroller's content coordinates. `side`: standing in the margin right of the
+ *  page, its top-left corner at (`x`, `y`), beside the selection's first line and so over no text. `above` and `below`,
+ *  where the margin is too narrow (a zoomed page): centred on `x`, with its bottom edge (above) or top edge (below)
+ *  at `y`. */
+export interface ToolbarAnchor {
+    readonly x: number;
+    readonly y: number;
+    readonly place: 'side' | 'above' | 'below';
+}
 
 /** What the viewer tells the frame. */
 export interface ViewerEvents {
     readonly scale: (scale: number) => void;
     /** A click without a selection, at a source position; `word` is the word under the pointer. */
     readonly jump: (at: SourcePoint, word: string | null) => void;
-    /** The selection changed. `anchor` is where its toolbar goes, in the scroller's content coordinates (top centre of
-     *  the selection's first line); null with `lines` null when nothing is selected. */
-    readonly selection: (lines: SourceLines | null, text: string, anchor: { x: number; y: number } | null) => void;
+    /** The selection changed. `anchor` is where its toolbar goes; null while the pointer is still dragging, and with
+     *  `lines` null when nothing is selected. */
+    readonly selection: (lines: SourceLines | null, text: string, anchor: ToolbarAnchor | null) => void;
+    /** The pointer is over the typeset text of these source lines, or (null) over none. */
+    readonly hover: (lines: SourceLines | null) => void;
 }
 
 interface PageView {
     readonly el: HTMLDivElement;
     readonly marks: HTMLDivElement;
     readonly sel: HTMLDivElement;
+    readonly hover: HTMLDivElement;
     readonly decor: HTMLDivElement;
     canvas: HTMLCanvasElement;
     text: HTMLDivElement;
@@ -79,6 +95,8 @@ export class Viewer {
         this.#resize.observe(scroller);
         scroller.addEventListener('pointerdown', this.#onPointerDown);
         scroller.addEventListener('click', this.#onClick);
+        scroller.addEventListener('pointermove', this.#onPointerMove, { passive: true });
+        scroller.addEventListener('pointerleave', () => this.#setHover(null));
         document.addEventListener('selectionchange', this.#onSelectionChange);
     }
 
@@ -157,12 +175,14 @@ export class Viewer {
         marks.className = 'pv-layer pv-marks';
         const sel = document.createElement('div');
         sel.className = 'pv-layer pv-sel';
+        const hover = document.createElement('div');
+        hover.className = 'pv-layer pv-hover';
         const text = document.createElement('div');
         text.className = 'textLayer';
         const decor = document.createElement('div');
         decor.className = 'pv-decor';
-        el.append(canvas, marks, sel, text, decor);
-        return { el, canvas, marks, sel, text, decor, proxy, width, height, drawn: 0, rendering: null };
+        el.append(canvas, hover, marks, sel, text, decor);
+        return { el, canvas, marks, sel, hover, text, decor, proxy, width, height, drawn: 0, rendering: null };
     }
 
     /** The user's zoom on top of fitting the width, clamped to 0.5–2. */
@@ -280,6 +300,7 @@ export class Viewer {
     }
 
     #drawOverlays(): void {
+        this.#drawHover();
         for (const p of this.#pages) {
             p.marks.replaceChildren();
             p.decor.replaceChildren();
@@ -370,6 +391,7 @@ export class Viewer {
 
     #onPointerDown = (e: PointerEvent): void => {
         this.#pointerDown = { x: e.clientX, y: e.clientY };
+        this.#setHover(null);
         const text = e.target instanceof Element ? e.target.closest('.textLayer') : null;
         if (text instanceof HTMLElement) {
             text.classList.add('selecting');
@@ -386,6 +408,8 @@ export class Viewer {
                     }
                 }
                 window.removeEventListener('pointerup', up);
+                // The toolbar waits for the end of the drag.
+                this.#onSelectionChange();
             };
             window.addEventListener('pointerup', up);
         }
@@ -426,6 +450,10 @@ export class Viewer {
     };
 
     #onClick = (e: MouseEvent): void => {
+        if (e.detail === 3) {
+            this.#selectLineAt(e.clientX, e.clientY);
+            return;
+        }
         const down = this.#pointerDown;
         this.#pointerDown = null;
         if (down !== null && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;
@@ -442,6 +470,77 @@ export class Viewer {
         if (hit === null) return;
         this.#events.jump({ file: hit.file, line: hit.line }, wordAt(e.clientX, e.clientY));
     };
+
+    /** A triple click selects the typeset line under the pointer, as in a PDF reader; the browser's own would select
+     *  the whole page, which is one block of text runs. */
+    #selectLineAt(x: number, y: number): void {
+        const target = document.elementFromPoint(x, y);
+        const layer = target?.closest('.textLayer');
+        if (!(target instanceof HTMLElement) || !(layer instanceof HTMLElement) || target === layer) return;
+        const r = target.getBoundingClientRect();
+        const runs = [...layer.querySelectorAll('span')].filter(run => {
+            const b = run.getBoundingClientRect();
+            return run.firstChild !== null && b.width > 0 && Math.min(b.bottom, r.bottom) - Math.max(b.top, r.top) >= Math.min(b.height, r.height) / 2;
+        });
+        const a = runs[0];
+        const b = runs.at(-1);
+        if (a === undefined || b === undefined) return;
+        const range = document.createRange();
+        range.setStart(a, 0);
+        range.setEnd(b, b.childNodes.length);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+    }
+
+    #hovered: SourceLines | null = null;
+    #hoverFrame = 0;
+
+    /** Marks the typeset text of the source line under the pointer, as the boxes its lines make, and tells the app. Only
+     *  over that text: the margins and the gaps between paragraphs mark nothing. Not while a button is down (a drag). */
+    #onPointerMove = (e: PointerEvent): void => {
+        if (e.buttons !== 0 || this.#sync === null) return;
+        const target = e.target instanceof Element ? e.target : null;
+        const x = e.clientX;
+        const y = e.clientY;
+        cancelAnimationFrame(this.#hoverFrame);
+        this.#hoverFrame = requestAnimationFrame(() => {
+            const pageEl = target?.closest('.pv-page');
+            const sync = this.#sync;
+            if (!(pageEl instanceof HTMLElement) || sync === null) {
+                this.#setHover(null);
+                return;
+            }
+            const n = Number(pageEl.dataset['page']);
+            const rect = pageEl.getBoundingClientRect();
+            const s = this.scale;
+            const px = (x - rect.left) / s;
+            const py = (y - rect.top) / s;
+            const hit = sync.backward(n, px, py);
+            const over =
+                hit !== null && sync.segments(hit.file, hit.line).some(b => b.page === n && px >= b.x - 2 && px <= b.x + b.width + 2 && py >= b.y - 2 && py <= b.y + b.height + 2);
+            this.#setHover(hit !== null && over ? { file: hit.file, startLine: hit.line, endLine: hit.line } : null);
+        });
+    };
+
+    #setHover(lines: SourceLines | null): void {
+        const was = this.#hovered;
+        if (lines === was || (lines !== null && was !== null && lines.file === was.file && lines.startLine === was.startLine && lines.endLine === was.endLine)) return;
+        this.#hovered = lines;
+        this.#drawHover();
+        this.#events.hover(lines);
+    }
+
+    #drawHover(): void {
+        for (const p of this.#pages) p.hover.replaceChildren();
+        if (this.#hovered === null) return;
+        const s = this.scale;
+        for (const [n, rects] of this.#linesBoxes(this.#hovered)) {
+            const page = this.#pages[n - 1];
+            if (page === undefined) continue;
+            for (const r of rects) page.hover.append(box(r, s, 'pv-hover-box', 2));
+        }
+    }
 
     #onSelectionChange = (): void => {
         this.#followSelectionEnd();
@@ -478,7 +577,9 @@ export class Viewer {
         for (const p of this.#pages) {
             const rects = byPage.get(p);
             if (rects === undefined) continue;
-            for (const r of mergeLineRects(rects, 1)) {
+            // A fifth of the line's height above and below, as an editor's selection fills the line height, not just the
+            // glyphs; close lines then meet halfway.
+            for (const r of mergeLineRects(rects, 1, 0.2)) {
                 p.sel.append(box(r, 1, 'pv-sel-rect', 0));
                 first ??= { page: p, rect: r };
                 last = { page: p, rect: r };
@@ -489,8 +590,29 @@ export class Viewer {
             return;
         }
         const lines = this.#linesOf(first, last);
-        const anchor = { x: first.page.el.offsetLeft + first.rect.x + first.rect.width / 2, y: first.page.el.offsetTop + first.rect.y };
-        this.#events.selection(lines, selection?.toString() ?? '', anchor);
+        this.#events.selection(lines, selection?.toString() ?? '', this.#dragging ? null : this.#toolbarAnchor(first, last));
+    }
+
+    /** In the margin right of the page, level with the selection's first line (or the top of the view, when that line
+     *  is scrolled away), where the margin is wide enough; else above the first line, centred on it, where that is in
+     *  the view, or below the last line. Kept inside the view sideways. */
+    #toolbarAnchor(first: { page: PageView; rect: Rect }, last: { page: PageView; rect: Rect }): ToolbarAnchor {
+        const view = this.#scroller;
+        const top = first.page.el.offsetTop + first.rect.y;
+        const bottom = last.page.el.offsetTop + last.rect.y + last.rect.height;
+        const margin = first.page.el.offsetLeft + first.page.el.offsetWidth;
+        if (margin + TOOLBAR.side <= view.scrollLeft + view.clientWidth) {
+            return { x: margin + 2, y: Math.max(top, Math.min(view.scrollTop + 8, bottom - TOOLBAR.height)), place: 'side' };
+        }
+        const below = top - TOOLBAR.height < view.scrollTop;
+        const at = below ? last : first;
+        const x = at.page.el.offsetLeft + at.rect.x + at.rect.width / 2;
+        const half = TOOLBAR.width / 2 + 4;
+        return {
+            x: Math.min(Math.max(x, view.scrollLeft + half), view.scrollLeft + view.clientWidth - half),
+            y: below ? bottom : top,
+            place: below ? 'below' : 'above',
+        };
     }
 
     /** The source lines between the first and the last line of a selection, by backward search at each one's middle. */

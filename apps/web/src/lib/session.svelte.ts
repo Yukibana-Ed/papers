@@ -102,6 +102,8 @@ export class Session {
     selection = $state<Lines | null>(null);
     /** The lines of a selection made in the preview, mirrored in the source. */
     mirror = $state<Lines | null>(null);
+    /** The lines whose typeset text is under the pointer in the preview, softly marked in the source. */
+    hover = $state<Lines | null>(null);
     anchors = $state<Record<string, Anchor>>({});
     suggestions = $state<PlacedSuggestion[]>([]);
     activeThread = $state<string | null>(null);

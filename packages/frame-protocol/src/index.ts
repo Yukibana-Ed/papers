@@ -133,6 +133,8 @@ export type FrameMessage =
     | { readonly type: 'jump'; readonly at: SourcePoint; readonly word: string | null }
     /** The user selected text in the preview, or chose an action of the selection's toolbar. */
     | { readonly type: 'selection'; readonly lines: SourceLines | null; readonly text: string }
+    /** The pointer is over the typeset text of these source lines in the preview, or (null) over none. */
+    | { readonly type: 'hover'; readonly lines: SourceLines | null }
     | { readonly type: 'action'; readonly action: SelectionAction; readonly lines: SourceLines; readonly text: string }
     | { readonly type: 'centre'; readonly at: SourcePoint | null }
     /** The effective scale of the pages (fit times zoom), for the zoom readout. */
@@ -202,7 +204,7 @@ const APP_TYPES: ReadonlySet<string> = new Set([
     'lsp',
     'retry',
 ]);
-const FRAME_TYPES: ReadonlySet<string> = new Set(['built', 'status', 'jump', 'selection', 'action', 'centre', 'scale', 'key', 'lsp', 'lsp-status', 'service']);
+const FRAME_TYPES: ReadonlySet<string> = new Set(['built', 'status', 'jump', 'selection', 'hover', 'action', 'centre', 'scale', 'key', 'lsp', 'lsp-status', 'service']);
 
 /** Whether `x` is shaped as an app message: an object with a known `type`. The port is private to the two sides, so this
  *  guards against version skew, not against an attacker. */

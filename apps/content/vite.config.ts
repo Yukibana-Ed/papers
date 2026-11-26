@@ -17,9 +17,15 @@ const isolation = {
  *  files, and the fonts the design CSS names live there. */
 const design = dirname(fileURLToPath(import.meta.resolve('@yukibana/design/package.json')));
 
+/** Browsers that have CSS's light-dark(), so the build keeps it as it is. Lowered for older browsers, a token like
+ *  `light-dark(a, b)` becomes two variables that resolve where the token is defined, on the root, and an element that
+ *  sets its own colour scheme (the preview's pages, always light paper) then still gets the root's dark colours. */
+const cssTarget = ['chrome123', 'edge123', 'firefox120', 'safari17.5'];
+
 /** The content origin: the frame the app embeds, where user content is compiled, checked and rendered. Nothing here
  *  ever sees a token. */
 export default {
+    build: { cssTarget },
     plugins: [
         devAssets(),
         sveltekit({
@@ -32,9 +38,8 @@ export default {
                 mode: 'hash',
                 directives: {
                     'default-src': ['self'],
-                    // 'unsafe-eval': typst.ts's compiler builds functions with `new Function` from inside its WebAssembly
-                    // (wasm-bindgen's Function::new), unguarded, so Typst does not compile without it.
-                    'script-src': ['self', 'wasm-unsafe-eval', 'unsafe-eval', 'blob:'],
+                    // No 'unsafe-eval': nothing here builds code from text (see addFonts in typst-engine.ts).
+                    'script-src': ['self', 'wasm-unsafe-eval', 'blob:'],
                     'worker-src': ['self', 'blob:'],
                     'connect-src': ['self', 'blob:', 'data:'],
                     'img-src': ['self', 'data:', 'blob:'],
