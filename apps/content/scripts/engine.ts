@@ -11,6 +11,7 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { brotliCompressSync, constants } from 'node:zlib';
 import { ENGINE_FILES } from '../src/lib/engine-files.ts';
+import { checkRelease } from './engine-release.ts';
 
 function version(): string {
     const require = createRequire(import.meta.url);
@@ -30,9 +31,11 @@ async function fetchRelease(dir: string): Promise<void> {
     console.log(`downloading ${url} (about 500 MB)`);
     const res = await fetch(url);
     if (!res.ok) throw new Error(`${url}: ${res.status}`);
+    const data = Buffer.from(await res.arrayBuffer());
+    checkRelease(v, data);
     mkdirSync(dir, { recursive: true });
     const archive = join(dir, 'busytex-assets.tar.gz');
-    writeFileSync(archive, Buffer.from(await res.arrayBuffer()));
+    writeFileSync(archive, data);
     execFileSync('tar', ['-xzf', archive, '-C', dir], { stdio: 'inherit' });
     rmSync(archive);
     const missing = ENGINE_FILES.filter(f => !existsSync(join(target, f)));
