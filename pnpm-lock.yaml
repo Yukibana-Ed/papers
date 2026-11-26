@@ -188,6 +188,9 @@ catalogs:
     '@yukibana/design':
       specifier: github:Yukibana-Ed/Yukibana#7eee6311b75e8ea9c25ece97feee9b085ba39685&path:packages/design
       version: https://codeload.github.com/Yukibana-Ed/Yukibana/tar.gz/7eee6311b75e8ea9c25ece97feee9b085ba39685#path:packages/design
+    '@yukibana/papers-compiler':
+      specifier: workspace:*
+      version: workspace:*
     '@yukibana/papers-frame-protocol':
       specifier: workspace:*
       version: workspace:*
@@ -535,6 +538,10 @@ importers:
         version: 5.0.5(@types/node@24.19.2)(happy-dom@21.0.4)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2))
 
   packages/sandbox:
+    dependencies:
+      '@yukibana/papers-compiler':
+        specifier: 'catalog:'
+        version: link:../compiler
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
