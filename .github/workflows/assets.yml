@@ -1,0 +1,116 @@
+# Fills the content origin's R2 bucket (yukibana-papers-assets) with what /engine/* and /tl/* serve:
+#   engine/<version>/<file>   texlyre-busytex's release files for the version in the lockfile, brotli-compressed
+#   tl/<snapshot>/...         the TeX Live store: objects/<xx>/<sha256> (brotli) and index/<xx>.json
+# Everything is immutable once uploaded: a new engine release or TeX Live snapshot is a new folder, and the Worker serves
+# the one wrangler.jsonc names (ENGINE_VERSION, TL_SNAPSHOT), so a page loaded before a deploy keeps working.
+#
+# By hand only (Actions, Assets, Run workflow), on main. Run it once before the first deploy can compile, and again
+# with `engine` for a new texlyre-busytex, or with `texlive` and a new snapshot name for a newer TeX Live. The TeX Live
+# part installs TeX Live from CTAN (about 3 GB without documentation and sources) and takes 30 to 60 minutes.
+#
+# Secrets, on the `production` environment:
+#   CLOUDFLARE_ACCOUNT_ID       the account of the bucket (the S3 endpoint is <account>.r2.cloudflarestorage.com)
+#   R2_ACCESS_KEY_ID            an R2 API token's S3 credentials, Object Read & Write on yukibana-papers-assets only
+#   R2_SECRET_ACCESS_KEY
+name: Assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      engine:
+        description: Upload the engine release of the locked texlyre-busytex
+        type: boolean
+        default: true
+      texlive:
+        description: Build and upload a TeX Live snapshot
+        type: boolean
+        default: false
+      snapshot:
+        description: The snapshot's folder name, as TL_SNAPSHOT in apps/content/wrangler.jsonc
+        type: string
+        default: '2026'
+
+concurrency:
+  group: assets
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    name: Upload
+    if: github.repository == 'Yukibana-Ed/papers' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    environment: production
+    env:
+      RCLONE_CONFIG_R2_TYPE: s3
+      RCLONE_CONFIG_R2_PROVIDER: Cloudflare
+      RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      RCLONE_CONFIG_R2_ENDPOINT: https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      RCLONE_CONFIG_R2_NO_CHECK_BUCKET: 'true'
+      SNAPSHOT: ${{ inputs.snapshot }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm and Node.js
+        uses: ./.github/actions/setup
+
+      - name: Install dependencies
+        run: pnpm --filter @yukibana/papers-content install --frozen-lockfile --fetch-timeout 100000
+
+      - name: Install rclone
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends rclone
+
+      - name: Check the snapshot name
+        run: |
+          if ! [[ "$SNAPSHOT" =~ ^[A-Za-z0-9._-]+$ ]]; then echo "::error::snapshot must be letters, digits, '.', '_' or '-'"; exit 1; fi
+
+      # Every file is stored compressed and served as is with Content-Encoding br (src/lib/r2.ts).
+      - name: Upload the engine
+        if: inputs.engine
+        working-directory: apps/content
+        run: |
+          version=$(node scripts/engine.ts version)
+          node scripts/engine.ts fetch "$RUNNER_TEMP/engine"
+          node scripts/engine.ts stage "$RUNNER_TEMP/engine/busytex" "$RUNNER_TEMP/engine-br"
+          rclone copy "$RUNNER_TEMP/engine-br" "r2:yukibana-papers-assets/engine/$version" \
+            --header-upload "Content-Encoding: br" --header-upload "Cache-Control: public, max-age=31536000, immutable" \
+            --transfers 8 --s3-upload-concurrency 8 --s3-chunk-size 16M --stats-one-line --stats 30s
+
+      # TeX Live from a CTAN mirror, runtime files only: what kpathsea can be asked for.
+      - name: Install TeX Live
+        if: inputs.texlive
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -fsSL https://mirror.ctan.org/systems/texlive/tlnet/install-tl-unx.tar.gz | tar -xz
+          cat > texlive.profile <<EOF
+          selected_scheme scheme-full
+          TEXDIR $RUNNER_TEMP/texlive
+          TEXMFLOCAL $RUNNER_TEMP/texlive/texmf-local
+          TEXMFSYSVAR $RUNNER_TEMP/texlive/texmf-var
+          TEXMFSYSCONFIG $RUNNER_TEMP/texlive/texmf-config
+          tlpdbopt_install_docfiles 0
+          tlpdbopt_install_srcfiles 0
+          tlpdbopt_autobackup 0
+          instopt_adjustpath 0
+          EOF
+          install-tl-*/install-tl --profile texlive.profile --location https://mirror.ctan.org/systems/texlive/tlnet
+
+      - name: Build and upload the TeX Live store
+        if: inputs.texlive
+        working-directory: apps/content
+        run: |
+          node scripts/tlstore.ts build "$RUNNER_TEMP/texlive" "$RUNNER_TEMP/tlstore"
+          rm -rf "$RUNNER_TEMP/texlive"
+          # The objects first, then the index that names them: a reader never sees a name without its object.
+          rclone copy "$RUNNER_TEMP/tlstore/objects" "r2:yukibana-papers-assets/tl/$SNAPSHOT/objects" \
+            --header-upload "Content-Encoding: br" --header-upload "Cache-Control: public, max-age=31536000, immutable" \
+            --transfers 64 --checkers 64 --size-only --stats-one-line --stats 60s
+          rclone copy "$RUNNER_TEMP/tlstore" "r2:yukibana-papers-assets/tl/$SNAPSHOT" --exclude "objects/**" \
+            --transfers 32 --stats-one-line --stats 60s
