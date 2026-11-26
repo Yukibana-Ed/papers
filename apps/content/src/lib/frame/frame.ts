@@ -1,8 +1,10 @@
 import type { AppMessage, Engine, FileContents, SelectionAction, SourceLines } from '@yukibana/papers-frame-protocol';
+import { syncTexMap, textMap } from '#lib/sourcemap.ts';
 import { parseSynctex } from '#lib/synctex.ts';
 import { parseTexLog } from '#lib/texlog.ts';
 import { Bridge } from './bridge.ts';
 import { TexEngine } from './engine.ts';
+import { TypstEngine } from './typst-engine.ts';
 import { Viewer } from './viewer.ts';
 
 /** How long the frame waits after the last change before building. */
@@ -22,6 +24,7 @@ export class Frame {
     readonly #bridge: Bridge;
     readonly #viewer: Viewer;
     readonly #engine = new TexEngine();
+    readonly #typst = new TypstEngine();
     readonly #files = new Map<string, FileContents>();
     #root: string | null = null;
     #engineName: Engine = 'pdflatex';
@@ -120,7 +123,7 @@ export class Frame {
      *  for its own builds, since they come from the project's (untrusted) sources either way. */
     async #showOutput(m: Extract<AppMessage, { type: 'output' }>): Promise<void> {
         if (m.ok && m.pdf !== null) {
-            const sync = m.synctex === null ? null : parseSynctex(await synctexText(m.synctex));
+            const sync = m.synctex === null ? null : syncTexMap(parseSynctex(await synctexText(m.synctex)));
             await this.#viewer.show(m.pdf, sync);
         }
         this.#bridge.send({ type: 'built', ok: m.ok, pages: this.#viewer.pageCount, ms: m.ms, diagnostics: m.diagnostics });
@@ -141,23 +144,17 @@ export class Frame {
         if (root === null || !this.#files.has(root)) return;
         this.#building = true;
         try {
-            if (this.#engineName === 'typst') {
-                this.#bridge.send({
-                    type: 'built',
-                    ok: false,
-                    pages: this.#viewer.pageCount,
-                    ms: 0,
-                    diagnostics: [{ file: root, line: 1, severity: 'error', message: 'Typst is not supported yet' }],
-                });
-                return;
-            }
             this.#bridge.send({ type: 'status', status: this.#started ? 'compiling' : 'loading' });
             this.#started = true;
             const files = new Map(this.#files);
+            if (this.#engineName === 'typst') {
+                await this.#buildTypst(files, root);
+                return;
+            }
             const out = await this.#engine.build(files, root, this.#engineName);
             const diagnostics = parseTexLog(out.log, root, p => files.has(p));
             if (out.ok && out.pdf !== null) {
-                const sync = out.synctex === null ? null : parseSynctex(out.synctex);
+                const sync = out.synctex === null ? null : syncTexMap(parseSynctex(out.synctex));
                 await this.#viewer.show(out.pdf, sync);
             }
             this.#bridge.send({
@@ -179,6 +176,19 @@ export class Frame {
                 this.#schedule(0);
             }
         }
+    }
+
+    /** A Typst build: typst.ts to PDF, then a source map from the PDF's text and the project's Typst sources (Typst's PDF
+     *  carries no SyncTeX). */
+    async #buildTypst(files: Map<string, FileContents>, root: string): Promise<void> {
+        const out = await this.#typst.build(files, root);
+        if (out.ok && out.pdf !== null) {
+            await this.#viewer.show(out.pdf, null);
+            const sources = new Map<string, string>();
+            for (const [path, c] of files) if (path.endsWith('.typ') && typeof c === 'string') sources.set(path, c);
+            this.#viewer.setSourceMap(textMap(await this.#viewer.pageTexts(), sources));
+        }
+        this.#bridge.send({ type: 'built', ok: out.ok, pages: this.#viewer.pageCount, ms: Math.round(out.ms), diagnostics: out.diagnostics });
     }
 
     /** Keyboard shortcuts belong to the app: the frame forwards Ctrl/⌘ combinations, except copying and selecting all,

@@ -109,7 +109,7 @@
     });
 
     $effect(() => {
-        client?.send({ type: 'mirror', lines: session.selection });
+        client?.send({ type: 'mirror', lines: $state.snapshot(session.selection) });
     });
 
     $effect(() => {

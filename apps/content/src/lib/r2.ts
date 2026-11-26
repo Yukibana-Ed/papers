@@ -1,6 +1,8 @@
 /** The part of a Workers R2 binding this app uses, typed here so the app needs no runtime type package. */
 export interface AssetBucket {
     get(key: string): Promise<AssetObject | null>;
+    /** Stores `value` at `key` (the Typst package cache; everything else is uploaded by assets.yml). */
+    put(key: string, value: ArrayBuffer | Uint8Array, options?: { httpMetadata?: { contentType?: string } }): Promise<unknown>;
 }
 
 export interface AssetObject {

@@ -171,11 +171,11 @@ catalogs:
       specifier: 1.32.2
       version: 1.32.2
     '@myriaddreamin/typst-ts-web-compiler':
-      specifier: 0.7.0
-      version: 0.7.0
+      specifier: 0.8.0-rc4
+      version: 0.8.0-rc4
     '@myriaddreamin/typst.ts':
-      specifier: 0.7.0
-      version: 0.7.0
+      specifier: 0.8.0-rc4
+      version: 0.8.0-rc4
     '@sveltejs/adapter-cloudflare':
       specifier: 8.0.2
       version: 8.0.2
@@ -340,10 +340,10 @@ importers:
     dependencies:
       '@myriaddreamin/typst-ts-web-compiler':
         specifier: 'catalog:'
-        version: 0.7.0
+        version: 0.8.0-rc4
       '@myriaddreamin/typst.ts':
         specifier: 'catalog:'
-        version: 0.7.0(@myriaddreamin/typst-ts-web-compiler@0.7.0)
+        version: 0.8.0-rc4(@myriaddreamin/typst-ts-web-compiler@0.8.0-rc4)
       '@yukibana/papers-frame-protocol':
         specifier: 'catalog:'
         version: link:../../packages/frame-protocol
@@ -1079,14 +1079,14 @@ packages:
       '@cfworker/json-schema':
         optional: true
 
-  '@myriaddreamin/typst-ts-web-compiler@0.7.0':
-    resolution: {integrity: sha512-nMwMcfOBy5pABPDuVM7/u8425SxhPUM+OJe6daqqgVOT3+neCTz4JKwx2L8XasfEHTNvd0cUI07LR9q5ADo7Gw==}
+  '@myriaddreamin/typst-ts-web-compiler@0.8.0-rc4':
+    resolution: {integrity: sha512-iHjdc7z2G2jhi2A9DAOZEL40kEbJb1xkayFQFguaCuirhjxGK61t6agQ55NCdHiwaGykQx2+LGxLhdVLgRYcvg==}
 
-  '@myriaddreamin/typst.ts@0.7.0':
-    resolution: {integrity: sha512-JtO5Td/1QesH1IBKAZtbayFNK8u2sl3iz18Y67uYqBEdcXiu3z+wpZcDDKlmVJvAcCgSjHTnuk6ZLfkYclrGGQ==}
+  '@myriaddreamin/typst.ts@0.8.0-rc4':
+    resolution: {integrity: sha512-KoH/XHrpqG3L+J5TPA9TMWmA5NIcNw2VzgSO+FdZUCLNP5ilTu6vpbpFAsYwa900r7zs8eBLjmzwvlSHeyyNng==}
     peerDependencies:
-      '@myriaddreamin/typst-ts-renderer': ^0.7.0
-      '@myriaddreamin/typst-ts-web-compiler': ^0.7.0
+      '@myriaddreamin/typst-ts-renderer': ^0.8.0-rc4
+      '@myriaddreamin/typst-ts-web-compiler': ^0.8.0-rc4
     peerDependenciesMeta:
       '@myriaddreamin/typst-ts-renderer':
         optional: true
@@ -3183,13 +3183,13 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@myriaddreamin/typst-ts-web-compiler@0.7.0': {}
+  '@myriaddreamin/typst-ts-web-compiler@0.8.0-rc4': {}
 
-  '@myriaddreamin/typst.ts@0.7.0(@myriaddreamin/typst-ts-web-compiler@0.7.0)':
+  '@myriaddreamin/typst.ts@0.8.0-rc4(@myriaddreamin/typst-ts-web-compiler@0.8.0-rc4)':
     dependencies:
       idb: 7.1.1
     optionalDependencies:
-      '@myriaddreamin/typst-ts-web-compiler': 0.7.0
+      '@myriaddreamin/typst-ts-web-compiler': 0.8.0-rc4
 
   '@napi-rs/canvas-android-arm64@1.1.0':
     optional: true

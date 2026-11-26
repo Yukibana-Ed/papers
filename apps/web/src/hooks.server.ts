@@ -3,10 +3,8 @@ import type { Handle } from '@sveltejs/kit/hooks';
 import { THEME_BOOT } from '@yukibana/design/theme';
 import { appHeaders, scriptHash, withContentOrigin } from '#lib/headers.ts';
 import { authEnv } from '#lib/server/auth.ts';
+import { contentOrigin as contentOriginOf } from '#lib/server/content-origin.ts';
 import { checkTicket, roomName } from '#lib/server/room-ticket.ts';
-
-/** Without wrangler's platform env (a plain `vite dev`), the content app's dev server. */
-const DEV_CONTENT_ORIGIN = 'http://localhost:5185';
 
 /** The theme script's hash: it is inline (it must run before the first paint) and not SvelteKit's own. */
 const themeHash = scriptHash(THEME_BOOT);
@@ -37,7 +35,7 @@ export const handle: Handle = async ({ event, resolve }) => {
     const ws = await room(event);
     if (ws) return ws;
     const response = await resolve(event);
-    const contentOrigin = event.platform?.env.CONTENT_ORIGIN ?? DEV_CONTENT_ORIGIN;
+    const contentOrigin = contentOriginOf(event.platform);
     for (const [name, value] of Object.entries(appHeaders())) response.headers.set(name, value);
     // SvelteKit writes the policy with the hashes of its own scripts; the content origin is known only at run time.
     const csp = response.headers.get('Content-Security-Policy');

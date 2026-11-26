@@ -4,7 +4,7 @@ import { findRoots, includedFiles, outline, plainTitle, stripComments } from '#l
 
 describe('tex', () => {
     it('finds the documents', () => {
-        expect(findRoots(FILES, FILE_ORDER)).toEqual(['paper.tex', 'slides.tex']);
+        expect(findRoots(FILES, FILE_ORDER)).toEqual(['paper.tex', 'slides.tex', 'brief/brief.typ']);
         expect(findRoots({ 'a.tex': '% \\documentclass{article}' })).toEqual([]);
     });
 
@@ -24,5 +24,16 @@ describe('tex', () => {
 
     it('reduces markup in titles', () => {
         expect(plainTitle('The \\emph{power} of~feedback')).toBe('The power of feedback');
+    });
+});
+
+describe('typst documents', () => {
+    it('finds the Typst document that nothing includes, and what it reads', () => {
+        expect(findRoots(FILES, FILE_ORDER)).toEqual(['paper.tex', 'slides.tex', 'brief/brief.typ']);
+        expect(includedFiles('brief/brief.typ', FILES)).toEqual(['brief/brief.typ', 'brief/findings.typ', 'refs.bib']);
+    });
+
+    it('outlines Typst headings across includes', () => {
+        expect(outline('brief/brief.typ', FILES).map(h => `${h.num} ${h.title}`)).toEqual(['1 Summary', '2 Findings', '2.1 In numbers']);
     });
 });
