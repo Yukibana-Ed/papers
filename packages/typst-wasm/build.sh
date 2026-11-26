@@ -49,9 +49,10 @@ fi
 # The compiler, with upstream's features. Paths of this machine are kept out of the binary.
 rustup toolchain install "$rust" --profile minimal --target wasm32-unknown-unknown >/dev/null
 cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+sysroot="$(rustc "+$rust" --print sysroot)"
 (
     cd "$src"
-    CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$cargo_home=/cargo"$'\x1f'"--remap-path-prefix=$src=/src" \
+    CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$cargo_home=/cargo"$'\x1f'"--remap-path-prefix=$src=/src"$'\x1f'"--remap-path-prefix=$sysroot=/rust" \
         cargo "+$rust" build --locked --release -p typst-ts-web-compiler --target wasm32-unknown-unknown --no-default-features --features web,misc
 )
 
