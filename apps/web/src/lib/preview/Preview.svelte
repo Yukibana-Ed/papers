@@ -1,5 +1,5 @@
 <script lang="ts">
-    import type { FrameMessage, PreviewMark, SelectionAction, SourceLines, SourcePoint } from '@yukibana/papers-frame-protocol';
+    import type { FrameMessage, LanguageServer, PreviewMark, SelectionAction, SourceLines, SourcePoint } from '@yukibana/papers-frame-protocol';
     import type { Session } from '#lib/session.svelte.ts';
     import { RunnerClient } from '#lib/runner/client.ts';
     import { FrameClient } from './frame-client.ts';
@@ -63,6 +63,12 @@
                 break;
             case 'key':
                 onKey(m);
+                break;
+            case 'lsp':
+                lspListeners.get(m.server)?.(m.message);
+                break;
+            case 'lsp-status':
+                session.languageServer = { status: m.status, detail: m.detail ?? '' };
                 break;
         }
     }
@@ -203,6 +209,20 @@
 
     export function focus(): void {
         frame?.focus();
+    }
+
+    // --- language servers, which run in the frame ------------------------------------------------------------------------
+
+    const lspListeners = new Map<LanguageServer, (message: unknown) => void>();
+
+    /** Starts `server` in the frame; its messages go to `listener`. */
+    export function startServer(server: LanguageServer, listener: (message: unknown) => void): void {
+        lspListeners.set(server, listener);
+        client?.send({ type: 'lsp-start', server });
+    }
+
+    export function lspSend(server: LanguageServer, message: unknown): void {
+        client?.send({ type: 'lsp', server, message });
     }
 </script>
 

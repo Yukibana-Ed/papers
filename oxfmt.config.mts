@@ -10,7 +10,7 @@ export default {
     // return inside template literals on every run, and the demo's TeX sources are template literals.
     endOfLine: 'lf',
     sortPackageJson: false,
-    ignorePatterns: ['**/*.md', '.claude/**'],
+    ignorePatterns: ['**/*.md', '.claude/**', '**/vendor/**'],
     overrides: [
         {
             files: ['*.json', '*.yml', '*.yaml'],

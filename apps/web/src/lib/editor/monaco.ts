@@ -65,6 +65,15 @@ monaco.languages.setLanguageConfiguration('typst', {
 
 export { monaco };
 
+/** The folder the project's files live in, as URIs: under a folder rather than at `/`, because language servers take
+ *  their workspace root from it (tinymist's web build cannot use `/` as one). */
+export const PROJECT_ROOT_URI = 'file:///project';
+
+/** The URI of the model of the project file `path`. */
+export function modelUri(path: string): ReturnType<typeof monaco.Uri.parse> {
+    return monaco.Uri.parse(`${PROJECT_ROOT_URI}/${path}`);
+}
+
 /** The language id for a project file. */
 export function languageOf(path: string): string {
     if (path.endsWith('.bib')) return 'bibtex';

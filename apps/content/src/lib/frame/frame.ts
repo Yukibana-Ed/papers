@@ -1,4 +1,4 @@
-import type { AppMessage, Engine, FileContents, SelectionAction, SourceLines } from '@yukibana/papers-frame-protocol';
+import type { AppMessage, Engine, FileContents, LanguageServer, SelectionAction, SourceLines } from '@yukibana/papers-frame-protocol';
 import { syncTexMap, textMap } from '#lib/sourcemap.ts';
 import { parseSynctex } from '#lib/synctex.ts';
 import { parseTexLog } from '#lib/texlog.ts';
@@ -25,6 +25,7 @@ export class Frame {
     readonly #viewer: Viewer;
     readonly #engine = new TexEngine();
     readonly #typst = new TypstEngine();
+    readonly #servers = new Map<LanguageServer, Worker>();
     readonly #files = new Map<string, FileContents>();
     #root: string | null = null;
     #engineName: Engine = 'pdflatex';
@@ -116,6 +117,12 @@ export class Frame {
             case 'output':
                 void this.#showOutput(m);
                 return;
+            case 'lsp-start':
+                this.#startServer(m.server);
+                return;
+            case 'lsp':
+                this.#servers.get(m.server)?.postMessage(m.message);
+                return;
         }
     }
 
@@ -178,6 +185,26 @@ export class Frame {
         }
     }
 
+    /** Starts a language server in a worker, once. Its JSON-RPC goes to the app as it comes; the worker's first message
+     *  says whether it started. */
+    #startServer(server: LanguageServer): void {
+        if (this.#servers.has(server)) return;
+        this.#bridge.send({ type: 'lsp-status', server, status: 'starting' });
+        const worker = new Worker(new URL('../lsp/tinymist-worker.ts', import.meta.url), { type: 'module', name: server });
+        worker.addEventListener('message', (e: MessageEvent<unknown>) => {
+            const data = e.data;
+            if (typeof data === 'object' && data !== null && 'ready' in data) {
+                const ms = 'ms' in data ? Number(data.ms) : 0;
+                return this.#bridge.send({ type: 'lsp-status', server, status: 'ready', detail: `${ms} ms` });
+            }
+            if (typeof data === 'object' && data !== null && 'failed' in data)
+                return this.#bridge.send({ type: 'lsp-status', server, status: 'failed', detail: String(data.failed) });
+            this.#bridge.send({ type: 'lsp', server, message: data });
+        });
+        worker.addEventListener('error', e => this.#bridge.send({ type: 'lsp-status', server, status: 'failed', detail: e.message }));
+        this.#servers.set(server, worker);
+    }
+
     /** A Typst build: typst.ts to PDF, then a source map from the PDF's text and the project's Typst sources (Typst's PDF
      *  carries no SyncTeX). */
     async #buildTypst(files: Map<string, FileContents>, root: string): Promise<void> {
@@ -205,6 +232,7 @@ export class Frame {
     };
 
     dispose(): void {
+        for (const w of this.#servers.values()) w.terminate();
         window.removeEventListener('keydown', this.#onKey, true);
         this.#bridge.dispose();
         this.#viewer.dispose();

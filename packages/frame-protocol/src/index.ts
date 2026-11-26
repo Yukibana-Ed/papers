@@ -79,7 +79,15 @@ export type AppMessage =
           readonly synctex: Uint8Array | null;
           readonly ms: number;
           readonly diagnostics: readonly Diagnostic[];
-      };
+      }
+    /** Starts `server` in the frame (once; later starts are ignored). Its messages then flow as `lsp`. */
+    | { readonly type: 'lsp-start'; readonly server: LanguageServer }
+    /** A JSON-RPC message for `server`: a request, a notification, or the response to one of the server's requests. */
+    | { readonly type: 'lsp'; readonly server: LanguageServer; readonly message: unknown };
+
+/** The language servers the frame can run. They read user content, so they run on the content origin; the editor, on
+ *  the app's, talks to them through the frame. */
+export type LanguageServer = 'tinymist';
 
 /** The actions of the preview's selection toolbar. */
 export type SelectionAction = 'comment' | 'suggest' | 'source';
@@ -99,7 +107,10 @@ export type FrameMessage =
     /** The effective scale of the pages (fit times zoom), for the zoom readout. */
     | { readonly type: 'scale'; readonly scale: number }
     /** The frame wants the app's keyboard shortcut handled (the frame has focus, so the app does not see the key). */
-    | { readonly type: 'key'; readonly key: string; readonly code: string; readonly ctrl: boolean; readonly shift: boolean; readonly alt: boolean };
+    | { readonly type: 'key'; readonly key: string; readonly code: string; readonly ctrl: boolean; readonly shift: boolean; readonly alt: boolean }
+    /** A JSON-RPC message from `server`: a response, a notification, or a request of its own for the editor. */
+    | { readonly type: 'lsp'; readonly server: LanguageServer; readonly message: unknown }
+    | { readonly type: 'lsp-status'; readonly server: LanguageServer; readonly status: 'starting' | 'ready' | 'failed'; readonly detail?: string };
 
 /** The handshake, over `window.postMessage`: the app sends `hello` to the frame's origin; the frame answers `welcome`
  *  to the app's origin with the port that carries every later message. */
@@ -142,8 +153,23 @@ export function isReady(x: unknown): x is Ready {
     return isRecord(x) && x['kind'] === READY && typeof x['version'] === 'number';
 }
 
-const APP_TYPES: ReadonlySet<string> = new Set(['project', 'files', 'root', 'reveal', 'mirror', 'marks', 'presence', 'zoom', 'centre?', 'theme', 'builder', 'output']);
-const FRAME_TYPES: ReadonlySet<string> = new Set(['built', 'status', 'jump', 'selection', 'action', 'centre', 'scale', 'key']);
+const APP_TYPES: ReadonlySet<string> = new Set([
+    'project',
+    'files',
+    'root',
+    'reveal',
+    'mirror',
+    'marks',
+    'presence',
+    'zoom',
+    'centre?',
+    'theme',
+    'builder',
+    'output',
+    'lsp-start',
+    'lsp',
+]);
+const FRAME_TYPES: ReadonlySet<string> = new Set(['built', 'status', 'jump', 'selection', 'action', 'centre', 'scale', 'key', 'lsp', 'lsp-status']);
 
 /** Whether `x` is shaped as an app message: an object with a known `type`. The port is private to the two sides, so this
  *  guards against version skew, not against an attacker. */

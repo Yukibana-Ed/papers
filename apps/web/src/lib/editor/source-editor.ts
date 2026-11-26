@@ -1,7 +1,7 @@
 import type { editor as Editor, IDisposable, IPosition, IRange } from 'monaco-editor/editor/editor.api';
 import type { Anchor, Cursor, Lines, PlacedSuggestion, Presence, Suggestion, TextRange, Thread, User } from '#lib/model/types.ts';
 import type * as Y from 'yjs';
-import { applyTheme, languageOf, monaco, remeasureWhenFontsLoad } from './monaco.ts';
+import { applyTheme, languageOf, modelUri, monaco, remeasureWhenFontsLoad } from './monaco.ts';
 import { TextBinding } from './y-binding.ts';
 
 type Model = Editor.ITextModel;
@@ -159,7 +159,7 @@ export class SourceEditor {
     }
 
     private addModel(f: string, text: string): void {
-        const m = monaco.editor.createModel(text, languageOf(f), monaco.Uri.parse(`file:///${f}`));
+        const m = monaco.editor.createModel(text, languageOf(f), modelUri(f));
         this.models.set(f, m);
         this.shadow.set(f, text);
         this.disposables.push(m.onDidChangeContent(e => this.onModelChange(f, m, e)));

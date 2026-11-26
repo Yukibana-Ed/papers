@@ -7,5 +7,5 @@
     /* `export {}` is how a .d.ts becomes a module, per SvelteKit's own template. */
     "unicorn/require-module-specifiers": "off"
   },
-  "ignorePatterns": ["build/**", ".svelte-kit/**", "static/**", "node_modules/**"]
+  "ignorePatterns": ["build/**", ".svelte-kit/**", "static/**", "node_modules/**", "src/lib/lsp/vendor/**"]
 }
