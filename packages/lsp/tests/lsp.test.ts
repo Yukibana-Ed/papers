@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { CLIENT_ROOT, ensureProgram, tarCommand, LspFraming, rewriteUris, startLanguageServer, type Pinned } from '../src/index.ts';
+import { CLIENT_ROOT, ensureProgram, serverFor, tarCommand, LspFraming, rewriteUris, startLanguageServer, TEXLAB, TINYMIST, type Pinned } from '../src/index.ts';
 
 /** A tar.gz holding one fake program, and its digest. */
 function fakeArchive(): { bytes: Uint8Array; sha256: string } {
@@ -47,6 +47,25 @@ describe('ensureProgram', () => {
 
     it('says so for a platform without a build', async () => {
         await expect(ensureProgram({ cacheDir: tmpdir(), pinned: pin(a.sha256), platform: 'plan9-mips' })).rejects.toThrow(/no fakels build/);
+    });
+
+    it('finds the program in a folder of the archive, as tinymist packs it', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'papers-lsp-src-'));
+        mkdirSync(join(dir, 'fakels-target'));
+        writeFileSync(join(dir, 'fakels-target', 'fakels'), '#!/bin/sh\necho fake\n');
+        writeFileSync(join(dir, 'fakels-target', 'fakels.exe'), 'MZ fake');
+        execFileSync(tarCommand(), ['-czf', join(dir, 'b.tar.gz'), '-C', dir, 'fakels-target']);
+        const bytes = new Uint8Array(readFileSync(join(dir, 'b.tar.gz')));
+        const sha256 = createHash('sha256').update(bytes).digest('hex');
+        const pinned: Pinned = { ...pin(sha256), assets: { [platform]: { name: 'b.tar.gz', sha256, folder: 'fakels-target' } } };
+        const path = await ensureProgram({ cacheDir: mkdtempSync(join(tmpdir(), 'papers-lsp-')), pinned, download: () => Promise.resolve(bytes) });
+        expect(existsSync(path)).toBe(true);
+    });
+
+    it('serves tinymist for Typst and texlab for LaTeX', () => {
+        expect(serverFor('brief/brief.typ')).toBe(TINYMIST);
+        expect(serverFor('paper.tex')).toBe(TEXLAB);
+        expect(TINYMIST.assets['linux-x64']?.folder).toBe('tinymist-x86_64-unknown-linux-gnu');
     });
 });
 

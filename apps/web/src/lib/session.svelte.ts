@@ -101,6 +101,8 @@ export class Session {
     /** Who builds the preview: this tab (BusyTeX in the content frame) or this computer (`papers serve`, paired
      *  explicitly; never detected). */
     builder = $state<'browser' | 'computer'>('browser');
+    /** The Typst language server's state, for the editor's status; null until a Typst file is open. */
+    languageServer = $state<{ status: 'starting' | 'ready' | 'failed'; detail: string } | null>(null);
     /** What `papers serve` builds with, once paired. */
     computer = $state<{ sandbox: string; toolchain: string } | null>(null);
     /** How the session reaches the room: `live`, `batched` (the room asked for fewer messages), `paused` (the room's

@@ -70,6 +70,8 @@ catalog:
   yjs: 13.6.33
   ws: 8.22.2
   zod: 4.6.7
+  '@myriaddreamin/typst-ts-web-compiler': 0.8.0-rc4
+  '@myriaddreamin/typst.ts': 0.8.0-rc4
   '@yukibana/papers-templates': workspace:*
 catalogs:
   # The SvelteKit apps only: svelte-check supports TypeScript 6 at most (its peer dependency is ^5 || ^6).

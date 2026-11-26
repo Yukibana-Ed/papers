@@ -43,3 +43,32 @@ export const bibLanguage: languages.IMonarchLanguage = {
         ],
     },
 };
+
+/** Monarch grammar for Typst markup: headings, code expressions, maths, labels and references, comments. The language
+ *  server's semantic tokens refine it. */
+export const typstLanguage: languages.IMonarchLanguage = {
+    tokenizer: {
+        root: [
+            [/\/\/.*$/, 'comment'],
+            [/\/\*/, { token: 'comment', next: '@blockComment' }],
+            [/^\s*=+\s.*$/, 'keyword.heading'],
+            [/#(?:let|set|show|import|include|if|else|for|in|while|return|context)\b/, 'keyword'],
+            [/#[\w.-]+/, 'keyword'],
+            [/<[\w.:-]+>/, 'type'],
+            [/@[\w.:-]+/, 'type'],
+            [/\$/, { token: 'string', next: '@math' }],
+            [/"(?:[^"\\]|\\.)*"/, 'string'],
+            [/[*_`{}[\]()]/, 'delimiter'],
+            [/[^/#<@$"*_`{}[\]()]+/, ''],
+            [/./, ''],
+        ],
+        math: [
+            [/\$/, { token: 'string', next: '@pop' }],
+            [/[^$]+/, 'string'],
+        ],
+        blockComment: [
+            [/\*\//, { token: 'comment', next: '@pop' }],
+            [/[^*]+|\*/, 'comment'],
+        ],
+    },
+};

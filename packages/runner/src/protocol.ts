@@ -26,7 +26,8 @@ export type ClientMessage =
     /** Build `root` (a project path). `id` comes back on every message about this build. */
     | { readonly type: 'build'; readonly id: string; readonly root: string }
     /** Starts the local language server for this connection; its messages then flow as `lsp`. */
-    | { readonly type: 'lsp-start' }
+    /** `server`: texlab (LaTeX, the default) or tinymist (Typst). One server per connection. */
+    | { readonly type: 'lsp-start'; readonly server?: 'texlab' | 'tinymist' }
     | { readonly type: 'lsp'; readonly message: unknown };
 
 export interface RunnerDiagnostic {
@@ -84,7 +85,7 @@ export function parseClientMessage(x: unknown): ClientMessage | null {
         case 'build':
             return typeof x['id'] === 'string' && typeof x['root'] === 'string' ? { type: 'build', id: x['id'], root: x['root'] } : null;
         case 'lsp-start':
-            return { type: 'lsp-start' };
+            return x['server'] === 'tinymist' || x['server'] === 'texlab' ? { type: 'lsp-start', server: x['server'] } : { type: 'lsp-start' };
         case 'lsp':
             return { type: 'lsp', message: x['message'] };
         default:

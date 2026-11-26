@@ -140,10 +140,44 @@ Median time to a first pass fell from 41 to 19 minutes.
   year      = {2004},
 }
 `,
+    'brief/brief.typ': String.raw`#set document(title: "Instant Feedback: a Brief")
+#set page(paper: "a4", margin: 2.2cm)
+#set text(font: "Libertinus Serif", size: 11pt)
+#set heading(numbering: "1.")
+
+#align(center, text(17pt)[*Instant Feedback: a Brief*])
+#align(center)[Ada Varga · Lena Kraus · Marco Rossi]
+
+= Summary
+Feedback that arrives within seconds changes how first-year students
+work. In a course of 412 students, instant feedback halved the time
+to a first passing submission.
+
+#include "findings.typ"
+
+#bibliography("../refs.bib", style: "ieee")
+`,
+    'brief/findings.typ': String.raw`= Findings
+- The median time to a first pass fell from 41 to 19 minutes.
+- Abandoned exercises fell from 18% to 12% @hattie2007.
+- Students tested small hypotheses instead of guessing @edwards2004.
+
+== In numbers
+$ Delta t = t_"before" - t_"after" = 22 "min" $
+`,
 };
 
 /** The project's files in the order the file list shows them. */
-export const FILE_ORDER: readonly string[] = ['paper.tex', 'sections/intro.tex', 'sections/method.tex', 'sections/results.tex', 'slides.tex', 'refs.bib'];
+export const FILE_ORDER: readonly string[] = [
+    'paper.tex',
+    'sections/intro.tex',
+    'sections/method.tex',
+    'sections/results.tex',
+    'slides.tex',
+    'brief/brief.typ',
+    'brief/findings.typ',
+    'refs.bib',
+];
 
 /** What was last committed: the session starts with a few edits on top of it. */
 export const BASE: Readonly<Record<string, string>> = {

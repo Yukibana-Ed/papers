@@ -77,6 +77,23 @@
         }
     });
 
+    // Typst projects get tinymist, which runs in the content frame: started once the editor's models exist, so they open
+    // on it at once.
+    let languageClient: { dispose(): void } | null = null;
+    $effect(() => {
+        const p = preview;
+        if (!editor || !p || languageClient || !Object.keys(s.files).some((f) => f.endsWith('.typ'))) return;
+        languageClient = { dispose: () => {} };
+        void Promise.all([import('#lib/lsp/client.ts'), import('#lib/lsp/tinymist.ts')]).then(([{ LanguageClient }, { tinymistProfile }]) => {
+            // The server first, then the client, whose first message (initialize) must find it.
+            let c: InstanceType<typeof LanguageClient> | null = null;
+            p.startServer('tinymist', (m) => c?.receive(m as Parameters<InstanceType<typeof LanguageClient>['receive']>[0]));
+            c = new LanguageClient('typst', 'tinymist', (m) => p.lspSend('tinymist', m), tinymistProfile());
+            languageClient = c;
+        });
+        return () => languageClient?.dispose();
+    });
+
     // A repository's session: every file of the room bound to its model, and files others open bound as they come.
     $effect(() => {
         const ed = editor;

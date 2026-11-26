@@ -1,6 +1,9 @@
 # Fills the content origin's R2 bucket (yukibana-papers-assets) with what /engine/* and /tl/* serve:
 #   engine/<version>/<file>   texlyre-busytex's release files for the version in the lockfile, brotli-compressed
 #   tl/<snapshot>/...         the TeX Live store: objects/<xx>/<sha256> (brotli) and index/<xx>.json
+#   typst/<v>/, tinymist/<v>/, typst-fonts/<v>/   the Typst compiler (typst.ts), tinymist's web build and Typst's
+#                             default fonts, brotli-compressed (apps/content/src/lib/typst-assets.ts pins the versions)
+# Typst Universe packages need no upload: the Worker reads them through into typst-packages/ on first use.
 # Everything is immutable once uploaded: a new engine release or TeX Live snapshot is a new folder, and the Worker serves
 # the one wrangler.jsonc names (ENGINE_VERSION, TL_SNAPSHOT), so a page loaded before a deploy keeps working.
 #
@@ -19,6 +22,10 @@ on:
     inputs:
       engine:
         description: Upload the engine release of the locked texlyre-busytex
+        type: boolean
+        default: true
+      typst:
+        description: Upload the Typst compiler, tinymist and Typst's fonts
         type: boolean
         default: true
       texlive:
@@ -80,6 +87,15 @@ jobs:
           node scripts/engine.ts fetch "$RUNNER_TEMP/engine"
           node scripts/engine.ts stage "$RUNNER_TEMP/engine/busytex" "$RUNNER_TEMP/engine-br"
           rclone copy "$RUNNER_TEMP/engine-br" "r2:yukibana-papers-assets/engine/$version" \
+            --header-upload "Content-Encoding: br" --header-upload "Cache-Control: public, max-age=31536000, immutable" \
+            --transfers 8 --s3-upload-concurrency 8 --s3-chunk-size 16M --stats-one-line --stats 30s
+
+      - name: Upload Typst
+        if: inputs.typst
+        working-directory: apps/content
+        run: |
+          node scripts/typst.ts stage "$RUNNER_TEMP/typst-br"
+          rclone copy "$RUNNER_TEMP/typst-br" "r2:yukibana-papers-assets" \
             --header-upload "Content-Encoding: br" --header-upload "Cache-Control: public, max-age=31536000, immutable" \
             --transfers 8 --s3-upload-concurrency 8 --s3-chunk-size 16M --stats-one-line --stats 30s
 

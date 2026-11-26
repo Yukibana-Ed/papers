@@ -9,8 +9,9 @@ export interface Pinned {
     readonly version: string;
     /** `{version}` and `{name}` are filled in. */
     readonly url: string;
-    /** `${process.platform}-${process.arch}` → the archive's name and its SHA-256 (hex). */
-    readonly assets: Readonly<Record<string, { readonly name: string; readonly sha256: string }>>;
+    /** `${process.platform}-${process.arch}` → the archive's name, its SHA-256 (hex), and the folder inside the archive
+     *  that holds the program (none: the archive's top). */
+    readonly assets: Readonly<Record<string, { readonly name: string; readonly sha256: string; readonly folder?: string }>>;
     /** The executable's name inside the archive, without `.exe`. */
     readonly binary: string;
 }
@@ -29,6 +30,43 @@ export const TEXLAB: Pinned = {
         'darwin-arm64': { name: 'texlab-aarch64-macos.tar.gz', sha256: 'af7972ffd230711ba04ada9b69cc32ce9111d9196ba69538062872faefdbee56' },
     },
 };
+
+/** tinymist 0.15.12 (2026-11-03), the native Typst language server (Typst 0.15.1). Digests from the release's
+ *  `<asset>.sha256` files. */
+export const TINYMIST: Pinned = {
+    version: '0.15.12',
+    url: 'https://github.com/Myriad-Dreamin/tinymist/releases/download/v{version}/{name}',
+    binary: 'tinymist',
+    assets: {
+        'win32-x64': { name: 'tinymist-x86_64-pc-windows-msvc.zip', sha256: '7dfa68a764363bf825871c7d0ea302b6590a33b5b3ae43585e34d04296e987b1' },
+        'win32-arm64': { name: 'tinymist-aarch64-pc-windows-msvc.zip', sha256: 'c97b019b99be096000352975fff5ac5e7d6c58c31b63af3712091768f9dec455' },
+        'linux-x64': {
+            name: 'tinymist-x86_64-unknown-linux-gnu.tar.gz',
+            sha256: '95f98715f2bc3ecff528124dd691db074c15de1fe0ed2dfa8be43dda6dbbb967',
+            folder: 'tinymist-x86_64-unknown-linux-gnu',
+        },
+        'linux-arm64': {
+            name: 'tinymist-aarch64-unknown-linux-gnu.tar.gz',
+            sha256: 'd75cabad569b8fc7d24fa326a36ce0c2e3a287c5a4f66204c1fc302185225678',
+            folder: 'tinymist-aarch64-unknown-linux-gnu',
+        },
+        'darwin-x64': {
+            name: 'tinymist-x86_64-apple-darwin.tar.gz',
+            sha256: '557a9febd4320b190970ca37b8536e3789c853dcf4b435828c355b3fdb967e9d',
+            folder: 'tinymist-x86_64-apple-darwin',
+        },
+        'darwin-arm64': {
+            name: 'tinymist-aarch64-apple-darwin.tar.gz',
+            sha256: '5f77362580b0bfc8a31b47718dfe3f426ce854d59f04030ade398f1926167b06',
+            folder: 'tinymist-aarch64-apple-darwin',
+        },
+    },
+};
+
+/** The language server for a document: tinymist for Typst, texlab for LaTeX. */
+export function serverFor(root: string): Pinned {
+    return root.endsWith('.typ') ? TINYMIST : TEXLAB;
+}
 
 export interface EnsureOptions {
     /** The folder programs are kept in, one subfolder per version. */
@@ -75,7 +113,7 @@ export async function ensureProgram(o: EnsureOptions): Promise<string> {
         writeFileSync(archive, bytes);
         // bsdtar (Windows 10 and later, macOS) reads zip and tar.gz alike; GNU tar reads the tar.gz of Linux.
         await promisify(execFile)(tarCommand(), ['-xf', archive, '-C', tmp], { windowsHide: true });
-        const unpacked = join(tmp, exe);
+        const unpacked = asset.folder === undefined ? join(tmp, exe) : join(tmp, asset.folder, exe);
         if (!existsSync(unpacked)) throw new Error(`${asset.name} has no ${exe}`);
         if (!platform.startsWith('win32')) chmodSync(unpacked, 0o755);
         renameSync(unpacked, target);

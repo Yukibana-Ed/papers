@@ -18,9 +18,30 @@ export function stripComments(source: string): string {
     return source.replace(/(^|[^\\])%.*$/gm, '$1');
 }
 
-/** The files of `files` that compile by themselves: `.tex` files with a `\documentclass`. In `order`'s order. */
+/** The files of `files` that compile by themselves, in `order`'s order: `.tex` files with a `\documentclass`, and `.typ`
+ *  files that no other Typst file includes or imports (a Typst document has no preamble to tell it by). */
 export function findRoots(files: Readonly<Record<string, string>>, order: readonly string[] = Object.keys(files)): string[] {
-    return order.filter(f => f.endsWith('.tex') && /^\s*\\documentclass\b/m.test(stripComments(files[f] ?? '')));
+    const typ = Object.keys(files).filter(f => f.endsWith('.typ'));
+    const reached = new Set(typ.flatMap(f => typstReferences(f, files[f] ?? '', files).filter(r => r !== f)));
+    return order.filter(f => (f.endsWith('.tex') && /^\s*\\documentclass\b/m.test(stripComments(files[f] ?? ''))) || (f.endsWith('.typ') && !reached.has(f)));
+}
+
+/** The project files a Typst source names in `#include "…"`, `#import "…"`, `bibliography("…")` and `image("…")`,
+ *  resolved against its folder (or the project root for a path starting with `/`), that exist in `files`. */
+export function typstReferences(file: string, source: string, files: Readonly<Record<string, string>>): string[] {
+    const dir = file.split('/').slice(0, -1);
+    const out: string[] = [];
+    for (const m of source.replace(/\/\/.*$/gm, '').matchAll(/(?:#include|#import|bibliography\(|image\()\s*"([^"]+)"/g)) {
+        const ref = m[1] ?? '';
+        const norm: string[] = [];
+        for (const p of ref.startsWith('/') ? ref.slice(1).split('/') : [...dir, ...ref.split('/')]) {
+            if (p === '..') norm.pop();
+            else if (p !== '.' && p !== '') norm.push(p);
+        }
+        const path = norm.join('/');
+        if (files[path] !== undefined && !out.includes(path)) out.push(path);
+    }
+    return out;
 }
 
 /** The project file a `\input`/`\include` argument names, relative to the project's root folder as TeX resolves it,
@@ -41,6 +62,10 @@ export function includedFiles(root: string, files: Readonly<Record<string, strin
         const src = files[file];
         if (src === undefined) return;
         seen.add(file);
+        if (file.endsWith('.typ')) {
+            for (const r of typstReferences(file, src, files)) visit(r);
+            return;
+        }
         if (!file.endsWith('.tex')) return;
         for (const m of stripComments(src).matchAll(/\\(input|include|subfile|bibliography|addbibresource)\{([^}]*)\}/g)) {
             const command = m[1] ?? '';
@@ -85,6 +110,24 @@ export function outline(root: string, files: Readonly<Record<string, string>>): 
         const src = files[file];
         if (src === undefined || seen.has(file)) return;
         seen.add(file);
+        if (file.endsWith('.typ')) {
+            src.split('\n').forEach((text, i) => {
+                if (/^\s*#include\s+"/.test(text)) {
+                    for (const r of typstReferences(file, text, files)) walk(r);
+                    return;
+                }
+                const h = /^(={1,2})\s+(.+?)\s*(?:<[\w.:-]+>)?\s*$/.exec(text);
+                if (!h) return;
+                const kind = h[1] === '=' ? 'section' : 'subsection';
+                if (kind === 'section') {
+                    sec++;
+                    sub = 0;
+                } else sub++;
+                const num = kind === 'section' ? `${sec}` : `${sec}.${sub}`;
+                out.push({ kind, num, title: (h[2] ?? '').replace(/[*_`$]/g, '').trim(), file, line: i + 1 });
+            });
+            return;
+        }
         const lines = stripComments(src).split('\n');
         lines.forEach((text, i) => {
             const include = text.match(/\\(?:input|include|subfile)\{([^}]*)\}/);

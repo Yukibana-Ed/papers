@@ -4,7 +4,8 @@ import { getDocument, GlobalWorkerOptions, TextLayer, type PDFDocumentLoadingTas
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type { PreviewMark, PreviewPresence, SourceLines, SourcePoint } from '@yukibana/papers-frame-protocol';
 import { mergeLineRects, type Rect } from '#lib/rects.ts';
-import { backward, lineSegments, type PageBox, type SyncTex } from '#lib/synctex.ts';
+import type { PageText, SourceMap } from '#lib/sourcemap.ts';
+import type { PageBox } from '#lib/synctex.ts';
 
 GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -52,7 +53,7 @@ export class Viewer {
     readonly #events: ViewerEvents;
     /** The shown build's loading task, which owns its document. */
     #task: PDFDocumentLoadingTask | null = null;
-    #sync: SyncTex | null = null;
+    #sync: SourceMap | null = null;
     #pages: PageView[] = [];
     #zoom = 1;
     #fit = 1;
@@ -81,6 +82,28 @@ export class Viewer {
         document.addEventListener('selectionchange', this.#onSelectionChange);
     }
 
+    /** Replaces the source map of the shown build (a Typst build's, made from the text layer after `show`). */
+    setSourceMap(map: SourceMap | null): void {
+        this.#sync = map;
+        this.#drawOverlays();
+    }
+
+    /** The text runs of every page of the shown build, in PDF points from each page's top-left, reading order. */
+    async pageTexts(): Promise<PageText[]> {
+        const out: PageText[] = [];
+        for (const [i, p] of this.#pages.entries()) {
+            const content = await p.proxy.getTextContent();
+            for (const item of content.items) {
+                if (!('str' in item) || !item.str) continue;
+                const transform: unknown[] = item.transform;
+                const e = Number(transform[4] ?? 0);
+                const f = Number(transform[5] ?? 0);
+                out.push({ page: i + 1, str: item.str, x: e, y: p.height - f, width: item.width, height: item.height });
+            }
+        }
+        return out;
+    }
+
     get pageCount(): number {
         return this.#pages.length;
     }
@@ -91,7 +114,7 @@ export class Viewer {
 
     /** Shows a new build. Precondition: `pdf` is a complete PDF. Resolves once the new pages are laid out
      *  and SyncTeX is in use; the pages in view draw after that. */
-    async show(pdf: Uint8Array, sync: SyncTex | null): Promise<void> {
+    async show(pdf: Uint8Array, sync: SourceMap | null): Promise<void> {
         const task = getDocument({ data: pdf.slice() });
         const doc = await task.promise;
         const proxies = await Promise.all(Array.from({ length: doc.numPages }, (_, i) => doc.getPage(i + 1)));
@@ -246,7 +269,7 @@ export class Viewer {
         const first = Math.min(lines.startLine, lines.endLine);
         const last = Math.min(Math.max(lines.startLine, lines.endLine), first + 400);
         for (let l = first; l <= last; l++) {
-            for (const b of lineSegments(this.#sync, lines.file, l, first === last)) {
+            for (const b of this.#sync.segments(lines.file, l, first === last)) {
                 const list = out.get(b.page) ?? [];
                 list.push(b);
                 out.set(b.page, list);
@@ -298,7 +321,7 @@ export class Viewer {
 
     #firstBox(at: SourcePoint): PageBox | null {
         if (this.#sync === null) return null;
-        return lineSegments(this.#sync, at.file, at.line)[0] ?? null;
+        return this.#sync.segments(at.file, at.line)[0] ?? null;
     }
 
     // --- navigation ----------------------------------------------------------------------------------------------------
@@ -320,7 +343,7 @@ export class Viewer {
         const behavior = document.visibilityState === 'visible' ? 'smooth' : 'instant';
         if (mode === 'jump' || !inView) view.scrollTo({ top: top - view.clientHeight / 3, behavior });
         if (mode === 'jump' && this.#sync !== null) {
-            for (const seg of lineSegments(this.#sync, at.file, at.line)) {
+            for (const seg of this.#sync.segments(at.file, at.line)) {
                 const p = this.#pages[seg.page - 1];
                 if (p === undefined) continue;
                 const f = box(seg, s, 'pv-flash', 3);
@@ -339,7 +362,7 @@ export class Viewer {
         const page = this.#pages.reduce<PageView | undefined>((best, p) => (best === undefined || distance(p) < distance(best) ? p : best), undefined);
         if (page === undefined) return null;
         const s = this.scale;
-        const hit = backward(this.#sync, this.#pages.indexOf(page) + 1, page.width / 2, (y - page.el.offsetTop) / s);
+        const hit = this.#sync.backward(this.#pages.indexOf(page) + 1, page.width / 2, (y - page.el.offsetTop) / s);
         return hit === null ? null : { file: hit.file, line: hit.line };
     }
 
@@ -415,7 +438,7 @@ export class Viewer {
         const n = Number(pageEl.dataset['page']);
         const rect = pageEl.getBoundingClientRect();
         const s = this.scale;
-        const hit = backward(this.#sync, n, (e.clientX - rect.left) / s, (e.clientY - rect.top) / s);
+        const hit = this.#sync.backward(n, (e.clientX - rect.left) / s, (e.clientY - rect.top) / s);
         if (hit === null) return;
         this.#events.jump({ file: hit.file, line: hit.line }, wordAt(e.clientX, e.clientY));
     };
@@ -476,7 +499,7 @@ export class Viewer {
         if (sync === null) return null;
         const s = this.scale;
         const at = (e: { page: PageView; rect: Rect }, edge: 'start' | 'end'): { file: string; line: number } | null =>
-            backward(sync, this.#pages.indexOf(e.page) + 1, (edge === 'start' ? e.rect.x + 4 : e.rect.x + e.rect.width - 4) / s, (e.rect.y + e.rect.height * 0.7) / s);
+            sync.backward(this.#pages.indexOf(e.page) + 1, (edge === 'start' ? e.rect.x + 4 : e.rect.x + e.rect.width - 4) / s, (e.rect.y + e.rect.height * 0.7) / s);
         const a = at(first, 'start');
         const b = at(last, 'end');
         if (a === null) return null;

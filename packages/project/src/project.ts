@@ -152,7 +152,7 @@ export function readProject(files: ProjectFiles): Project {
     const config = toml === null ? DEFAULT_CONFIG : parseConfig(toml);
     const lockText = files.read('papers.lock');
     const lock = lockText === null ? null : parseLock(lockText);
-    if (lock && config.environment.kind === 'managed' && lock.texlive.year !== config.environment.texlive)
+    if (lock?.texlive && config.environment.kind === 'managed' && lock.texlive.year !== config.environment.texlive)
         throw new ConfigError('environment.texlive', `is ${config.environment.texlive} but papers.lock pins ${lock.texlive.year}`);
     return {
         files,

@@ -25,7 +25,7 @@ import 'monaco-editor/editor/contrib/wordOperations/browser/wordOperations';
 // Vite builds `?worker` imports into a worker constructor; the import plugin cannot see that default export.
 // oxlint-disable-next-line import/default
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker';
-import { bibLanguage, latexLanguage } from './languages.ts';
+import { bibLanguage, latexLanguage, typstLanguage } from './languages.ts';
 
 globalThis.MonacoEnvironment = { getWorker: () => new EditorWorker() };
 
@@ -45,13 +45,40 @@ monaco.languages.setLanguageConfiguration('latex', {
 });
 monaco.languages.register({ id: 'bibtex', extensions: ['.bib'] });
 monaco.languages.setMonarchTokensProvider('bibtex', bibLanguage);
+monaco.languages.register({ id: 'typst', extensions: ['.typ'] });
+monaco.languages.setMonarchTokensProvider('typst', typstLanguage);
+monaco.languages.setLanguageConfiguration('typst', {
+    comments: { lineComment: '//', blockComment: ['/*', '*/'] },
+    brackets: [
+        ['{', '}'],
+        ['[', ']'],
+        ['(', ')'],
+    ],
+    autoClosingPairs: [
+        { open: '{', close: '}' },
+        { open: '[', close: ']' },
+        { open: '(', close: ')' },
+        { open: '"', close: '"' },
+        { open: '$', close: '$' },
+    ],
+});
 
 export { monaco };
+
+/** The folder the project's files live in, as URIs: under a folder rather than at `/`, because language servers take
+ *  their workspace root from it (tinymist's web build cannot use `/` as one). */
+export const PROJECT_ROOT_URI = 'file:///project';
+
+/** The URI of the model of the project file `path`. */
+export function modelUri(path: string): ReturnType<typeof monaco.Uri.parse> {
+    return monaco.Uri.parse(`${PROJECT_ROOT_URI}/${path}`);
+}
 
 /** The language id for a project file. */
 export function languageOf(path: string): string {
     if (path.endsWith('.bib')) return 'bibtex';
     if (/\.(tex|sty|cls|ltx|dtx)$/.test(path)) return 'latex';
+    if (path.endsWith('.typ')) return 'typst';
     return 'plaintext';
 }
 
