@@ -114,14 +114,21 @@ test('the people in a branch are shown at the top right, with their cursor and w
     for (let i = 0; i < 6; i++) await bob.keyboard.press('ArrowRight');
     for (let i = 0; i < 8; i++) await bob.keyboard.press('Shift+ArrowRight');
     const band = page.locator('.monaco-editor .presence-selection.presence-bob');
-    await expect(band).toBeVisible();
-    const line = await page.locator('.monaco-editor .view-line', { hasText: 'Hello from the repository.' }).boundingBox();
+    const text = page.locator('.monaco-editor .view-line', { hasText: 'Hello from the repository.' }).locator('> span');
+    // The editor draws the line again when its decorations change: its box is asked for until there is one.
+    let line = await text.first().boundingBox();
+    for (let i = 0; line === null && i < 50; i++) {
+        await page.waitForTimeout(100);
+        line = await text.first().boundingBox();
+    }
+    if (!line) throw new Error('no line');
+    // The line's 26 characters are as wide as its text (the editor's font is monospaced).
+    const ch = line.width / 26;
+    // Presence is sent a few times a second: the selection arrives in steps, the last one eight characters wide.
+    await expect.poll(async () => ((await band.boundingBox())?.width ?? 0) / ch).toBeCloseTo(8, 0);
     const box = await band.boundingBox();
-    if (!line || !box) throw new Error('nothing drawn');
-    // Eight of the line's 26 characters, starting after six (the editor's font is monospaced).
-    const ch = line.width > 0 ? box.width / 8 : 0;
-    expect(box.x - line.x).toBeGreaterThan(5 * ch);
-    expect(box.x - line.x).toBeLessThan(7 * ch);
+    if (!box) throw new Error('nothing drawn');
+    expect((box.x - line.x) / ch).toBeCloseTo(6, 0);
     const caret = await page.locator('.monaco-editor .presence-caret.presence-bob').boundingBox();
     if (!caret) throw new Error('no caret');
     expect(Math.abs(caret.x - (box.x + box.width))).toBeLessThan(ch);
