@@ -1,8 +1,9 @@
 import { ASSETS } from '#lib/asset-path.ts';
 import type { Diagnostic, FileContents } from '@yukibana/papers-frame-protocol';
-import { CompileFormatEnum, type TypstCompiler } from '@myriaddreamin/typst.ts/compiler';
+import type { TypstCompiler, TypstWorld } from '@myriaddreamin/typst.ts/compiler';
 import { FetchPackageRegistry, MemoryAccessModel, createTypstCompiler, initOptions } from '@myriaddreamin/typst.ts';
 import { TYPST_ASSETS } from '#lib/typst-assets.ts';
+import { readSpans, type GlyphSpans } from '#lib/typst-spans.ts';
 
 /** A Typst package a build used, for papers.lock: its spec and the SHA-256 of its archive. */
 export interface UsedPackage {
@@ -16,6 +17,9 @@ export interface TypstBuild {
     readonly ok: boolean;
     readonly pdf: Uint8Array | null;
     readonly diagnostics: Diagnostic[];
+    /** Where each glyph of `pdf` came from in `files`, by project path; null without a document, or when the compiler
+     *  gave none (the document is then synced by its words). */
+    readonly spans: GlyphSpans | null;
     readonly ms: number;
     /** Set when the compiler itself could not start (its files did not load): not a problem with the document. */
     readonly failure?: string;
@@ -75,7 +79,7 @@ export class TypstEngine {
         try {
             c = await this.#init();
         } catch (e) {
-            return { ok: false, pdf: null, diagnostics: [], ms: 0, failure: e instanceof Error ? e.message : String(e) };
+            return { ok: false, pdf: null, diagnostics: [], spans: null, ms: 0, failure: e instanceof Error ? e.message : String(e) };
         }
         const t0 = performance.now();
         c.resetShadow();
@@ -83,7 +87,10 @@ export class TypstEngine {
             if (typeof contents === 'string') c.addSource(`/${path}`, contents);
             else c.mapShadow(`/${path}`, contents);
         }
-        const r = await c.compile({ mainFilePath: `/${root}`, format: CompileFormatEnum.pdf, diagnostics: 'full' });
+        const { r, spans } = await c.runWithWorld({ mainFilePath: `/${root}` }, async world => {
+            const made = await world.pdf({ diagnostics: 'full' });
+            return { r: made, spans: made.result instanceof Uint8Array ? glyphSpans(world) : null };
+        });
         const diagnostics: Diagnostic[] = (r.diagnostics ?? []).map(d => ({
             file: d.path.replace(/^\//, '') || root,
             line: rangeLine(d.range),
@@ -91,7 +98,7 @@ export class TypstEngine {
             message: d.message,
         }));
         const pdf = r.result instanceof Uint8Array ? r.result : null;
-        return { ok: pdf !== null && !diagnostics.some(d => d.severity === 'error'), pdf, diagnostics, ms: performance.now() - t0 };
+        return { ok: pdf !== null && !diagnostics.some(d => d.severity === 'error'), pdf, diagnostics, spans: pdf === null ? null : spans, ms: performance.now() - t0 };
     }
 
     /** The packages builds have used so far, hashed, for the lock file. */
@@ -106,10 +113,28 @@ export class TypstEngine {
     }
 }
 
+const hasGlyphSpans = (v: unknown): v is { glyph_spans(): unknown } => typeof v === 'object' && v !== null && 'glyph_spans' in v && typeof v.glyph_spans === 'function';
+
+/** The glyph spans of the document `world` has compiled, files by project path; null when the compiler has none to
+ *  give. `glyph_spans` is our build's addition (packages/typst-wasm), on the compiler's own world object, which
+ *  typst.ts keeps under a symbol of its wrapper. */
+function glyphSpans(world: TypstWorld): GlyphSpans | null {
+    for (const key of Object.getOwnPropertySymbols(world)) {
+        const raw: unknown = Reflect.get(world, key);
+        if (!hasGlyphSpans(raw)) continue;
+        const out = raw.glyph_spans();
+        if (typeof out !== 'object' || out === null || !('files' in out) || !('pages' in out) || !Array.isArray(out.files) || !Array.isArray(out.pages)) return null;
+        const files = out.files.filter((f): f is string => typeof f === 'string').map(f => f.replace(/^\//, ''));
+        const pages = out.pages.filter((p): p is Uint8Array => p instanceof Uint8Array);
+        return files.length === out.files.length && pages.length === out.pages.length ? readSpans({ files, pages }) : null;
+    }
+    return null;
+}
+
 /** A build step that adds the fonts at `urls` to the compiler, fetched in parallel. In place of typst.ts's `loadFonts`,
  *  which builds a function from text (`new Function`, for a Node import it never needs here) and so would need the
  *  content origin's script policy to allow 'unsafe-eval'. The compiler's own functions from text are made without it
- *  by patches/@myriaddreamin__typst-ts-web-compiler@0.8.0-rc4.patch. */
+ *  in our build of it (packages/typst-wasm, glue-csp.patch). */
 function addFonts(urls: readonly string[]): (_: unknown, ctx: { builder: { add_raw_font(font: Uint8Array): Promise<void> } }) => Promise<void> {
     const step = async (_: unknown, { builder }: { builder: { add_raw_font(font: Uint8Array): Promise<void> } }): Promise<void> => {
         const fonts = await Promise.all(

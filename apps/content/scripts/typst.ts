@@ -1,11 +1,12 @@
-// The Typst side of the content origin's assets: the typst.ts compiler, tinymist's web build, and Typst's default fonts.
+// The Typst side of the content origin's assets: our build of the typst.ts compiler (packages/typst-wasm), tinymist's
+// web build, and Typst's default fonts.
 //
 //   node scripts/typst.ts fetch [dir]          tinymist's web build into <dir>/tinymist (default .engine), checked against
 //                                              its pinned SHA-256; what the dev server serves at /engine/tinymist
 //   node scripts/typst.ts stage <out>          everything the content origin serves, brotli-compressed, laid out as the
 //                                              bucket's keys (typst/<v>/, tinymist/<v>/, typst-fonts/<v>/) under <out>
 //
-// .github/workflows/assets.yml uploads <out> to the bucket. Every file is upstream's, unmodified.
+// .github/workflows/assets.yml uploads <out> to the bucket. tinymist and the fonts are upstream's, unmodified.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
