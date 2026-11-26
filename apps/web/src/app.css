@@ -1336,6 +1336,7 @@ button {
 }
 .ln-warning {
     color: var(--yk-warn) !important;
+}
 /* --- the language server's state, quiet in the source tabs' bar ---------------------------------------------------- */
 .lsp-state {
     display: inline-grid;
