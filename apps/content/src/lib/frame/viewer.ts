@@ -25,6 +25,9 @@ const GUTTER = 76;
 const MAX_FIT = 1.6;
 /** The selection toolbar's size with its gap to the text, in CSS pixels: lying across (above or below the selection)
  *  and standing up (in the margin beside the page). */
+/** How long a click waits before it jumps to the source: a second click within it makes a double click instead. */
+const JUMP_DELAY_MS = 250;
+
 const TOOLBAR = { width: 100, height: 42, side: 36 };
 
 /** Where the selection toolbar goes, in the scroller's content coordinates. `side`: standing in the margin right of the
@@ -84,6 +87,9 @@ export class Viewer {
     #precise: PreciseMap | null = null;
     /** The shown build's words, whose boxes the drawn text layers refine. */
     #words: DocWord[] = [];
+    /** The build `#words` were read from: a page of another build must not refine them. */
+    #wordsTask: PDFDocumentLoadingTask | null = null;
+    #syncs = 0;
     #sources: ReadonlyMap<string, string> = new Map();
     #format: 'latex' | 'typst' = 'latex';
     #pages: PageView[] = [];
@@ -131,17 +137,22 @@ export class Viewer {
 
     /** Reads the shown build's text and aligns it with the sources, for `#precise`. A newer build or map replaces it. */
     async #makePrecise(): Promise<void> {
-        this.#precise = null;
-        delete this.#column.dataset['sync'];
+        // The previous build's map stays in use meanwhile: a click just after a rebuild (every edit makes one) still
+        // goes to the character, which it would not if the map went blank while the new one is made.
         const sync = this.#sync;
         if (sync === null) return;
+        const task = this.#task;
         const words = docWords(await this.pageTexts());
-        if (this.#sync !== sync) return;
+        if (this.#sync !== sync || this.#task !== task) return;
         this.#words = words;
+        this.#wordsTask = task;
         for (const p of this.#pages) if (p.drawn !== 0) this.#refine(p);
         this.#precise = preciseMap(sync, words, this.#sources, this.#format);
-        // For browser tests: the sync to the word is ready.
-        this.#column.dataset['sync'] = 'word';
+        // For browser tests: the sync to the word of the shown build is ready, and its pages in view are drawn (a
+        // selection made before the new text layer swaps in would be lost with the old one).
+        await Promise.all(this.#pages.map(p => p.rendering));
+        if (this.#task !== task) return;
+        this.#column.dataset['sync'] = String(++this.#syncs);
         this.#drawOverlays();
         // Development only (gone from builds): the maps, for the sync-accuracy probe to measure.
         if (import.meta.env.DEV) Object.assign(window, { papersSync: { coarse: sync, precise: this.#precise, words, sources: this.#sources } });
@@ -525,6 +536,9 @@ export class Viewer {
     };
 
     #onClick = (e: MouseEvent): void => {
+        // A second click cancels the first one's jump: double and triple clicks select, and the jump (which moves the
+        // focus to the editor) would end them half-way.
+        clearTimeout(this.#jumpTimer);
         if (e.detail === 3) {
             this.#selectLineAt(e.clientX, e.clientY);
             return;
@@ -547,15 +561,21 @@ export class Viewer {
         const s = this.scale;
         const x = (e.clientX - rect.left) / s;
         const y = (e.clientY - rect.top) / s;
-        const exact = this.#precise?.pointToSource(n, x, y) ?? null;
-        if (exact !== null) {
-            this.#events.jump({ file: exact.file, line: exact.line, column: exact.column + 1 }, wordAt(e.clientX, e.clientY));
-            return;
-        }
-        const hit = this.#sync.backward(n, x, y);
-        if (hit === null) return;
-        this.#events.jump({ file: hit.file, line: hit.line }, wordAt(e.clientX, e.clientY));
+        const word = wordAt(e.clientX, e.clientY);
+        const sync = this.#sync;
+        // After the double-click interval, unless a second click came.
+        this.#jumpTimer = window.setTimeout(() => {
+            const exact = this.#precise?.pointToSource(n, x, y) ?? null;
+            if (exact !== null) {
+                this.#events.jump({ file: exact.file, line: exact.line, column: exact.column + 1 }, word);
+                return;
+            }
+            const hit = sync.backward(n, x, y);
+            if (hit !== null) this.#events.jump({ file: hit.file, line: hit.line }, word);
+        }, JUMP_DELAY_MS);
     };
+
+    #jumpTimer = 0;
 
     /** A triple click selects the typeset line under the pointer, as in a PDF reader; the browser's own would select
      *  the whole page, which is one block of text runs. */
@@ -734,7 +754,7 @@ export class Viewer {
     /** Gives the shown build's words on `view`'s page the boxes its text layer draws them in. */
     #refine(view: PageView): void {
         const n = this.#pages.indexOf(view) + 1;
-        if (n === 0 || this.#words.length === 0) return;
+        if (n === 0 || this.#words.length === 0 || this.#wordsTask !== this.#task) return;
         const page = view.el.getBoundingClientRect();
         const s = this.scale;
         const spans = new Map<number, HTMLElement>();
