@@ -22,6 +22,7 @@
     "@yukibana/papers-project": "catalog:",
     "@yukibana/papers-runner": "catalog:",
     "@yukibana/papers-sandbox": "catalog:",
+    "@yukibana/papers-templates": "catalog:",
     "esbuild": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

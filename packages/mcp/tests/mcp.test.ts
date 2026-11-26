@@ -53,6 +53,7 @@ describe('the MCP server', () => {
         const { tools } = await client.listTools();
         expect(tools.map(t => t.name).toSorted()).toEqual([
             'build',
+            'create_project',
             'diagnostics',
             'list_files',
             'outline',

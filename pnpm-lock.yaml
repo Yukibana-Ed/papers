@@ -221,6 +221,9 @@ catalogs:
     '@yukibana/papers-sandbox':
       specifier: workspace:*
       version: workspace:*
+    '@yukibana/papers-templates':
+      specifier: workspace:*
+      version: workspace:*
     esbuild:
       specifier: 0.28.2
       version: 0.28.2
@@ -427,6 +430,9 @@ importers:
       '@yukibana/papers-runner':
         specifier: 'catalog:'
         version: link:../../packages/runner
+      '@yukibana/papers-templates':
+        specifier: 'catalog:'
+        version: link:../../packages/templates
       lib0:
         specifier: 'catalog:'
         version: 0.2.120
@@ -539,6 +545,9 @@ importers:
       '@yukibana/papers-sandbox':
         specifier: 'catalog:'
         version: link:../sandbox
+      '@yukibana/papers-templates':
+        specifier: 'catalog:'
+        version: link:../templates
       esbuild:
         specifier: 'catalog:'
         version: 0.28.2
@@ -597,6 +606,9 @@ importers:
       '@yukibana/papers-project':
         specifier: 'catalog:'
         version: link:../project
+      '@yukibana/papers-templates':
+        specifier: 'catalog:'
+        version: link:../templates
       zod:
         specifier: 'catalog:'
         version: 4.6.7
@@ -651,6 +663,22 @@ importers:
       '@yukibana/papers-compiler':
         specifier: 'catalog:'
         version: link:../compiler
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.2
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.5(@types/node@24.19.2)(happy-dom@21.0.4)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2))
+
+  packages/templates:
+    dependencies:
+      smol-toml:
+        specifier: 'catalog:'
+        version: 1.9.1
     devDependencies:
       '@types/node':
         specifier: 'catalog:'

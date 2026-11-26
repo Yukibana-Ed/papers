@@ -88,12 +88,17 @@ export async function blob(token: string, owner: string, repo: string, sha: stri
 
 export interface FileChange {
     readonly path: string;
-    /** The new text; null deletes the file. */
+    /** The new text; null deletes the file (unless `bytes` is given). */
     readonly text: string | null;
+    /** The new contents as bytes (images, fonts): used instead of `text` when given. */
+    readonly bytes?: Uint8Array;
 }
 
 function base64(text: string): string {
-    const bytes = new TextEncoder().encode(text);
+    return base64Bytes(new TextEncoder().encode(text));
+}
+
+function base64Bytes(bytes: Uint8Array): string {
     let s = '';
     for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
     return btoa(s);
@@ -101,7 +106,7 @@ function base64(text: string): string {
 
 /** Commits `changes` on `branch` as the user, if the branch is still at `expectedHead` (GitHub refuses otherwise:
  *  someone pushed meanwhile, and the room merges that first). GraphQL `createCommitOnBranch`: one call, signed by
- *  GitHub as the user. Text only, at most 45 MB per call; larger commits go through the git data API.
+ *  GitHub as the user. Text and binary files (base64; checked byte for byte), at most 45 MB per call.
  *  Returns the new commit's SHA. */
 export async function commit(token: string, owner: string, repo: string, branch: string, expectedHead: string, message: string, changes: readonly FileChange[]): Promise<string> {
     const query = `mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }`;
@@ -110,8 +115,8 @@ export async function commit(token: string, owner: string, repo: string, branch:
         expectedHeadOid: expectedHead,
         message: { headline: message.split('\n')[0] ?? message, body: message.split('\n').slice(1).join('\n').trim() || undefined },
         fileChanges: {
-            additions: changes.filter(c => c.text !== null).map(c => ({ path: c.path, contents: base64(c.text ?? '') })),
-            deletions: changes.filter(c => c.text === null).map(c => ({ path: c.path })),
+            additions: changes.filter(c => c.text !== null || c.bytes).map(c => ({ path: c.path, contents: c.bytes ? base64Bytes(c.bytes) : base64(c.text ?? '') })),
+            deletions: changes.filter(c => c.text === null && !c.bytes).map(c => ({ path: c.path })),
         },
     };
     const r = await json<{ data?: { createCommitOnBranch?: { commit?: { oid: string } } }; errors?: { message: string; type?: string }[] }>(

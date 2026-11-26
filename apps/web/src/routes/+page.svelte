@@ -29,10 +29,12 @@
                 <input class="yk-input mono" placeholder="owner/repository" aria-label="Repository" bind:value={repo} />
                 <button class="yk-btn yk-btn--primary" type="submit" disabled={target(repo) === null}>Open</button>
             </form>
+            <a class="yk-btn yk-btn--secondary" href="/new">New paper</a>
             <a class="yk-btn yk-btn--ghost" href="/demo">Demo</a>
         {:else}
             {#if data.signIn}<a class="yk-btn yk-btn--primary" href="/auth/login">Sign in with GitHub</a>{/if}
-            <a class="yk-btn {data.signIn ? 'yk-btn--ghost' : 'yk-btn--primary'}" href="/demo">Open the demo</a>
+            <a class="yk-btn {data.signIn ? 'yk-btn--secondary' : 'yk-btn--primary'}" href="/new">New paper</a>
+            <a class="yk-btn yk-btn--ghost" href="/demo">Open the demo</a>
         {/if}
     </div>
 </main>

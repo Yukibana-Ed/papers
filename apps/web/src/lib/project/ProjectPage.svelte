@@ -11,7 +11,7 @@
     import { LoadError, loadProject, type LoadedProject } from './load.ts';
 
     /** A repository's branch in the editor: read it from GitHub, join its room, then show the workbench. */
-    let { owner, repo, branch, contentOrigin }: { owner: string; repo: string; branch: string | null; contentOrigin: string } = $props();
+    let { owner, repo, branch, contentOrigin, root = null }: { owner: string; repo: string; branch: string | null; contentOrigin: string; root?: string | null } = $props();
 
     let progress = $state<{ done: number; total: number } | null>(null);
     let failure = $state<string | null>(null);
@@ -64,6 +64,8 @@
             },
         };
         stopSync = syncReview(s, r);
+        // A new paper opens on its root file (the preview builds it at once).
+        if (root !== null && root in files) s.openFile(root);
         session = s;
     }
 

@@ -5,5 +5,6 @@ import { contentOrigin } from '#lib/server/content-origin.ts';
  *  asks for a GitHub token and is sent to sign in when there is none. */
 export const load: PageServerLoad = event => ({
     branch: event.url.searchParams.get('branch'),
+    root: event.url.searchParams.get('root'),
     contentOrigin: contentOrigin(event.platform),
 });

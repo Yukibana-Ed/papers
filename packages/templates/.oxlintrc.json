@@ -1,0 +1,8 @@
+{
+  "$schema": "../../node_modules/oxlint/configuration_schema.json",
+  "extends": ["../../oxlint.strict.json"],
+  "rules": {
+    /* JSON from GitHub and Typst Universe is read into its known shape at the boundary; every path in it is checked. */
+    "typescript/no-unsafe-type-assertion": "off"
+  }
+}

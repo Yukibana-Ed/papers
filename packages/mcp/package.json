@@ -21,6 +21,7 @@
     "@modelcontextprotocol/sdk": "catalog:",
     "@yukibana/papers-compiler": "catalog:",
     "@yukibana/papers-project": "catalog:",
+    "@yukibana/papers-templates": "catalog:",
     "zod": "catalog:"
   }
 }
