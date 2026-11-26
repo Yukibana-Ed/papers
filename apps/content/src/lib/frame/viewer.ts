@@ -367,8 +367,9 @@ export class Viewer {
             for (const seg of this.#sync.segments(at.file, at.line)) {
                 const p = this.#pages[seg.page - 1];
                 if (p === undefined) continue;
+                // Among the highlights, which multiply with the page, so the flash too leaves the glyphs dark.
                 const f = box(seg, s, 'pv-flash', 3);
-                p.decor.append(f);
+                p.marks.append(f);
                 f.addEventListener('animationend', () => f.remove());
             }
         }

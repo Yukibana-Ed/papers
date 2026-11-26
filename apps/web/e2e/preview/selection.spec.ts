@@ -214,3 +214,84 @@ for (const colorScheme of ['light', 'dark'] as const) {
         await info.attach(`selection-${colorScheme}`, { body: await page.locator('iframe.pv-frame').screenshot(), contentType: 'image/png' });
     });
 }
+
+/** How a screenshot of the same spot changed. Ink (pixels darker than 80 of 255): how many, and how much lighter the
+ *  lightest of them became, which a highlight washing over the text shows and one under or around it does not. Paper
+ *  (near white): the share that changed visibly. */
+async function inkAndPaper(page: Page, before: Buffer, after: Buffer): Promise<{ inkPixels: number; inkLighter: number; paperChanged: number }> {
+    return page.evaluate(
+        async ([a, b]) => {
+            const pixels = async (b64: string): Promise<Uint8ClampedArray> => {
+                // Not fetch(data:…): the page's policy allows no such connection.
+                const bytes = Uint8Array.from(atob(b64), ch => ch.charCodeAt(0));
+                const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+                const c = new OffscreenCanvas(bitmap.width, bitmap.height).getContext('2d');
+                if (!c) throw new Error('no canvas');
+                c.drawImage(bitmap, 0, 0);
+                return c.getImageData(0, 0, bitmap.width, bitmap.height).data;
+            };
+            const p = await pixels(a);
+            const q = await pixels(b);
+            const lum = (d: Uint8ClampedArray, i: number): number => ((d[i] ?? 0) + (d[i + 1] ?? 0) + (d[i + 2] ?? 0)) / 3;
+            let inkPixels = 0;
+            let inkLighter = 0;
+            let paper = 0;
+            let paperChanged = 0;
+            for (let i = 0; i < p.length; i += 4) {
+                const was = lum(p, i);
+                const now = lum(q, i);
+                if (was < 80) {
+                    inkPixels++;
+                    inkLighter = Math.max(inkLighter, now - was);
+                } else if (was > 245) {
+                    paper++;
+                    const d = Math.max(Math.abs((p[i] ?? 0) - (q[i] ?? 0)), Math.abs((p[i + 1] ?? 0) - (q[i + 1] ?? 0)), Math.abs((p[i + 2] ?? 0) - (q[i + 2] ?? 0)));
+                    if (d > 6) paperChanged++;
+                }
+            }
+            return { inkPixels, inkLighter, paperChanged: paper === 0 ? 0 : paperChanged / paper };
+        },
+        [before.toString('base64'), after.toString('base64')] as const,
+    );
+}
+
+for (const deviceScaleFactor of [1, 2]) {
+    for (const colorScheme of ['light', 'dark'] as const) {
+        test(`highlights colour the paper around the glyphs, never the glyphs (${colorScheme}, ${deviceScaleFactor}x)`, async ({ browser }) => {
+            test.skip(!process.env['E2E_ENGINE'], 'needs the TeX engine (E2E_ENGINE=1)');
+            const context = await browser.newContext({ deviceScaleFactor, colorScheme, viewport: { width: 1440, height: 900 } });
+            const page = await context.newPage();
+            const frame = await preview(page);
+            const run = frame
+                .locator('.pv-page')
+                .first()
+                .locator('.textLayer span')
+                .filter({ hasText: /.{40,}/ })
+                .nth(3);
+            const box = await run.boundingBox();
+            if (box === null) throw new Error('no run');
+            const clip = { x: box.x, y: box.y - 2, width: box.width, height: box.height + 4 };
+            await page.mouse.move(5, 5);
+            const before = await page.screenshot({ clip });
+
+            // The source line under the pointer.
+            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+            await expect(frame.locator('.pv-hover-box').first()).toBeVisible();
+            const hovered = await inkAndPaper(page, before, await page.screenshot({ clip }));
+            expect(hovered.inkPixels).toBeGreaterThan(50);
+            expect(hovered.inkLighter).toBeLessThanOrEqual(3);
+            expect(hovered.paperChanged).toBeGreaterThan(0.5);
+
+            // A selection over the whole run.
+            await page.mouse.move(box.x + 1, box.y + box.height / 2);
+            await page.mouse.down();
+            await page.mouse.move(box.x + box.width - 1, box.y + box.height / 2, { steps: 8 });
+            await page.mouse.up();
+            await expect(frame.locator('.pv-sel-rect').first()).toBeVisible();
+            const selected = await inkAndPaper(page, before, await page.screenshot({ clip }));
+            expect(selected.inkLighter).toBeLessThanOrEqual(3);
+            expect(selected.paperChanged).toBeGreaterThan(0.5);
+            await context.close();
+        });
+    }
+}
