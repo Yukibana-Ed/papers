@@ -16,6 +16,8 @@ export interface TypstBuild {
     readonly pdf: Uint8Array | null;
     readonly diagnostics: Diagnostic[];
     readonly ms: number;
+    /** Set when the compiler itself could not start (its files did not load): not a problem with the document. */
+    readonly failure?: string;
 }
 
 /** Packages come from the content origin (`/typst-packages/...`), which reads them through from Typst Universe once and
@@ -59,12 +61,21 @@ export class TypstEngine {
             });
             return c;
         })();
+        // A failed start is retried on the next build.
+        this.#compiler.catch(() => {
+            this.#compiler = null;
+        });
         return this.#compiler;
     }
 
     /** Builds `root` from `files` to PDF. Diagnostics name project files by their project paths. */
     async build(files: ReadonlyMap<string, FileContents>, root: string): Promise<TypstBuild> {
-        const c = await this.#init();
+        let c: TypstCompiler;
+        try {
+            c = await this.#init();
+        } catch (e) {
+            return { ok: false, pdf: null, diagnostics: [], ms: 0, failure: e instanceof Error ? e.message : String(e) };
+        }
         const t0 = performance.now();
         c.resetShadow();
         for (const [path, contents] of files) {

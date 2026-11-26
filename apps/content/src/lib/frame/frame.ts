@@ -1,4 +1,4 @@
-import type { AppMessage, Engine, FileContents, LanguageServer, SelectionAction, SourceLines } from '@yukibana/papers-frame-protocol';
+import type { AppMessage, ServiceFailure, Engine, FileContents, LanguageServer, SelectionAction, SourceLines } from '@yukibana/papers-frame-protocol';
 import { syncTexMap, textMap } from '#lib/sourcemap.ts';
 import { parseSynctex } from '#lib/synctex.ts';
 import { parseTexLog } from '#lib/texlog.ts';
@@ -23,8 +23,10 @@ export interface ToolbarState {
 export class Frame {
     readonly #bridge: Bridge;
     readonly #viewer: Viewer;
-    readonly #engine = new TexEngine();
-    readonly #typst = new TypstEngine();
+    #engine = new TexEngine();
+    #typst = new TypstEngine();
+    /** The part of the build service that last failed to start, until a build works again. */
+    #failure: ServiceFailure | null = null;
     readonly #servers = new Map<LanguageServer, Worker>();
     readonly #files = new Map<string, FileContents>();
     #root: string | null = null;
@@ -123,7 +125,37 @@ export class Frame {
             case 'lsp':
                 this.#servers.get(m.server)?.postMessage(m.message);
                 return;
+            case 'retry':
+                // Fresh engines: whatever failed to load is fetched again.
+                this.#engine = new TexEngine();
+                this.#typst = new TypstEngine();
+                this.#schedule(0);
+                return;
         }
+    }
+
+    /** Reports that a part of the build service could not start, with what the browser got for its files. */
+    async #fail(what: ServiceFailure['what'], message: string, probe: readonly string[]): Promise<void> {
+        const statuses = await Promise.all(
+            probe.map(async url => {
+                try {
+                    const r = await fetch(url, { method: 'HEAD', cache: 'no-store' });
+                    return r.ok ? null : `${url.split('/').pop() ?? url}: HTTP ${r.status}`;
+                } catch {
+                    return `${url.split('/').pop() ?? url}: unreachable`;
+                }
+            }),
+        );
+        const missing = statuses.filter((x): x is string => x !== null);
+        this.#failure = { what, detail: missing.length ? missing.join(', ') : message };
+        this.#bridge.send({ type: 'service', failure: this.#failure });
+    }
+
+    /** After a build that ran: the service works (again). */
+    #recovered(): void {
+        if (this.#failure === null) return;
+        this.#failure = null;
+        this.#bridge.send({ type: 'service', failure: null });
     }
 
     /** A build from the user's computer: shown like one of ours. Only PDFs and SyncTeX cross; the frame parses both, as
@@ -159,6 +191,11 @@ export class Frame {
                 return;
             }
             const out = await this.#engine.build(files, root, this.#engineName);
+            if (out.failure !== undefined) {
+                await this.#fail('tex-engine', out.failure, ['/engine/busytex.js', '/engine/busytex.wasm', '/engine/texlive-basic.data']);
+                return;
+            }
+            this.#recovered();
             const diagnostics = parseTexLog(out.log, root, p => files.has(p));
             if (out.ok && out.pdf !== null) {
                 const sync = out.synctex === null ? null : syncTexMap(parseSynctex(out.synctex));
@@ -169,6 +206,7 @@ export class Frame {
                 ok: out.ok,
                 pages: this.#viewer.pageCount,
                 ms: Math.round(out.ms),
+                log: out.log.slice(-256 * 1024),
                 diagnostics: out.ok
                     ? diagnostics
                     : diagnostics.some(d => d.severity === 'error')
@@ -209,6 +247,11 @@ export class Frame {
      *  carries no SyncTeX). */
     async #buildTypst(files: Map<string, FileContents>, root: string): Promise<void> {
         const out = await this.#typst.build(files, root);
+        if (out.failure !== undefined) {
+            await this.#fail('typst-compiler', out.failure, ['/engine/typst/typst_ts_web_compiler_bg.wasm']);
+            return;
+        }
+        this.#recovered();
         if (out.ok && out.pdf !== null) {
             await this.#viewer.show(out.pdf, null);
             const sources = new Map<string, string>();
