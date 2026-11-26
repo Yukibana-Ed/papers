@@ -114,6 +114,7 @@ export class Viewer {
         scroller.addEventListener('pointerdown', this.#onPointerDown);
         scroller.addEventListener('click', this.#onClick);
         document.addEventListener('selectionchange', this.#onSelectionChange);
+        document.addEventListener('keydown', this.#onKeydown);
     }
 
     /** Replaces the source map of the shown build (a Typst build's, made from the text layer after `show`). */
@@ -605,6 +606,43 @@ export class Viewer {
         this.#selFrame = requestAnimationFrame(() => this.#redrawSelection());
     };
 
+    /** With text selected here, the keys an editor moves a selection's end with do so: Shift with Left or Right by a
+     *  character, with Ctrl too (Option on a Mac) by a word, Shift with Home or End to the line's ends. The page's text
+     *  is not editable, so a browser would not do it by itself. Ctrl with Left or Right alone selects the word before
+     *  or after the selection instead. */
+    #onKeydown = (e: KeyboardEvent): void => {
+        const selection = window.getSelection();
+        if (selection === null || !this.#hasSelection()) return;
+        const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+        const byWord = mac ? e.altKey : e.ctrlKey;
+        if (e.metaKey && !mac) return;
+        const forward = e.key === 'ArrowRight' || e.key === 'End';
+        let step: 'character' | 'word' | 'lineboundary';
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') step = mac && e.metaKey ? 'lineboundary' : byWord ? 'word' : 'character';
+        else if ((e.key === 'Home' || e.key === 'End') && !e.ctrlKey) step = 'lineboundary';
+        else return;
+        if (!e.shiftKey && step !== 'word') return;
+        e.preventDefault();
+        if (e.shiftKey) {
+            selection.modify('extend', forward ? 'forward' : 'backward', step);
+            if (step === 'word') this.#trimSelection();
+            return;
+        }
+        // Without Shift only by word: the next or the previous word becomes the selection, so that the keys keep working
+        // (a caret would not show here) and the source follows word by word. Plain arrows scroll.
+        const next = (): void => {
+            if (forward) selection.collapseToEnd();
+            else selection.collapseToStart();
+            selection.modify('extend', forward ? 'forward' : 'backward', 'word');
+            this.#trimSelection();
+        };
+        next();
+        // From inside a word that gave the rest of that word: the word after it is meant.
+        const r = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+        const beside = r === null ? '' : forward ? (r.startContainer.textContent ?? '').charAt(r.startOffset - 1) : (r.endContainer.textContent ?? '').charAt(r.endOffset);
+        if (/[\p{L}\p{N}]/u.test(beside)) next();
+    };
+
     #hasSelection(): boolean {
         const selection = window.getSelection();
         return selection !== null && !selection.isCollapsed && selection.rangeCount > 0 && this.#column.contains(selection.getRangeAt(0).commonAncestorContainer);
@@ -754,8 +792,8 @@ export class Viewer {
         return a === null || b === null ? null : { first: a, last: b };
     }
 
-    /** A double click selects a word, and the browser takes the space after it too: the selection is cut back to the
-     *  word, so the preview highlights it and the editor mirrors exactly it. */
+    /** A double click selects a word, and the browser takes the space after it too (as a step by a word may): the
+     *  selection is cut back to its words, so the preview highlights them and the editor mirrors exactly them. */
     #trimSelection(): void {
         const selection = window.getSelection();
         if (selection === null || selection.rangeCount === 0 || selection.isCollapsed) return;
@@ -763,7 +801,11 @@ export class Viewer {
         const first = chars.find(c => !/\s/.test(c.node.data[c.offset] ?? ' '));
         const last = chars.findLast(c => !/\s/.test(c.node.data[c.offset] ?? ' '));
         if (first === undefined || last === undefined) return;
-        selection.setBaseAndExtent(first.node, first.offset, last.node, last.offset + 1);
+        // Its direction stays: the keys go on moving the same end.
+        const r = selection.getRangeAt(0);
+        const backward = selection.focusNode === r.startContainer && selection.focusOffset === r.startOffset;
+        if (backward) selection.setBaseAndExtent(last.node, last.offset + 1, first.node, first.offset);
+        else selection.setBaseAndExtent(first.node, first.offset, last.node, last.offset + 1);
     }
 
     /** The current selection's source lines, if it is in the pages. */
@@ -786,6 +828,7 @@ export class Viewer {
     dispose(): void {
         this.#resize.disconnect();
         document.removeEventListener('selectionchange', this.#onSelectionChange);
+        document.removeEventListener('keydown', this.#onKeydown);
         void this.#task?.destroy();
     }
 }

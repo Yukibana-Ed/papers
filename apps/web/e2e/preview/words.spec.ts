@@ -69,6 +69,32 @@ test.describe('words picked in the preview', () => {
         });
     }
 
+    test('with a word selected, the keys move the selection as in an editor, and the source follows', async ({ page }) => {
+        const frame = await preview(page);
+        const selected = (): Promise<string> => frame.locator('body').evaluate(() => (window.getSelection()?.toString() ?? '').trim());
+        const b = await textBox(page, frame, 'where most of them', 'most');
+        await page.mouse.dblclick(b.x + b.width / 2, b.y + b.height / 2);
+        await expect.poll(selected).toBe('most');
+        // By a word with Ctrl+Shift, by a character with Shift.
+        await page.keyboard.press('Control+Shift+ArrowRight');
+        await expect.poll(selected).toBe('most of');
+        await expect.poll(() => selectedInSource(page)).toBe('most of');
+        await page.keyboard.press('Control+Shift+ArrowRight');
+        await expect.poll(selected).toBe('most of them');
+        await page.keyboard.press('Control+Shift+ArrowLeft');
+        await expect.poll(selected).toBe('most of');
+        await page.keyboard.press('Shift+ArrowLeft');
+        await expect.poll(selected).toBe('most o');
+        await expect.poll(() => selectedInSource(page)).toBe('most o');
+        // Ctrl alone: the next word, then the one before it.
+        await page.keyboard.press('Control+ArrowRight');
+        await expect.poll(selected).toBe('them');
+        await expect.poll(() => selectedInSource(page)).toBe('them');
+        await page.keyboard.press('Control+ArrowLeft');
+        await expect.poll(selected).toBe('of');
+        await expect.poll(() => selectedInSource(page)).toBe('of');
+    });
+
     test('a double click on a word hyphenated across lines selects the whole word in the source', async ({ page }) => {
         const frame = await preview(page);
         // Long words at the end of the introduction, so that TeX breaks one across lines.
