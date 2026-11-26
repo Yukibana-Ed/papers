@@ -11,5 +11,5 @@
     /* A Svelte 5 component renders itself recursively by importing itself (svelte:self is deprecated). */
     "import/no-self-import": "off"
   },
-  "ignorePatterns": ["build/**", ".svelte-kit/**", "static/**", "node_modules/**"]
+  "ignorePatterns": ["build/**", ".svelte-kit/**", "static/**", "node_modules/**", "scripts/*.mjs"]
 }

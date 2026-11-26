@@ -798,7 +798,8 @@ button {
     text-decoration-color: color-mix(in oklch, var(--yk-chip-violet-fg) 50%, transparent);
     text-underline-offset: 3px;
 }
-.mirror-line {
+.mirror-line,
+.mirror-range {
     background: var(--yk-chip-blue-bg);
 }
 .hover-line {

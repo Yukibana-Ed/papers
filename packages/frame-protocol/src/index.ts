@@ -19,11 +19,14 @@ export interface SourcePoint {
     readonly column?: number;
 }
 
-/** A range of whole source lines, `startLine <= endLine`. */
+/** A range of source lines, `startLine <= endLine`: whole lines, or from `startColumn` on `startLine` to before
+ *  `endColumn` on `endLine` when both are given (1-based, as the editor counts). */
 export interface SourceLines {
     readonly file: string;
     readonly startLine: number;
     readonly endLine: number;
+    readonly startColumn?: number;
+    readonly endColumn?: number;
 }
 
 /** A comment's anchor as the preview should mark it. */
@@ -215,7 +218,15 @@ function isPoint(x: unknown): x is SourcePoint {
     return isRecord(x) && isString(x['file']) && isLine(x['line']) && (x['column'] === undefined || isLine(x['column']));
 }
 function isLines(x: unknown): x is SourceLines {
-    return isRecord(x) && isString(x['file']) && isLine(x['startLine']) && isLine(x['endLine']) && x['startLine'] <= x['endLine'];
+    return (
+        isRecord(x) &&
+        isString(x['file']) &&
+        isLine(x['startLine']) &&
+        isLine(x['endLine']) &&
+        x['startLine'] <= x['endLine'] &&
+        (x['startColumn'] === undefined || isLine(x['startColumn'])) &&
+        (x['endColumn'] === undefined || isLine(x['endColumn']))
+    );
 }
 function isDiagnostic(x: unknown): boolean {
     return (

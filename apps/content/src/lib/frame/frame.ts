@@ -164,6 +164,7 @@ export class Frame {
      *  for its own builds, since they come from the project's (untrusted) sources either way. */
     async #showOutput(m: Extract<AppMessage, { type: 'output' }>): Promise<void> {
         if (m.ok && m.pdf !== null) {
+            this.#viewer.setSources(textSources(this.#files), 'latex');
             const sync = m.synctex === null ? null : syncTexMap(parseSynctex(await synctexText(m.synctex)));
             await this.#viewer.show(m.pdf, sync);
         }
@@ -188,6 +189,7 @@ export class Frame {
             this.#bridge.send({ type: 'status', status: this.#started ? 'compiling' : 'loading' });
             this.#started = true;
             const files = new Map(this.#files);
+            this.#viewer.setSources(textSources(files), this.#engineName === 'typst' ? 'typst' : 'latex');
             if (this.#engineName === 'typst') {
                 await this.#buildTypst(files, root);
                 return;
@@ -304,4 +306,11 @@ async function synctexText(bytes: Uint8Array): Promise<string> {
 function lastError(log: string): string {
     const lines = log.split('\n').filter(l => l.startsWith('!'));
     return (lines.at(-1) ?? '! Build failed').slice(1).trim();
+}
+
+/** The project's text files (path → text), which the preview aligns with the document for its sync to the word. */
+function textSources(files: ReadonlyMap<string, FileContents>): Map<string, string> {
+    const out = new Map<string, string>();
+    for (const [path, c] of files) if (typeof c === 'string') out.set(path, c);
+    return out;
 }
