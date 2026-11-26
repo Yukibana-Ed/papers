@@ -27,7 +27,7 @@ export interface SourceEditorEvents {
 export interface Diagnostic {
     readonly file: string;
     readonly line: number;
-    readonly severity: 'error' | 'warning';
+    readonly severity: 'error' | 'warning' | 'info';
     readonly message: string;
 }
 
@@ -559,21 +559,43 @@ export class SourceEditor {
         }
     }
 
+    /** Shows the build's problems: squiggles with the message on hover, the line number in the problem's colour, and
+     *  for an error its message at the end of its line, so a broken line says what is wrong without opening anything.
+     *  Callers pass problems only once a build has settled, never mid-word. */
     setDiagnostics(list: readonly Diagnostic[]): void {
         for (const [f, m] of this.models) {
-            const markers = list
-                .filter(d => d.file === f && d.line >= 1 && d.line <= m.getLineCount())
-                .map(d => ({
-                    severity: d.severity === 'error' ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
-                    message: d.message,
-                    startLineNumber: d.line,
-                    endLineNumber: d.line,
-                    startColumn: m.getLineFirstNonWhitespaceColumn(d.line) || 1,
-                    endColumn: m.getLineMaxColumn(d.line),
-                }));
+            const mine = list.filter(d => d.file === f && d.line >= 1 && d.line <= m.getLineCount());
+            const markers = mine.map(d => ({
+                severity: d.severity === 'error' ? monaco.MarkerSeverity.Error : d.severity === 'warning' ? monaco.MarkerSeverity.Warning : monaco.MarkerSeverity.Info,
+                message: d.message,
+                startLineNumber: d.line,
+                endLineNumber: d.line,
+                startColumn: m.getLineFirstNonWhitespaceColumn(d.line) || 1,
+                endColumn: m.getLineMaxColumn(d.line),
+            }));
             monaco.editor.setModelMarkers(m, 'tex', markers);
+            const seen = new Set<number>();
+            const decos: Editor.IModelDeltaDecoration[] = [];
+            for (const d of mine) {
+                if (d.severity === 'info' || seen.has(d.line)) continue;
+                seen.add(d.line);
+                const end = m.getLineMaxColumn(d.line);
+                decos.push({
+                    range: new monaco.Range(d.line, end, d.line, end),
+                    options: {
+                        showIfCollapsed: true,
+                        lineNumberClassName: `ln-${d.severity}`,
+                        ...(d.severity === 'error'
+                            ? { after: { content: `  ${d.message}`, inlineClassName: 'inline-problem', cursorStops: monaco.editor.InjectedTextCursorStops.None } }
+                            : {}),
+                    },
+                });
+            }
+            this.problemDecos.set(f, m.deltaDecorations(this.problemDecos.get(f) ?? [], decos));
         }
     }
+
+    private readonly problemDecos = new Map<string, string[]>();
 
     setTheme(dark: boolean): void {
         applyTheme(dark);

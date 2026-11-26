@@ -6,6 +6,10 @@
     import type { CommentOps } from '#lib/comments/ops.ts';
     import type { SourceEditor } from '#lib/editor/source-editor.ts';
     import BuilderMenu from '#lib/preview/BuilderMenu.svelte';
+    import { nextProblem, type Problem } from '#lib/problems/model.ts';
+    import PreviewErrors from '#lib/problems/PreviewErrors.svelte';
+    import ProblemsPanel from '#lib/problems/ProblemsPanel.svelte';
+    import ServiceState from '#lib/problems/ServiceState.svelte';
     import Preview from '#lib/preview/Preview.svelte';
     import type { RoomClient } from '#lib/room/client.ts';
     import type { Session } from '#lib/session.svelte.ts';
@@ -63,7 +67,12 @@
     $effect(() => editor?.setSuggestMode(s.suggestMode));
     $effect(() => editor?.setPresence(s.presence, s.users));
     $effect(() => editor?.setMirror(s.mirror));
-    $effect(() => editor?.setDiagnostics(s.build.errors.map((e) => ({ ...e, severity: 'error' as const }))));
+    // The settled build's problems (language servers mark their own); notes only when the Problems panel shows them.
+    $effect(() =>
+        editor?.setDiagnostics(
+            s.problems.filter((p) => p.sources.includes('build') && (p.severity !== 'info' || s.showNotes)).map((p) => ({ file: p.file, line: p.line, severity: p.severity, message: p.message })),
+        ),
+    );
     $effect(() => {
         const dark = s.dark;
         // After data-theme has changed on <html>, which the token colours resolve against.
@@ -89,7 +98,7 @@
             // The server first, then the client, whose first message (initialize) must find it.
             let c: InstanceType<typeof LanguageClient> | null = null;
             p.startServer('tinymist', (m) => c?.receive(m as Parameters<InstanceType<typeof LanguageClient>['receive']>[0]));
-            c = new LanguageClient('typst', 'tinymist', (m) => p.lspSend('tinymist', m), tinymistProfile());
+            c = new LanguageClient('typst', 'tinymist', (m) => p.lspSend('tinymist', m), tinymistProfile(), (file, items) => s.setLanguageProblems('tinymist', file, items));
             languageClient = c;
         });
         return () => languageClient?.dispose();
@@ -210,6 +219,10 @@
         { id: 'outline', name: 'Outline', kbd: 'Ctrl+Shift+O', run: () => s.togglePanel('outline') },
         { id: 'files', name: 'Files', kbd: 'Ctrl+Shift+E', run: () => s.togglePanel('files') },
         { id: 'comments', name: 'Comments', kbd: 'Ctrl+Shift+M', run: () => s.togglePanel('comments') },
+        { id: 'problems', name: 'Problems', kbd: 'Ctrl+Shift+Y', run: () => s.togglePanel('problems') },
+        { id: 'problem-next', name: 'Next problem', kbd: 'F8', run: () => stepProblem(1) },
+        { id: 'problem-prev', name: 'Previous problem', kbd: 'Shift+F8', run: () => stepProblem(-1) },
+        { id: 'build-log', name: 'Show build log', run: showLog },
         { id: 'log', name: 'Show log', run: () => (s.popover = 'log') },
         ...s.branchNames.filter((b) => b !== s.branch).map((b) => ({ id: `br-${b}`, name: `Switch to ${b}`, run: () => s.switchBranch(b) })),
         { id: 'newbranch', name: 'New branch', run: () => (s.popover = 'branch') },
@@ -224,6 +237,7 @@
     /** The command for a key, as the header's tooltips name them; null for keys that are not ours. */
     function commandFor(k: { key: string; code: string; ctrl: boolean; shift: boolean; alt: boolean }): string | null {
         const key = k.key.toLowerCase();
+        if (k.key === 'F8' && !k.ctrl && !k.alt) return k.shift ? 'problem-prev' : 'problem-next';
         if (!k.ctrl) return null;
         if (!k.shift && !k.alt && key === 'k') return 'palette';
         if (k.shift && key === 'p') return 'palette';
@@ -234,6 +248,7 @@
         if (k.shift && key === 'o') return 'outline';
         if (k.shift && key === 'e') return 'files';
         if (k.shift && key === 'm') return 'comments';
+        if (k.shift && key === 'y') return 'problems';
         if (key === '=' || key === '+') return 'zoomin';
         if (key === '-') return 'zoomout';
         return null;
@@ -268,11 +283,38 @@
         if (e.key === 'Escape' && s.popover) s.popover = null;
     }
 
-    const rail: readonly { id: 'outline' | 'files' | 'comments'; icon: IconName; name: string; kbd: string }[] = [
+    const rail: readonly { id: 'outline' | 'files' | 'comments' | 'problems'; icon: IconName; name: string; kbd: string }[] = [
         { id: 'outline', icon: 'outline', name: 'Outline', kbd: 'Ctrl+Shift+O' },
         { id: 'files', icon: 'files', name: 'Files', kbd: 'Ctrl+Shift+E' },
         { id: 'comments', icon: 'comment', name: 'Comments', kbd: 'Ctrl+Shift+M' },
+        { id: 'problems', icon: 'alert', name: 'Problems', kbd: 'Ctrl+Shift+Y' },
     ];
+
+    /** Opens a problem's place in the source. */
+    function openProblem(p: Problem): void {
+        openFile(p.file, p.line, p.column ?? 1);
+    }
+
+    /** F8 / Shift+F8: the next or previous problem from the cursor, in document order. */
+    function stepProblem(dir: 1 | -1): void {
+        const p = nextProblem(s.problems, s.order, s.cursor.file, s.cursor.line, dir);
+        if (p) openProblem(p);
+    }
+
+    function showLog(): void {
+        s.showLog = true;
+        s.panel = 'problems';
+    }
+
+    /** Problems by file, for the file list's marks. */
+    const problemFiles = $derived.by(() => {
+        const m = new Map<string, 'error' | 'warning'>();
+        for (const p of s.problems) {
+            if (p.severity === 'error') m.set(p.file, 'error');
+            else if (p.severity === 'warning' && !m.has(p.file)) m.set(p.file, 'warning');
+        }
+        return m;
+    });
 </script>
 
 <svelte:window onkeydowncapture={onKeydown} onmousedown={onMousedown} onkeydown={onEscape} />
@@ -294,6 +336,8 @@
                 <Icon name={r.icon} size={18} />
                 {#if r.id === 'comments' && s.openCount > 0}<span class="rail-badge">{s.openCount}</span>{/if}
                 {#if r.id === 'files' && s.changes.length > 0}<span class="rail-dot"></span>{/if}
+                {#if r.id === 'problems' && s.problemCounts.error > 0}<span class="rail-badge rail-badge-error">{s.problemCounts.error}</span>
+                {:else if r.id === 'problems' && s.problemCounts.warning > 0}<span class="rail-dot rail-dot-warning"></span>{/if}
             </button>
         {/each}
         <span class="grow"></span>
@@ -336,11 +380,15 @@
                                 <Icon name={isRoot ? 'doc' : 'files'} size={14} />
                                 <span class:strong={!f.includes('/')}>{short(f)}</span>
                                 <span class="grow"></span>
+                                {#if problemFiles.get(f) === 'error'}<span class="file-problem sev-error" {...tip('Errors')}><Icon name="alert" size={12} /></span>
+                                {:else if problemFiles.get(f) === 'warning'}<span class="file-problem sev-warning" {...tip('Warnings')}><Icon name="warning" size={12} /></span>{/if}
                                 {#if s.changes.some((c) => c.file === f)}<span class="mod" aria-label="uncommitted">M</span>{/if}
                             </button>
                         </li>
                     {/each}
                 </ul>
+            {:else if s.panel === 'problems'}
+                <ProblemsPanel session={s} onOpen={openProblem} />
             {:else}
                 {#await import('#lib/comments/CommentsPanel.svelte') then { default: CommentsPanel }}
                     <CommentsPanel {ops} />
@@ -406,14 +454,15 @@
             {:else}
                 <span class="pv-doc static">{short(s.root)}</span>
             {/if}
-            {#if s.build.errors.length > 0}
-                {@const e = s.build.errors[0]}
-                {#if e}
-                    <button type="button" class="pv-err" onclick={() => openFile(e.file, e.line)} {...tip(e.message, null, `${short(e.file)}:${e.line} · showing last good pages`)}>
-                        <Icon name="alert" size={13} />{s.build.errors.length}
-                        {s.build.errors.length === 1 ? 'error' : 'errors'}
-                    </button>
-                {/if}
+            {#if s.problemCounts.error > 0}
+                <button type="button" class="pv-count sev-error" onclick={() => (s.panel = 'problems')} {...tip('Problems', 'Ctrl+Shift+Y', `${s.problemCounts.error} ${s.problemCounts.error === 1 ? 'error' : 'errors'}`)}>
+                    <Icon name="alert" size={13} />{s.problemCounts.error}
+                </button>
+            {/if}
+            {#if s.problemCounts.warning > 0}
+                <button type="button" class="pv-count sev-warning" onclick={() => (s.panel = 'problems')} {...tip('Problems', 'Ctrl+Shift+Y', `${s.problemCounts.warning} ${s.problemCounts.warning === 1 ? 'warning' : 'warnings'}`)}>
+                    <Icon name="warning" size={13} />{s.problemCounts.warning}
+                </button>
             {/if}
             <div class="yk-dock-actions">
                 {#if s.build.status !== 'idle'}
@@ -473,7 +522,16 @@
                 </div>
             {/if}
         </div>
-        <Preview bind:this={preview} session={s} {contentOrigin} {onJump} {onAction} onKey={onFrameKey} />
+        <!-- The preview's states: a service failure fills it; errors list themselves at its top, over the last good PDF
+             (dimmed, still scrollable and clickable) or, without one, filling it. -->
+        <div class="pv-body" class:has-errors={!s.service && s.buildErrors.length > 0} class:no-pdf={s.service !== null || (s.buildErrors.length > 0 && s.shownBuild.pages === 0)}>
+            {#if s.service}
+                <ServiceState failure={s.service} onRetry={() => preview?.retry()} />
+            {:else}
+                <PreviewErrors session={s} onOpen={openProblem} onLog={showLog} />
+            {/if}
+            <Preview bind:this={preview} session={s} {contentOrigin} {onJump} {onAction} onKey={onFrameKey} />
+        </div>
     </section>
 
     {#if s.palette}<Palette {commands} onClose={() => (s.palette = false)} />{/if}
