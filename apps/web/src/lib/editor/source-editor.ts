@@ -97,6 +97,8 @@ export class SourceEditor {
             unicodeHighlight: { ambiguousCharacters: false },
             quickSuggestions: false,
             contextmenu: true,
+            // The menu's styles are in the page's stylesheet, which does not reach into a shadow root.
+            useShadowDOM: false,
             guides: { indentation: false },
             stickyScroll: { enabled: false },
             // Hover, completion and parameter hints float over the page, not inside the editor's box, so they are never
