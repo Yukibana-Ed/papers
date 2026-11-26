@@ -101,8 +101,12 @@ export class Session {
     tabs = $state<string[]>([]);
     activeFile = $state('');
     cursor = $state<Cursor>({ file: '', line: 1, col: 1 });
+    /** The one selection, as the source editor holds it: made there, or taken from the preview (`selectionFrom`). */
     selection = $state<Lines | null>(null);
-    /** The lines of a selection made in the preview, mirrored in the source. */
+    /** Where `selection` was made. The preview is sent only a selection made in the source: it shows its own. */
+    selectionFrom: 'source' | 'preview' = 'source';
+    /** The source lines of the text selected in the preview, which the source editor takes as its selection; null
+     *  when nothing is selected there. */
     mirror = $state<Lines | null>(null);
     /** The lines whose typeset text is under the pointer in the preview, softly marked in the source. */
     hover = $state<Lines | null>(null);
@@ -313,7 +317,6 @@ export class Session {
 
     setCursor(c: Cursor): void {
         this.cursor = c;
-        this.mirror = null;
         if (this.root) this.lastRoot = this.root;
     }
 

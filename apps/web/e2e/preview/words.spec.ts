@@ -1,4 +1,5 @@
 import { expect, test, type FrameLocator, type Page } from '@playwright/test';
+import { state } from '../editor/helpers.ts';
 import { openComments, openDemo } from '../support.ts';
 
 /** Words picked in the preview reach the source exactly, and comments on words are marked on those words: with the
@@ -41,33 +42,9 @@ async function textBox(page: Page, frame: FrameLocator, inRun: string, text: str
     return { ...r, x: r.x + iframe.x, y: r.y + iframe.y };
 }
 
-/** The source text the editor's mirror of the preview's selection covers (the characters whose middles lie inside it). */
-async function mirroredText(page: Page): Promise<string> {
-    await expect(page.locator('.monaco-editor .mirror-range').first()).toBeAttached();
-    return page.evaluate(() => {
-        const out: string[] = [];
-        for (const d of document.querySelectorAll('.monaco-editor .mirror-range')) {
-            const r = d.getBoundingClientRect();
-            for (const line of document.querySelectorAll('.monaco-editor .view-line')) {
-                if (Math.abs(line.getBoundingClientRect().top - r.top) > 3) continue;
-                let s = '';
-                const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
-                for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
-                    const text = n.textContent ?? '';
-                    for (let i = 0; i < text.length; i++) {
-                        const c = document.createRange();
-                        c.setStart(n, i);
-                        c.setEnd(n, i + 1);
-                        const b = c.getBoundingClientRect();
-                        const mid = b.left + b.width / 2;
-                        if (mid > r.left && mid < r.right) s += text[i];
-                    }
-                }
-                out.push(s);
-            }
-        }
-        return out.join('\n').replace(/ /g, ' ');
-    });
+/** The text selected in the source editor: what a selection made in the preview becomes there. */
+async function selectedInSource(page: Page): Promise<string> {
+    return (await state(page)).selection;
 }
 
 test.describe('words picked in the preview', () => {
@@ -88,7 +65,7 @@ test.describe('words picked in the preview', () => {
             await page.mouse.dblclick(b.x + b.width / 2, b.y + b.height / 2);
             // The preview selects the word without the space after it, and the editor mirrors exactly the word.
             await expect.poll(() => frame.locator('body').evaluate(() => window.getSelection()?.toString() ?? '')).toBe(word);
-            await expect.poll(() => mirroredText(page)).toBe(word);
+            await expect.poll(() => selectedInSource(page)).toBe(word);
         });
     }
 
@@ -111,7 +88,7 @@ test.describe('words picked in the preview', () => {
         expect(word).not.toBe('');
         const b = await textBox(page, frame, text, `${part}-`);
         await page.mouse.dblclick(b.x + 2, b.y + b.height / 2);
-        await expect.poll(() => mirroredText(page)).toBe(word);
+        await expect.poll(() => selectedInSource(page)).toBe(word);
     });
 
     test('a comment on two words is marked on those words, not their line', async ({ page }) => {

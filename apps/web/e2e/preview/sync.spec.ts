@@ -1,4 +1,5 @@
 import { expect, test, type FrameLocator, type Page } from '@playwright/test';
+import { state } from '../editor/helpers.ts';
 import { openDemo } from '../support.ts';
 
 /** Source ⇄ preview sync to the word and the character, with the real TeX engine, on the demo's introduction:
@@ -95,6 +96,39 @@ test.describe('sync to the word', () => {
             .evaluate(el => el.getBoundingClientRect().width);
         // The mirror is redrawn as the selection settles: wait for the narrow one.
         await expect.poll(async () => Math.min(...(await frame.locator('.pv-hl-mirror').evaluateAll(els => els.map(e => e.getBoundingClientRect().width))))).toBeLessThan(line);
+    });
+
+    test("there is one selection: made in the preview it is the source's, and made in the source it replaces the preview's", async ({ page }) => {
+        const frame = await preview(page);
+        await expect(page.locator('.pv-spin')).toHaveCount(0, { timeout: 120_000 });
+        await expect(frame.locator('.pv-pages[data-sync]')).toBeAttached({ timeout: 60_000 });
+        const selectedInPreview = (): Promise<string> => frame.locator('body').evaluate(() => window.getSelection()?.toString() ?? '');
+
+        // A word picked in the preview is the editor's selection, and the preview shows it once, as its own.
+        const word = await charBox(page, frame, 'struggle', 0, 8);
+        await page.mouse.dblclick(word.x + word.width / 2, word.y + word.height / 2);
+        await expect.poll(selectedInPreview).toBe('struggle');
+        await expect.poll(async () => (await state(page)).selection).toBe('struggle');
+        await expect(frame.locator('.pv-hl-mirror')).toHaveCount(0);
+
+        // A selection made in the source takes over: the preview's own goes, and the source's is shown there.
+        await page.locator('.monaco-editor .view-lines').getByText('where most of them struggle.').click();
+        await page.keyboard.press('Home');
+        await page.keyboard.press('Shift+End');
+        await expect.poll(selectedInPreview).toBe('');
+        await expect(frame.locator('.pv-hl-mirror').first()).toBeAttached();
+
+        // And back: picking a word in the preview replaces the source's selection and its highlight there.
+        const again = await charBox(page, frame, 'struggle', 0, 8);
+        await page.mouse.dblclick(again.x + again.width / 2, again.y + again.height / 2);
+        await expect.poll(async () => (await state(page)).selection).toBe('struggle');
+        await expect(frame.locator('.pv-hl-mirror')).toHaveCount(0);
+
+        // With nothing selected in the source any more, nothing is selected in the preview either.
+        await page.locator('.monaco-editor .view-lines').getByText('where most of them struggle.').click();
+        await expect.poll(selectedInPreview).toBe('');
+        await expect.poll(async () => (await state(page)).selection).toBe('');
+        await expect(frame.locator('.pv-hl-mirror')).toHaveCount(0);
     });
 });
 

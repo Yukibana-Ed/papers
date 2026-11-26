@@ -346,8 +346,10 @@ export class Viewer {
         this.#drawOverlays();
     }
 
+    /** Shows the selection made in the source (`lines`; null: none). There is one selection: text selected here goes. */
     setMirror(lines: SourceLines | null): void {
         this.#mirror = lines;
+        if (this.#hasSelection()) window.getSelection()?.removeAllRanges();
         this.#drawOverlays();
     }
 
@@ -572,6 +574,8 @@ export class Viewer {
         const x = (e.clientX - rect.left) / s;
         const y = (e.clientY - rect.top) / s;
         const word = wordAt(e.clientX, e.clientY);
+        // The click takes the selection over: what the source had selected is no longer shown.
+        if (this.#mirror !== null) this.setMirror(null);
         const exact = this.#precise?.pointToSource(n, x, y) ?? null;
         if (exact !== null) {
             this.#events.jump({ file: exact.file, line: exact.line, column: exact.column + 1 }, word);
@@ -670,6 +674,11 @@ export class Viewer {
         if (range === null || !this.#column.contains(range.commonAncestorContainer)) {
             this.#events.selection(null, '', null);
             return;
+        }
+        // Text selected here takes the selection over from the source.
+        if (this.#mirror !== null) {
+            this.#mirror = null;
+            this.#drawOverlays();
         }
         const byPage = new Map<PageView, Rect[]>();
         const boxes = this.#pages.map(p => ({ p, r: p.el.getBoundingClientRect() }));

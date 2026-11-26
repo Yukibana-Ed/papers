@@ -75,7 +75,8 @@ export type AppMessage =
     | { readonly type: 'root'; readonly root: string; readonly engine: Engine }
     /** Show this source position. `follow`: move only if it is off-screen (the cursor moved); `jump`: always, and flash. */
     | { readonly type: 'reveal'; readonly at: SourcePoint; readonly mode: 'follow' | 'jump' }
-    /** The source selection, mirrored in the preview; null clears it. */
+    /** The selection made in the source, shown in the preview in place of any selection made there; null when the
+     *  source's selection is gone, which clears both. */
     | { readonly type: 'mirror'; readonly lines: SourceLines | null }
     | { readonly type: 'marks'; readonly marks: readonly PreviewMark[] }
     | { readonly type: 'presence'; readonly presence: readonly PreviewPresence[] }
@@ -134,7 +135,8 @@ export type FrameMessage =
     | { readonly type: 'service'; readonly failure: ServiceFailure | null }
     /** The user clicked a spot in the preview: go to its source. `word` is the word under the pointer, if any. */
     | { readonly type: 'jump'; readonly at: SourcePoint; readonly word: string | null }
-    /** The user selected text in the preview, or chose an action of the selection's toolbar. */
+    /** The text selected in the preview changed (`lines` null: nothing is selected there now). The app makes it the
+     *  source's selection. */
     | { readonly type: 'selection'; readonly lines: SourceLines | null; readonly text: string }
     /** The pointer is over the typeset text of these source lines in the preview, or (null) over none. */
     | { readonly type: 'hover'; readonly lines: SourceLines | null }

@@ -36,7 +36,6 @@ export interface Diagnostic {
 interface FileDecorations {
     threads: string[];
     presence: string[];
-    mirror: string[];
     hover: string[];
 }
 
@@ -262,7 +261,7 @@ export class SourceEditor {
     private D(f: string): FileDecorations {
         let d = this.deco.get(f);
         if (!d) {
-            d = { threads: [], presence: [], mirror: [], hover: [] };
+            d = { threads: [], presence: [], hover: [] };
             this.deco.set(f, d);
         }
         return d;
@@ -408,7 +407,7 @@ export class SourceEditor {
         }
     }
 
-    // --- presence, mirror, diagnostics, theme ---------------------------------------------------------------------------
+    // --- presence, hover, diagnostics, theme ---------------------------------------------------------------------------
 
     /** Others' cursors: a caret at the end of their line, with their name. */
     setPresence(list: readonly Presence[], users: Readonly<Record<string, User>>): void {
@@ -436,23 +435,6 @@ export class SourceEditor {
                     };
                 });
             this.D(f).presence = m.deltaDecorations(this.D(f).presence, decos);
-        }
-    }
-
-    /** Where the preview's selection came from, highlighted: the exact text when the preview could place both ends
-     *  to the word, else whole lines; null clears it. */
-    setMirror(lines: Lines | null): void {
-        for (const [f, m] of this.models) {
-            const exact = lines?.startColumn !== undefined && lines.endColumn !== undefined;
-            const list =
-                lines && lines.file === f
-                    ? [
-                          exact
-                              ? { range: new monaco.Range(lines.startLine, lines.startColumn ?? 1, lines.endLine, lines.endColumn ?? 1), options: { className: 'mirror-range' } }
-                              : { range: new monaco.Range(lines.startLine, 1, lines.endLine, 1), options: { isWholeLine: true, className: 'mirror-line' } },
-                      ]
-                    : [];
-            this.D(f).mirror = m.deltaDecorations(this.D(f).mirror, list);
         }
     }
 
@@ -549,19 +531,21 @@ export class SourceEditor {
         };
     }
 
-    /** Selects what a selection made in the preview came from, so a comment can be made on it: the exact text when it
-     *  has columns, else whole lines. */
-    selectLines(lines: Lines): void {
+    /** Selects what a selection made in the preview came from: the exact text when it has columns, else whole lines.
+     *  Takes the keyboard unless `focus` is false. */
+    selectLines(lines: Lines, focus = true): void {
         const m = this.models.get(lines.file);
         if (!m) return;
         const end = Math.min(lines.endLine, m.getLineCount());
         if (lines.startColumn !== undefined && lines.endColumn !== undefined) {
             this.reveal(lines.file, lines.startLine, lines.startColumn, {
+                focus,
                 select: { startLineNumber: lines.startLine, startColumn: lines.startColumn, endLineNumber: end, endColumn: lines.endColumn },
             });
             return;
         }
         this.reveal(lines.file, lines.startLine, 1, {
+            focus,
             select: {
                 startLineNumber: lines.startLine,
                 startColumn: m.getLineFirstNonWhitespaceColumn(lines.startLine) || 1,
@@ -569,6 +553,12 @@ export class SourceEditor {
                 endColumn: m.getLineMaxColumn(end),
             },
         });
+    }
+
+    /** Leaves nothing selected: the caret stays where the selection began. */
+    collapseSelection(): void {
+        const s = this.ed.getSelection();
+        if (s && !s.isEmpty()) this.ed.setPosition(s.getStartPosition());
     }
 
     lineText(file: string, line: number): string | null {
