@@ -1,4 +1,4 @@
-import { CLASSES, COMMANDS, ENVIRONMENTS, PACKAGES } from './catalog.ts';
+import { CLASSES, COMMANDS, ENVIRONMENTS, environmentSnippet, PACKAGES } from './catalog.ts';
 
 /** LaTeX completion without a language server: what a project's files define (labels, bibliography entries, commands,
  *  environments) kept per file and parsed again only when that file changes, and what to offer at a position. */
@@ -101,12 +101,13 @@ export class LatexIndex {
 export interface Offer {
     readonly label: string;
     readonly insert: string;
-    readonly kind: 'command' | 'environment' | 'label' | 'citation' | 'file' | 'package' | 'class';
+    readonly kind: 'command' | 'snippet' | 'environment' | 'label' | 'citation' | 'file' | 'package' | 'class';
     readonly detail: string;
 }
 
 /** What to offer where the cursor is, `before` being its line up to the cursor and `after` the rest of the line;
- *  `start` is the column (0-based) from which the offers replace. Null when nothing applies (the editor then shows
+ *  `start` is the column (0-based) from which the offers replace. After a backslash the offers are the commands and
+ *  then whole environments (`\begin{itemize}` with its `\item` and `\end`). Null when nothing applies (the editor then shows
  *  nothing, rather than words of the file). `file` is the file being edited, for paths relative to its folder. */
 export function complete(before: string, after: string, index: LatexIndex, file: string): { start: number; offers: Offer[] } | null {
     const arg = /\\([A-Za-z]+\*?)(?:\[[^\]]*\])?\{([^{}]*)$/.exec(before);
@@ -123,8 +124,8 @@ export function complete(before: string, after: string, index: LatexIndex, file:
                 start,
                 offers: names.map(n => ({
                     label: n,
-                    // With its \end, unless the brace is closed already (editing an existing \begin).
-                    insert: closes ? n : `${n}}\n\t$0\n\\end{${n}}`,
+                    // The whole environment, unless the brace is closed already (editing an existing \begin).
+                    insert: closes ? n : environmentSnippet(n),
                     kind: 'environment',
                     detail: '',
                 })),
@@ -173,6 +174,9 @@ export function complete(before: string, after: string, index: LatexIndex, file:
             seen.add(c.name);
             offers.push({ label: `\\${c.name}`, insert: `${c.name}${c.args}`, kind: 'command', detail: c.from });
         }
+        // Whole environments, found by `\beg…` and by their own name (`\item…` finds itemize): after the commands.
+        for (const n of new Set([...index.environments(), ...ENVIRONMENTS]))
+            offers.push({ label: `\\begin{${n}}`, insert: `begin{${environmentSnippet(n)}`, kind: 'snippet', detail: '' });
         return { start, offers };
     }
     return null;

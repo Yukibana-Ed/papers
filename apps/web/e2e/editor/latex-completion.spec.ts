@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { caretAt, openDemo } from './helpers.ts';
+import { caretAt, openDemo, state } from './helpers.ts';
 
 /** LaTeX completion in the editor itself, from the project's files: what the suggest widget offers where, and how
  *  soon. The demo: sections/intro.tex, with refs.bib (becker2019, hattie2007, edwards2004). */
@@ -33,6 +33,30 @@ test.describe('LaTeX completion', () => {
         expect(r.labels).toContain('itemize');
         await page.keyboard.press('Enter');
         await expect(page.locator('.monaco-editor .view-lines')).toContainText('\\end{itemize}');
+    });
+
+    test('a whole list from \\item…, with its first \\item and the caret after it', async ({ page }) => {
+        await openDemo(page);
+        const r = await suggest(page, '\\itemi');
+        expect(r.labels).toEqual(['\\begin{itemize}']);
+        await page.keyboard.press('Enter');
+        await page.keyboard.type('first');
+        const text = (await state(page)).text;
+        // Indented as the file is.
+        expect(text).toMatch(/\\begin\{itemize\}\n\s+\\item first\n\\end\{itemize\}$/);
+    });
+
+    test('whole environments from \\beg…, and a figure with its parts', async ({ page }) => {
+        await openDemo(page);
+        const r = await suggest(page, '\\begin{fig');
+        expect(r.labels[0]).toBe('figure');
+        await page.keyboard.press('Escape');
+        await page.keyboard.press('Control+Backspace');
+        await page.keyboard.press('Control+Backspace');
+        await page.keyboard.press('Control+Backspace');
+        const all = await suggest(page, '\\beg');
+        expect(all.labels[0]).toBe('\\begin');
+        expect(all.labels).toContain('\\begin{figure}');
     });
 
     test('citations from the project’s bibliography', async ({ page }) => {
