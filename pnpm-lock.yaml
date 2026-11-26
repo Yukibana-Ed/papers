@@ -325,6 +325,9 @@ catalogs:
       specifier: 6.0.3
       version: 6.0.3
 
+patchedDependencies:
+  '@myriaddreamin/typst-ts-web-compiler@0.8.0-rc4': 75431c7fa54fe628b1b5389b57506b5471a82897b5a0322c97f2a06083942c2b
+
 importers:
 
   .:
@@ -346,10 +349,10 @@ importers:
     dependencies:
       '@myriaddreamin/typst-ts-web-compiler':
         specifier: 'catalog:'
-        version: 0.8.0-rc4
+        version: 0.8.0-rc4(patch_hash=75431c7fa54fe628b1b5389b57506b5471a82897b5a0322c97f2a06083942c2b)
       '@myriaddreamin/typst.ts':
         specifier: 'catalog:'
-        version: 0.8.0-rc4(@myriaddreamin/typst-ts-web-compiler@0.8.0-rc4)
+        version: 0.8.0-rc4(@myriaddreamin/typst-ts-web-compiler@0.8.0-rc4(patch_hash=75431c7fa54fe628b1b5389b57506b5471a82897b5a0322c97f2a06083942c2b))
       '@yukibana/papers-frame-protocol':
         specifier: 'catalog:'
         version: link:../../packages/frame-protocol
@@ -3232,13 +3235,13 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@myriaddreamin/typst-ts-web-compiler@0.8.0-rc4': {}
+  '@myriaddreamin/typst-ts-web-compiler@0.8.0-rc4(patch_hash=75431c7fa54fe628b1b5389b57506b5471a82897b5a0322c97f2a06083942c2b)': {}
 
-  '@myriaddreamin/typst.ts@0.8.0-rc4(@myriaddreamin/typst-ts-web-compiler@0.8.0-rc4)':
+  '@myriaddreamin/typst.ts@0.8.0-rc4(@myriaddreamin/typst-ts-web-compiler@0.8.0-rc4(patch_hash=75431c7fa54fe628b1b5389b57506b5471a82897b5a0322c97f2a06083942c2b))':
     dependencies:
       idb: 7.1.1
     optionalDependencies:
-      '@myriaddreamin/typst-ts-web-compiler': 0.8.0-rc4
+      '@myriaddreamin/typst-ts-web-compiler': 0.8.0-rc4(patch_hash=75431c7fa54fe628b1b5389b57506b5471a82897b5a0322c97f2a06083942c2b)
 
   '@napi-rs/canvas-android-arm64@1.1.0':
     optional: true
