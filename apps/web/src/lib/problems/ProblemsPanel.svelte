@@ -4,11 +4,15 @@
     import type { IconName } from '#lib/ui/icons.ts';
     import { tip } from '#lib/ui/tooltip.ts';
     import { byFile, type Problem, type Severity } from './model.ts';
+    import ProblemMenu from './ProblemMenu.svelte';
+    import { problemRow, type MenuAt } from './row.ts';
 
     /** Every problem of the document: the build's and the language servers', grouped by file, errors first. Notes (over-
-     *  and underfull boxes) only when asked for. The build's log is one toggle away. */
+     *  and underfull boxes) only when asked for. The build's log is one toggle away. A row's text can be selected; a
+     *  click goes to its place, a right click offers that and copying. */
     let { session: s, onOpen }: { session: Session; onOpen: (p: Problem) => void } = $props();
 
+    let menu = $state<MenuAt | null>(null);
     let hidden = $state<Record<Severity, boolean>>({ error: false, warning: false, info: true });
     const shown = $derived(s.problems.filter((p) => !hidden[p.severity] && (p.severity !== 'info' || s.showNotes)));
     const groups = $derived(byFile(shown));
@@ -52,15 +56,16 @@
             <ul>
                 {#each g.problems as p (p.id)}
                     <li>
-                        <button type="button" class="row-btn prob-row sev-{p.severity}" onclick={() => onOpen(p)} {...tip(`${p.file}:${p.line}`, 'Enter', p.raw ?? null)}>
+                        <div class="row-btn prob-row sev-{p.severity}" {...problemRow(p, onOpen, (at) => (menu = at))} {...tip(`${p.file}:${p.line}`, 'Enter', p.raw ?? null)}>
                             <Icon name={ICON[p.severity]} size={13} />
                             <span class="prob-msg">{p.message}</span>
                             <span class="grow"></span>
                             <span class="muted mono">{p.line}{p.column === undefined ? '' : `:${p.column}`}</span>
-                        </button>
+                        </div>
                     </li>
                 {/each}
             </ul>
         {/each}
     </div>
 {/if}
+{#if menu}<ProblemMenu at={menu} {onOpen} onClose={() => (menu = null)} />{/if}
