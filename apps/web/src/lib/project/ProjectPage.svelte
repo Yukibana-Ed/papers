@@ -1,7 +1,8 @@
 <script lang="ts">
     import { onDestroy, onMount } from 'svelte';
     import type { BaseFile } from '@yukibana/papers-room-protocol';
-    import { GitHubError, commit, wipBackup } from '#lib/github/api.ts';
+    import { GitHubError, commit, compare, wipBackup } from '#lib/github/api.ts';
+    import { mergePush, type Theirs } from './pull.ts';
     import { githubToken, session as githubSession, type Viewer } from '#lib/github/token.ts';
     import type { User } from '#lib/model/types.ts';
     import { RoomClient, TicketRefused } from '#lib/room/client.ts';
@@ -66,10 +67,16 @@
                 try {
                     oid = await commit(await githubToken(), p.owner, p.repo, p.branch, head, message, changes);
                 } catch (e) {
-                    if (e instanceof GitHubError && e.status === 409) throw new Error('Someone pushed to this branch: pull first', { cause: e });
+                    if (e instanceof GitHubError && e.status === 409) {
+                        // Someone pushed from outside the room: their commits are merged into the session first.
+                        const fresh = await loadProject(p.owner, p.repo, p.branch, () => {});
+                        await pull(p.branch, fresh);
+                        throw new Error(`Merged ${p.branch}: commit again`, { cause: e });
+                    }
                     throw new Error(e instanceof GitHubError ? `GitHub refused the commit (${e.status})` : 'Commit failed', { cause: e });
                 }
                 head = oid;
+                mine.add(oid);
                 r.committed(oid, changes.filter((c) => c.text !== null).map((c) => ({ path: c.path, blob: '', text: c.text ?? '' })));
                 return oid;
             },
@@ -78,6 +85,21 @@
         // A new paper opens on its root file (the preview builds it at once).
         if (root !== null && root in files) s.openFile(root);
         session = s;
+    }
+
+    /** Takes the commits the branch got outside the room (`theirs` is its head now) into the session, merged with
+     *  what the session changed. Does nothing unless `theirs` is ahead of the head this page knows. */
+    async function pull(branchName: string, theirs: Theirs): Promise<void> {
+        const r = room;
+        const s = session;
+        const from = head;
+        if (!r || !s || s.readOnly || from === theirs.commit) return;
+        const status = await compare(await githubToken(), owner, repo, from, theirs.commit);
+        if (status === 'diverged') s.flash(`${branchName} was rewritten`);
+        if (status !== 'ahead') return;
+        const merged = mergePush(r.text, s.base, theirs, branchName);
+        r.pulled(from, theirs.commit, merged.update, merged.files);
+        if (merged.conflicts.length > 0) s.flash(`Merge conflict in ${merged.conflicts.join(', ')}`);
     }
 
     onMount(() => {
@@ -110,6 +132,9 @@
                         welcome = { base, files };
                     },
                     base: (base, files) => {
+                        // The room tells the one who committed too, and that can arrive after a later commit from here:
+                        // taken as news it would put the head and the committed files back.
+                        if (mine.has(base)) return;
                         // Someone committed: later commits from here go on top of theirs.
                         head = base;
                         session?.committedElsewhere(base, Object.fromEntries(files.map((f) => [f.path, f.text])));
@@ -126,7 +151,7 @@
                         const w = welcome;
                         if (w.base !== null && w.base !== p.commit) {
                             // The room's session started at an older commit and someone pushed since: work on the room's
-                            // state; committing asks to pull first.
+                            // state, and merge the push into it once the session is up (`pull`).
                         } else if (p.access === 'write') {
                             for (const [path, v] of p.texts) if (!r.files.has(path)) r.open(path, v.blob, v.text, p.commit);
                         }
@@ -136,6 +161,8 @@
                             if (!session && ready()) {
                                 r.files.unobserve(go);
                                 start(p, me, r, w.base, w.files);
+                                // The branch moved since the room's session began: a push from outside the room.
+                                if (w.base !== null && w.base !== p.commit) void pull(p.branch, p).catch(() => session?.flash(`Could not merge ${p.branch}`));
                             }
                         };
                         r.files.observe(go);
@@ -178,6 +205,8 @@
 
     /** The branch's head as this page knows it: what the next commit must go on top of. */
     let head = '';
+    /** The commits made from this page. */
+    const mine = new Set<string>();
     /** The room's sync mode as it last said. */
     let mode: 'live' | 'batched' | 'paused' = 'live';
     let welcome: { base: string | null; files: readonly BaseFile[] } | null = null;

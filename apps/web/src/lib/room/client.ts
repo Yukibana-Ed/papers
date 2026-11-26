@@ -288,6 +288,14 @@ export class RoomClient {
         this.sendRaw(JSON.stringify({ type: 'committed', commit, files }));
     }
 
+    /** Hands the room a push made outside it, merged into the session (`mergePush`): the room applies `update` and
+     *  takes `to` as its base only if its base is still `from`, so one of several such merges is applied. */
+    pulled(from: string, to: string, update: Uint8Array, files: readonly BaseFile[]): void {
+        let binary = '';
+        for (let i = 0; i < update.length; i += 0x8000) binary += String.fromCharCode(...update.subarray(i, i + 0x8000));
+        this.sendRaw(JSON.stringify({ type: 'pulled', from, to, update: btoa(binary), files }));
+    }
+
     /** Tells the room that a WIP backup of its changes was pushed as `commit`. */
     backedUp(commit: string): void {
         this.sendRaw(JSON.stringify({ type: 'backed-up', commit }));
