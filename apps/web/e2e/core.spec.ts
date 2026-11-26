@@ -67,7 +67,7 @@ test.describe('tooltips', () => {
             page.locator('header.bar .brand'), // top left
             page.locator('header.bar [data-tip="Commands"]'), // top right
             page.locator('nav.rail [data-tip$="theme"]'), // bottom left
-            page.locator('.pv-bar .backend'), // right edge
+            page.locator('.dock-after .backend'), // right edge
         ];
         for (const a of anchors) {
             await a.hover();

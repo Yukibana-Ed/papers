@@ -20,6 +20,7 @@
     import TooltipLayer from '#lib/ui/TooltipLayer.svelte';
     import { tip } from '#lib/ui/tooltip.ts';
     import type { Command } from './commands.ts';
+    import { createDock, type Dock, type Front } from './dock.svelte.ts';
     import Header from './Header.svelte';
     import Palette from './Palette.svelte';
 
@@ -27,6 +28,8 @@
     let { session: s, contentOrigin, room = null }: { session: Session; contentOrigin: string; room?: RoomClient | null } = $props();
 
     let host = $state<HTMLDivElement | null>(null);
+    let dockEl = $state<HTMLDivElement | null>(null);
+    let dock = $state<Dock | null>(null);
     let editor = $state<SourceEditor | null>(null);
     let preview = $state<ReturnType<typeof Preview> | null>(null);
     let selButton = $state<number | null>(null);
@@ -47,6 +50,9 @@
         themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
         let disposed = false;
         let ed: SourceEditor | null = null;
+        // The layout first: the editor is made in the part of it that `host` is.
+        const made = dockEl === null ? null : createDock(dockEl, s, { editor: editorPart, preview: previewPart, fileTab, before, after });
+        dock = made;
         void import('#lib/editor/source-editor.ts').then(({ SourceEditor }) => {
             if (disposed || !host) return;
             ed = new SourceEditor(host, s.files, s.activeFile, s.me, {
@@ -71,8 +77,12 @@
             media.removeEventListener('change', onMedia);
             themeObserver.disconnect();
             ed?.dispose();
+            made?.dispose();
         };
     });
+
+    // The layout follows the session's tabs and the file in front.
+    $effect(() => dock?.sync());
 
     // The editor follows the session.
     $effect(() => editor?.show(s.activeFile));
@@ -363,28 +373,6 @@
         runKey(id);
     }
 
-    /** The tab list's keys: the arrows (and Home, End) move to another tab and open it; Delete closes the current one. */
-    function onTabKey(e: KeyboardEvent): void {
-        const tabs = s.tabs;
-        const at = tabs.indexOf(s.activeFile);
-        if (at < 0 || !tabs.length) return;
-        let next: number;
-        if (e.key === 'ArrowRight') next = (at + 1) % tabs.length;
-        else if (e.key === 'ArrowLeft') next = (at - 1 + tabs.length) % tabs.length;
-        else if (e.key === 'Home') next = 0;
-        else if (e.key === 'End') next = tabs.length - 1;
-        else if (e.key === 'Delete') {
-            e.preventDefault();
-            s.closeTab(s.activeFile);
-            return;
-        } else return;
-        e.preventDefault();
-        const f = tabs[next];
-        if (f === undefined) return;
-        s.activeFile = f;
-        document.getElementById(`file-tab-${next}`)?.focus();
-    }
-
     /** The shortcuts the content frame may forward: the frame runs untrusted content, so a forwarded key can only open
      *  or move things, never commit, accept, delete or change the document. */
     const FRAME_SAFE: ReadonlySet<string> = new Set(['palette', 'jump', 'outline', 'files', 'comments', 'zoomin', 'zoomout']);
@@ -437,6 +425,148 @@
         return m;
     });
 </script>
+
+{#snippet fileTab(f: string)}
+    {@const dirty = s.changes.some((c) => c.file === f)}
+    <!-- Out of the tab order, like the tab itself (the dock's keys reach it); the keyboard closes with Ctrl+Alt+W. -->
+    <span class="file-tab" role="presentation" data-file={f} onauxclick={(e) => e.button === 1 && s.closeTab(f)} {...tip(f, null, dirty ? 'uncommitted edits' : null)}>
+        <span class="file-tab-name">{short(f)}</span>
+        {#if dirty}<span class="tab-dot"></span>{/if}
+    </span>
+    <button
+        type="button"
+        tabindex="-1"
+        class="tab-x"
+        onpointerdown={(e) => e.stopPropagation()}
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={(e) => {
+            e.stopPropagation();
+            s.closeTab(f);
+        }}
+        {...tip(`Close ${short(f)}`, 'Ctrl+Alt+W')}
+    >
+        <Icon name="x" size={12} />
+    </button>
+{/snippet}
+
+{#snippet editorPart(_: null)}
+    <div class="editor-host-wrap">
+        <div class="editor-host" bind:this={host}></div>
+        {#if selButton !== null}
+            <button type="button" class="sel-comment yk-icon-btn" style:top="{selButton}px" onmousedown={(e) => e.preventDefault()} onclick={newComment} {...tip('Comment', 'Ctrl+Alt+M', null, 'right')}>
+                <Icon name="comment" />
+            </button>
+        {/if}
+    </div>
+{/snippet}
+
+{#snippet before(front: Front)}
+    {#if front === 'preview'}
+            {#if s.roots.length > 1}
+                <button type="button" class="pv-doc" class:is-open={s.popover === 'doc'} data-popover-anchor onclick={() => s.togglePopover('doc')} {...tip('Document', null, s.pinnedRoot ? 'pinned' : 'follows the file you edit')}>
+                    {#if s.pinnedRoot}<Icon name="pin" size={12} />{/if}
+                    {short(s.root)}
+                    <Icon name="chevron" size={12} />
+                </button>
+            {:else}
+                <span class="pv-doc static">{short(s.root)}</span>
+            {/if}
+            {#if s.problemCounts.error > 0}
+                <button type="button" class="pv-count sev-error" onclick={() => (s.panel = 'problems')} {...tip('Problems', 'Ctrl+Shift+Y', `${s.problemCounts.error} ${s.problemCounts.error === 1 ? 'error' : 'errors'}`)}>
+                    <Icon name="alert" size={13} />{s.problemCounts.error}
+                </button>
+            {/if}
+            {#if s.problemCounts.warning > 0}
+                <button type="button" class="pv-count sev-warning" onclick={() => (s.panel = 'problems')} {...tip('Problems', 'Ctrl+Shift+Y', `${s.problemCounts.warning} ${s.problemCounts.warning === 1 ? 'warning' : 'warnings'}`)}>
+                    <Icon name="warning" size={13} />{s.problemCounts.warning}
+                </button>
+            {/if}
+    {/if}
+{/snippet}
+
+{#snippet after(front: Front)}
+    {#if front === 'preview'}
+            {#if s.build.status !== 'idle'}
+                <span class="yk-spinner pv-spin" role="status" aria-label={s.build.status === 'loading' ? 'Loading TeX' : 'Compiling'}></span>
+            {:else if s.build.pages > 0}
+                <span class="muted pv-pages-n" {...tip(`${s.build.pages} ${s.build.pages === 1 ? 'page' : 'pages'}`, null, `built in ${(s.build.ms / 1000).toFixed(1)} s`)}>{s.build.pages}p</span>
+            {/if}
+            <button type="button" class="yk-icon-btn icon-xs" onclick={() => s.zoomBy(-0.1)} {...tip('Zoom out', 'Ctrl+-')}><Icon name="minus" size={14} /></button>
+            <span class="muted zoom-n">{Math.round(s.scale * 100)}%</span>
+            <button type="button" class="yk-icon-btn icon-xs" onclick={() => s.zoomBy(0.1)} {...tip('Zoom in', 'Ctrl+=')}><Icon name="plus" size={14} /></button>
+            <button
+                type="button"
+                class="backend"
+                class:is-open={s.popover === 'builder'}
+                data-popover-anchor
+                onclick={() => s.togglePopover('builder')}
+                {...tip(s.builder === 'computer' ? 'This computer' : 'Browser', null, s.builder === 'computer' ? 'papers serve, sandboxed' : 'TeX Live 2026, in this tab')}
+            >
+                <Icon name={s.builder === 'computer' ? 'doc' : 'globe'} size={12} />
+                {s.builder === 'computer' ? 'Computer' : 'Browser'}
+            </button>
+    {:else if front === 'file'}
+            {#if s.languageServer && s.languageServer.status === 'starting'}
+                <span class="lsp-state" role="status" data-lsp="starting" {...tip('Typst language server', null, 'starting')}><span class="yk-spinner lsp-spin"></span></span>
+            {:else if s.languageServer && s.languageServer.status === 'failed'}
+                <button type="button" class="lsp-state is-failed" data-lsp="failed" onclick={retryLanguageServer} {...tip('Typst language server', null, `${s.languageServer.detail} · retry`)}>
+                    <Icon name="alert" size={13} />
+                </button>
+            {/if}
+            {#if s.suggestMode}
+                <span class="yk-chip yk-chip--violet" {...tip('Suggesting', 'Ctrl+Alt+S', 'your edits wait for review')}><Icon name="suggest" />Suggesting</span>
+            {/if}
+    {/if}
+{/snippet}
+
+{#snippet previewPart(_: null)}
+    {#if s.popover === 'builder'}
+        <BuilderMenu session={s} onPaired={(token) => preview?.connectComputer(token)} />
+    {/if}
+    {#if s.popover === 'doc'}
+        <div class="popover pop-doc" role="dialog" {@attach keepInView} {@attach dialogFocus} aria-label="Document">
+            {#each s.roots as r (r)}
+                <button
+                    type="button"
+                    class="row-btn"
+                    class:is-current={r === s.root}
+                    onclick={() => {
+                        if (s.pinnedRoot) s.pinnedRoot = r;
+                        else openFile(r);
+                        s.popover = null;
+                    }}
+                >
+                    <Icon name="doc" size={14} />
+                    {r}
+                </button>
+            {/each}
+            <div class="pop-sep"></div>
+            <button
+                type="button"
+                class="row-btn"
+                aria-pressed={s.pinnedRoot !== null}
+                onclick={() => {
+                    s.pinnedRoot = s.pinnedRoot ? null : s.root;
+                    s.popover = null;
+                }}
+                {...tip(s.pinnedRoot ? 'Unpin' : 'Pin', null, s.pinnedRoot ? 'follow the file you edit' : 'keep this document')}
+            >
+                <Icon name="pin" size={14} />
+                {s.pinnedRoot ? 'Unpin' : 'Pin'}
+            </button>
+        </div>
+    {/if}
+    <!-- The preview's states: a service failure fills it; errors list themselves at its top, over the last good PDF
+         (dimmed, still scrollable and clickable) or, without one, filling it. -->
+    <div class="pv-body" class:has-errors={!s.service && s.buildErrors.length > 0} class:no-pdf={s.service !== null || (s.buildErrors.length > 0 && s.shownBuild.pages === 0)}>
+        {#if s.service}
+            <ServiceState failure={s.service} onRetry={() => preview?.retry()} />
+        {:else}
+            <PreviewErrors session={s} onOpen={openProblem} onLog={showLog} />
+        {/if}
+        <Preview bind:this={preview} session={s} {contentOrigin} {onJump} {onAction} onKey={onFrameKey} />
+    </div>
+{/snippet}
 
 <svelte:window onkeydowncapture={onKeydown} onmousedown={onMousedown} onkeydown={onEscape} />
 
@@ -519,144 +649,7 @@
         </aside>
     {/if}
 
-    <section class="pane pane-source" aria-label="Source">
-        <div class="yk-dock" role="tablist" tabindex="-1" aria-label="Open files" data-focused="" onkeydown={onTabKey}>
-            {#each s.tabs as f, i (f)}
-                {@const dirty = s.changes.some((c) => c.file === f)}
-                <button
-                    type="button"
-                    role="tab"
-                    id="file-tab-{i}"
-                    class="yk-dock-tab"
-                    aria-selected={f === s.activeFile}
-                    aria-controls="file-panel"
-                    tabindex={f === s.activeFile ? 0 : -1}
-                    onclick={() => (s.activeFile = f)}
-                    onauxclick={(e) => e.button === 1 && s.closeTab(f)}
-                    {...tip(f, null, dirty ? 'uncommitted edits' : null)}
-                >
-                    {short(f)}
-                    {#if dirty}<span class="tab-dot"></span>{/if}
-                </button>
-                <!-- A sibling of its tab, not inside it: a button may not hold another. Out of the tab order, like the tabs
-                     the arrow keys reach; the keyboard closes with Ctrl+Alt+W. -->
-                <button type="button" tabindex="-1" class="tab-x" onclick={() => s.closeTab(f)} {...tip(`Close ${short(f)}`, 'Ctrl+Alt+W')}>
-                    <Icon name="x" size={12} />
-                </button>
-            {/each}
-            <div class="yk-dock-actions">
-                {#if s.languageServer && s.languageServer.status === 'starting'}
-                    <span class="lsp-state" role="status" data-lsp="starting" {...tip('Typst language server', null, 'starting')}><span class="yk-spinner lsp-spin"></span></span>
-                {:else if s.languageServer && s.languageServer.status === 'failed'}
-                    <button type="button" class="lsp-state is-failed" data-lsp="failed" onclick={retryLanguageServer} {...tip('Typst language server', null, `${s.languageServer.detail} · retry`)}>
-                        <Icon name="alert" size={13} />
-                    </button>
-                {/if}
-                {#if s.suggestMode}
-                    <span class="yk-chip yk-chip--violet" {...tip('Suggesting', 'Ctrl+Alt+S', 'your edits wait for review')}><Icon name="suggest" />Suggesting</span>
-                {/if}
-            </div>
-        </div>
-        <div class="editor-host-wrap" id="file-panel" role="tabpanel" aria-labelledby={s.tabs.includes(s.activeFile) ? `file-tab-${s.tabs.indexOf(s.activeFile)}` : undefined} aria-label={s.tabs.includes(s.activeFile) ? undefined : 'Editor'}>
-            <div class="editor-host" bind:this={host}></div>
-            {#if selButton !== null}
-                <button type="button" class="sel-comment yk-icon-btn" style:top="{selButton}px" onmousedown={(e) => e.preventDefault()} onclick={newComment} {...tip('Comment', 'Ctrl+Alt+M', null, 'right')}>
-                    <Icon name="comment" />
-                </button>
-            {/if}
-        </div>
-    </section>
-
-    <section class="pane pane-preview" aria-label="Preview">
-        <div class="yk-dock pv-bar">
-            {#if s.roots.length > 1}
-                <button type="button" class="pv-doc" class:is-open={s.popover === 'doc'} data-popover-anchor onclick={() => s.togglePopover('doc')} {...tip('Document', null, s.pinnedRoot ? 'pinned' : 'follows the file you edit')}>
-                    {#if s.pinnedRoot}<Icon name="pin" size={12} />{/if}
-                    {short(s.root)}
-                    <Icon name="chevron" size={12} />
-                </button>
-            {:else}
-                <span class="pv-doc static">{short(s.root)}</span>
-            {/if}
-            {#if s.problemCounts.error > 0}
-                <button type="button" class="pv-count sev-error" onclick={() => (s.panel = 'problems')} {...tip('Problems', 'Ctrl+Shift+Y', `${s.problemCounts.error} ${s.problemCounts.error === 1 ? 'error' : 'errors'}`)}>
-                    <Icon name="alert" size={13} />{s.problemCounts.error}
-                </button>
-            {/if}
-            {#if s.problemCounts.warning > 0}
-                <button type="button" class="pv-count sev-warning" onclick={() => (s.panel = 'problems')} {...tip('Problems', 'Ctrl+Shift+Y', `${s.problemCounts.warning} ${s.problemCounts.warning === 1 ? 'warning' : 'warnings'}`)}>
-                    <Icon name="warning" size={13} />{s.problemCounts.warning}
-                </button>
-            {/if}
-            <div class="yk-dock-actions">
-                {#if s.build.status !== 'idle'}
-                    <span class="yk-spinner pv-spin" role="status" aria-label={s.build.status === 'loading' ? 'Loading TeX' : 'Compiling'}></span>
-                {:else if s.build.pages > 0}
-                    <span class="muted pv-pages-n" {...tip(`${s.build.pages} ${s.build.pages === 1 ? 'page' : 'pages'}`, null, `built in ${(s.build.ms / 1000).toFixed(1)} s`)}>{s.build.pages}p</span>
-                {/if}
-                <button type="button" class="yk-icon-btn icon-xs" onclick={() => s.zoomBy(-0.1)} {...tip('Zoom out', 'Ctrl+-')}><Icon name="minus" size={14} /></button>
-                <span class="muted zoom-n">{Math.round(s.scale * 100)}%</span>
-                <button type="button" class="yk-icon-btn icon-xs" onclick={() => s.zoomBy(0.1)} {...tip('Zoom in', 'Ctrl+=')}><Icon name="plus" size={14} /></button>
-                <button
-                    type="button"
-                    class="backend"
-                    class:is-open={s.popover === 'builder'}
-                    data-popover-anchor
-                    onclick={() => s.togglePopover('builder')}
-                    {...tip(s.builder === 'computer' ? 'This computer' : 'Browser', null, s.builder === 'computer' ? 'papers serve, sandboxed' : 'TeX Live 2026, in this tab')}
-                >
-                    <Icon name={s.builder === 'computer' ? 'doc' : 'globe'} size={12} />
-                    {s.builder === 'computer' ? 'Computer' : 'Browser'}
-                </button>
-            </div>
-            {#if s.popover === 'builder'}
-                <BuilderMenu session={s} onPaired={(token) => preview?.connectComputer(token)} />
-            {/if}
-            {#if s.popover === 'doc'}
-                <div class="popover pop-doc" role="dialog" {@attach keepInView} {@attach dialogFocus} aria-label="Document">
-                    {#each s.roots as r (r)}
-                        <button
-                            type="button"
-                            class="row-btn"
-                            class:is-current={r === s.root}
-                            onclick={() => {
-                                if (s.pinnedRoot) s.pinnedRoot = r;
-                                else openFile(r);
-                                s.popover = null;
-                            }}
-                        >
-                            <Icon name="doc" size={14} />
-                            {r}
-                        </button>
-                    {/each}
-                    <div class="pop-sep"></div>
-                    <button
-                        type="button"
-                        class="row-btn"
-                        aria-pressed={s.pinnedRoot !== null}
-                        onclick={() => {
-                            s.pinnedRoot = s.pinnedRoot ? null : s.root;
-                            s.popover = null;
-                        }}
-                        {...tip(s.pinnedRoot ? 'Unpin' : 'Pin', null, s.pinnedRoot ? 'follow the file you edit' : 'keep this document')}
-                    >
-                        <Icon name="pin" size={14} />
-                        {s.pinnedRoot ? 'Unpin' : 'Pin'}
-                    </button>
-                </div>
-            {/if}
-        </div>
-        <!-- The preview's states: a service failure fills it; errors list themselves at its top, over the last good PDF
-             (dimmed, still scrollable and clickable) or, without one, filling it. -->
-        <div class="pv-body" class:has-errors={!s.service && s.buildErrors.length > 0} class:no-pdf={s.service !== null || (s.buildErrors.length > 0 && s.shownBuild.pages === 0)}>
-            {#if s.service}
-                <ServiceState failure={s.service} onRetry={() => preview?.retry()} />
-            {:else}
-                <PreviewErrors session={s} onOpen={openProblem} onLog={showLog} />
-            {/if}
-            <Preview bind:this={preview} session={s} {contentOrigin} {onJump} {onAction} onKey={onFrameKey} />
-        </div>
-    </section>
+    <div class="dock" bind:this={dockEl}></div>
 
     {#if s.palette}<Palette {commands} onClose={() => (s.palette = false)} />{/if}
     <TooltipLayer />
