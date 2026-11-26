@@ -86,7 +86,7 @@ jobs:
           version=$(node scripts/engine.ts version)
           node scripts/engine.ts fetch "$RUNNER_TEMP/engine"
           node scripts/engine.ts stage "$RUNNER_TEMP/engine/busytex" "$RUNNER_TEMP/engine-br"
-          rclone copy "$RUNNER_TEMP/engine-br" "r2:yukibana-papers-assets/engine/$version" \
+          rclone copy "$RUNNER_TEMP/engine-br" "r2:yukibana-papers-assets/engine/$version" --no-update-modtime \
             --header-upload "Content-Encoding: br" --header-upload "Cache-Control: public, max-age=31536000, immutable" \
             --transfers 8 --s3-upload-concurrency 8 --s3-chunk-size 16M --stats-one-line --stats 30s
 
@@ -95,7 +95,10 @@ jobs:
         working-directory: apps/content
         run: |
           node scripts/typst.ts stage "$RUNNER_TEMP/typst-br"
-          rclone copy "$RUNNER_TEMP/typst-br" "r2:yukibana-papers-assets" \
+          # Every file is sent again (--ignore-times): for a file already there, rclone would only set its time, by a
+          # copy within the bucket that drops its Content-Encoding, and the origin then serves compressed bytes as
+          # the file (this left the preview without fonts on 2026-11-26).
+          rclone copy "$RUNNER_TEMP/typst-br" "r2:yukibana-papers-assets" --ignore-times \
             --header-upload "Content-Encoding: br" --header-upload "Cache-Control: public, max-age=31536000, immutable" \
             --transfers 8 --s3-upload-concurrency 8 --s3-chunk-size 16M --stats-one-line --stats 30s
 
@@ -125,7 +128,7 @@ jobs:
           node scripts/tlstore.ts build "$RUNNER_TEMP/texlive" "$RUNNER_TEMP/tlstore"
           rm -rf "$RUNNER_TEMP/texlive"
           # The objects first, then the index that names them: a reader never sees a name without its object.
-          rclone copy "$RUNNER_TEMP/tlstore/objects" "r2:yukibana-papers-assets/tl/$SNAPSHOT/objects" \
+          rclone copy "$RUNNER_TEMP/tlstore/objects" "r2:yukibana-papers-assets/tl/$SNAPSHOT/objects" --no-update-modtime \
             --header-upload "Content-Encoding: br" --header-upload "Cache-Control: public, max-age=31536000, immutable" \
             --transfers 64 --checkers 64 --size-only --stats-one-line --stats 60s
           rclone copy "$RUNNER_TEMP/tlstore" "r2:yukibana-papers-assets/tl/$SNAPSHOT" --exclude "objects/**" \
