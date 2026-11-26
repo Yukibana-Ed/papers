@@ -7,6 +7,14 @@ import { charBoxes, pageGlyphs } from '#lib/glyphs.ts';
 import { docWords, preciseMap, refineWords, type DocWord, type PreciseMap } from '#lib/precise.ts';
 
 /** A character of the text layer: its page, its run (span index) and offset there, and its middle in page points. */
+/** One end of a selection: in a text layer by its run and offset there, or at a node outside that layer. */
+type KeptEnd = { run: number; offset: number } | { node: Node; offset: number };
+
+interface KeptSelection {
+    anchor: KeptEnd;
+    focus: KeptEnd;
+}
+
 interface CharAt {
     readonly page: number;
     readonly run: number;
@@ -252,15 +260,16 @@ export class Viewer {
 
     /** The user's zoom on top of fitting the width, clamped to 0.5–2. */
     setZoom(zoom: number): void {
+        const before = this.scale;
         this.#zoom = Math.min(2, Math.max(0.5, zoom));
-        this.#relayout();
+        this.#relayout(before);
     }
 
-    #relayout(): void {
+    /** Lays the pages out at the current scale; `before` is the scale they were laid out at. */
+    #relayout(before = this.scale): void {
         const first = this.#pages[0];
         const avail = Math.max(100, this.#scroller.clientWidth - GUTTER);
         const fit = first === undefined ? 1 : Math.min(MAX_FIT, avail / first.width);
-        const before = this.scale;
         // The point in the middle of the view, as a fraction of the content, kept in the middle across the change.
         const scrollable = this.#scroller.scrollHeight > this.#scroller.clientHeight + 1;
         const anchor = scrollable ? (this.#scroller.scrollTop + this.#scroller.clientHeight / 2) / this.#scroller.scrollHeight : null;
@@ -276,9 +285,9 @@ export class Viewer {
             if (anchor !== null) this.#scroller.scrollTop = anchor * this.#scroller.scrollHeight - this.#scroller.clientHeight / 2;
             this.#events.scale(s);
             this.#drawOverlays();
-            // The text layers are about to be redrawn at the new scale, which would leave the selection pointing into
-            // removed nodes: it goes, as it does in a PDF viewer when zooming.
-            if (this.#hasSelection()) window.getSelection()?.removeAllRanges();
+            // The text scales with the page at once, and what is selected in it stays selected (see `#render`): its
+            // highlight is drawn again where the text is now.
+            if (this.#hasSelection()) this.#redrawSelection();
         }
         this.#scheduleRender(120);
     }
@@ -324,14 +333,48 @@ export class Viewer {
             view.canvas.replaceWith(canvas);
             view.canvas = canvas;
             const selecting = view.text.classList.contains('selecting');
+            const kept = this.#selectionIn(view.text);
             view.text.replaceWith(text);
             view.text = text;
             if (selecting) text.classList.add('selecting');
+            if (kept !== null) this.#restoreSelection(kept, text);
             view.drawn = scale;
             this.#refine(view);
         })();
         view.rendering = run;
         return run.catch(() => undefined);
+    }
+
+    /** The selection, if it has an end in `layer`: each end as its text run and offset there when it is in `layer`
+     *  (run -1: in the layer but in no run; `offset` is then 0 for before its text and 1 for after), or as the node it is
+     *  at when it is elsewhere. */
+    #selectionIn(layer: HTMLElement): KeptSelection | null {
+        const selection = window.getSelection();
+        if (selection === null || selection.isCollapsed || selection.anchorNode === null || selection.focusNode === null) return null;
+        if (!layer.contains(selection.anchorNode) && !layer.contains(selection.focusNode)) return null;
+        const end = (node: Node, offset: number): KeptEnd => {
+            if (!layer.contains(node)) return { node, offset };
+            const span = (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>('span[data-run]') ?? null;
+            if (span !== null) return { run: Number(span.dataset['run']), offset: node instanceof Text ? offset : offset === 0 ? 0 : (span.textContent ?? '').length };
+            return { run: -1, offset: node === layer && offset === 0 ? 0 : 1 };
+        };
+        return { anchor: end(selection.anchorNode, selection.anchorOffset), focus: end(selection.focusNode, selection.focusOffset) };
+    }
+
+    /** Selects in `layer`, the text layer that replaced the one `kept` was read from, what was selected there, with
+     *  its direction. Replacing the layer collapsed the selection; this runs before anything is told of that. */
+    #restoreSelection(kept: KeptSelection, layer: HTMLElement): void {
+        const at = (e: KeptEnd): [Node, number] => {
+            if ('node' in e) return [e.node, e.offset];
+            const text = e.run < 0 ? null : (layer.querySelector(`span[data-run="${e.run}"]`)?.firstChild ?? null);
+            if (text instanceof Text) return [text, Math.min(e.offset, text.length)];
+            return [layer, e.offset === 0 ? 0 : layer.childNodes.length];
+        };
+        const [an, ao] = at(kept.anchor);
+        const [fn, fo] = at(kept.focus);
+        if (!an.isConnected || !fn.isConnected) return;
+        window.getSelection()?.setBaseAndExtent(an, ao, fn, fo);
+        this.#redrawSelection();
     }
 
     // --- overlays ------------------------------------------------------------------------------------------------------

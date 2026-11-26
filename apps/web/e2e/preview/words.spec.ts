@@ -95,6 +95,49 @@ test.describe('words picked in the preview', () => {
         await expect.poll(() => selectedInSource(page)).toBe('of');
     });
 
+    test('a selection follows its words when the preview is zoomed or its pane resized', async ({ page }) => {
+        const frame = await preview(page);
+        const selected = (): Promise<string> => frame.locator('body').evaluate(() => (window.getSelection()?.toString() ?? '').trim());
+        const b = await textBox(page, frame, 'where most of them', 'most');
+        await page.mouse.dblclick(b.x + b.width / 2, b.y + b.height / 2);
+        await expect.poll(selected).toBe('most');
+        await expect.poll(() => selectedInSource(page)).toBe('most');
+        /** How far the highlight is from the word, in pixels: the larger of the offsets of its left and right edges. */
+        const off = async (): Promise<number> => {
+            const word = await textBox(page, frame, 'where most of them', 'most');
+            const rect = await frame.locator('.pv-sel-rect').first().boundingBox();
+            if (rect === null) return Infinity;
+            return Math.max(Math.abs(rect.x - word.x), Math.abs(rect.x + rect.width - word.x - word.width));
+        };
+        const scale = (): Promise<number> =>
+            frame
+                .locator('.pv-page')
+                .first()
+                .evaluate(el => Number(el.style.getPropertyValue('--scale-factor')));
+        const steps: (() => Promise<void>)[] = [
+            () => page.locator('.zoom-n + button').click(),
+            () => page.locator('.zoom-n + button').click(),
+            () => page.setViewportSize({ width: 1000, height: 700 }),
+        ];
+        for (const step of steps) {
+            const before = await scale();
+            await step();
+            await expect.poll(scale).not.toBe(before);
+            // Right away on the scaled text, and still once the page is drawn again at the new scale.
+            await expect.poll(off).toBeLessThan(1.5);
+            await expect(frame.locator(`.pv-page canvas`).first()).toHaveJSProperty('isConnected', true);
+            await page.waitForTimeout(600);
+            expect(await off()).toBeLessThan(1.5);
+            expect(await selected()).toBe('most');
+            expect(await selectedInSource(page)).toBe('most');
+            await expect(frame.locator('.pv-sel-rect')).toHaveCount(1);
+        }
+        // The keys still move it: the selection is in the text drawn now.
+        await page.locator('iframe.pv-frame').focus();
+        await page.keyboard.press('Control+Shift+ArrowRight');
+        await expect.poll(selected).toBe('most of');
+    });
+
     test('a double click on a word hyphenated across lines selects the whole word in the source', async ({ page }) => {
         const frame = await preview(page);
         // Long words at the end of the introduction, so that TeX breaks one across lines.
