@@ -47,14 +47,12 @@ export interface ViewerEvents {
      *  `lines` null when nothing is selected. */
     readonly selection: (lines: SourceLines | null, text: string, anchor: ToolbarAnchor | null) => void;
     /** The pointer is over the typeset text of these source lines, or (null) over none. */
-    readonly hover: (lines: SourceLines | null) => void;
 }
 
 interface PageView {
     readonly el: HTMLDivElement;
     readonly marks: HTMLDivElement;
     readonly sel: HTMLDivElement;
-    readonly hover: HTMLDivElement;
     readonly decor: HTMLDivElement;
     canvas: HTMLCanvasElement;
     text: HTMLDivElement;
@@ -115,8 +113,6 @@ export class Viewer {
         this.#resize.observe(scroller);
         scroller.addEventListener('pointerdown', this.#onPointerDown);
         scroller.addEventListener('click', this.#onClick);
-        scroller.addEventListener('pointermove', this.#onPointerMove, { passive: true });
-        scroller.addEventListener('pointerleave', () => this.#setHover(null));
         document.addEventListener('selectionchange', this.#onSelectionChange);
     }
 
@@ -245,14 +241,12 @@ export class Viewer {
         marks.className = 'pv-layer pv-marks';
         const sel = document.createElement('div');
         sel.className = 'pv-layer pv-sel';
-        const hover = document.createElement('div');
-        hover.className = 'pv-layer pv-hover';
         const text = document.createElement('div');
         text.className = 'textLayer';
         const decor = document.createElement('div');
         decor.className = 'pv-decor';
-        el.append(canvas, hover, marks, sel, text, decor);
-        return { el, canvas, marks, sel, hover, text, decor, proxy, width, height, drawn: 0, rendering: null };
+        el.append(canvas, marks, sel, text, decor);
+        return { el, canvas, marks, sel, text, decor, proxy, width, height, drawn: 0, rendering: null };
     }
 
     /** The user's zoom on top of fitting the width, clamped to 0.5–2. */
@@ -376,7 +370,6 @@ export class Viewer {
     }
 
     #drawOverlays(): void {
-        this.#drawHover();
         for (const p of this.#pages) {
             // A jump's flash outlives a redraw (its words' boxes may be refined meanwhile); it removes itself.
             p.marks.replaceChildren(...p.marks.querySelectorAll(':scope > .pv-flash'));
@@ -492,7 +485,6 @@ export class Viewer {
 
     #onPointerDown = (e: PointerEvent): void => {
         this.#pointerDown = { x: e.clientX, y: e.clientY };
-        this.#setHover(null);
         const text = e.target instanceof Element ? e.target.closest('.textLayer') : null;
         if (text instanceof HTMLElement) {
             text.classList.add('selecting');
@@ -605,55 +597,6 @@ export class Viewer {
         const selection = window.getSelection();
         selection?.removeAllRanges();
         selection?.addRange(range);
-    }
-
-    #hovered: SourceLines | null = null;
-    #hoverFrame = 0;
-
-    /** Marks the typeset text of the source line under the pointer, as the boxes its lines make, and tells the app. Only
-     *  over that text: the margins and the gaps between paragraphs mark nothing. Not while a button is down (a drag). */
-    #onPointerMove = (e: PointerEvent): void => {
-        if (e.buttons !== 0 || this.#sync === null) return;
-        const target = e.target instanceof Element ? e.target : null;
-        const x = e.clientX;
-        const y = e.clientY;
-        cancelAnimationFrame(this.#hoverFrame);
-        this.#hoverFrame = requestAnimationFrame(() => {
-            const pageEl = target?.closest('.pv-page');
-            const sync = this.#sync;
-            if (!(pageEl instanceof HTMLElement) || sync === null) {
-                this.#setHover(null);
-                return;
-            }
-            const n = Number(pageEl.dataset['page']);
-            const rect = pageEl.getBoundingClientRect();
-            const s = this.scale;
-            const px = (x - rect.left) / s;
-            const py = (y - rect.top) / s;
-            const hit = sync.backward(n, px, py);
-            const over =
-                hit !== null && sync.segments(hit.file, hit.line).some(b => b.page === n && px >= b.x - 2 && px <= b.x + b.width + 2 && py >= b.y - 2 && py <= b.y + b.height + 2);
-            this.#setHover(hit !== null && over ? { file: hit.file, startLine: hit.line, endLine: hit.line } : null);
-        });
-    };
-
-    #setHover(lines: SourceLines | null): void {
-        const was = this.#hovered;
-        if (lines === was || (lines !== null && was !== null && lines.file === was.file && lines.startLine === was.startLine && lines.endLine === was.endLine)) return;
-        this.#hovered = lines;
-        this.#drawHover();
-        this.#events.hover(lines);
-    }
-
-    #drawHover(): void {
-        for (const p of this.#pages) p.hover.replaceChildren();
-        if (this.#hovered === null) return;
-        const s = this.scale;
-        for (const [n, rects] of this.#linesBoxes(this.#hovered)) {
-            const page = this.#pages[n - 1];
-            if (page === undefined) continue;
-            for (const r of rects) page.hover.append(box(r, s, 'pv-hover-box', 2));
-        }
     }
 
     #onSelectionChange = (): void => {
