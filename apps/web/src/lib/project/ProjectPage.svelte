@@ -8,10 +8,17 @@
     import { syncReview } from '#lib/room/sync.svelte.ts';
     import { Session } from '#lib/session.svelte.ts';
     import Workbench from '#lib/shell/Workbench.svelte';
-    import { LoadError, loadProject, type LoadedProject } from './load.ts';
+    import { LoadError, loadProject, resolveRef, type LoadedProject } from './load.ts';
 
     /** A repository's branch in the editor: read it from GitHub, join its room, then show the workbench. */
-    let { owner, repo, branch, contentOrigin, root = null }: { owner: string; repo: string; branch: string | null; contentOrigin: string; root?: string | null } = $props();
+    let {
+        owner,
+        repo,
+        rest = '',
+        branch,
+        contentOrigin,
+        root = null,
+    }: { owner: string; repo: string; rest?: string; branch: string | null; contentOrigin: string; root?: string | null } = $props();
 
     let progress = $state<{ done: number; total: number } | null>(null);
     let failure = $state<string | null>(null);
@@ -73,7 +80,10 @@
         let cancelled = false;
         void (async () => {
             try {
-                const p = await loadProject(owner, repo, branch, (done, total) => (progress = { done, total }));
+                // `/p/<owner>/<repo>/<branch>/<file>`: which part is the branch, which the file.
+                const ref = rest === '' ? { branch: null, path: null } : await resolveRef(owner, repo, rest);
+                if (ref.path !== null) root = ref.path;
+                const p = await loadProject(owner, repo, branch ?? ref.branch, (done, total) => (progress = { done, total }));
                 const me = (await githubSession()).viewer;
                 if (cancelled) return;
                 const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';

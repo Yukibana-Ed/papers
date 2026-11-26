@@ -75,6 +75,7 @@
     $effect(() => editor?.setSuggestMode(s.suggestMode));
     $effect(() => editor?.setPresence(s.presence, s.users));
     $effect(() => editor?.setMirror(s.mirror));
+    $effect(() => editor?.setProjectPaths([...Object.keys(s.files), ...Object.keys(s.assets)]));
     $effect(() => editor?.setHover(s.hover));
     // The settled build's problems (language servers mark their own); notes only when the Problems panel shows them.
     $effect(() =>
@@ -234,15 +235,25 @@
     }
 
     /** A click in the preview: open its source at the word clicked, selected. */
+    /** The editor takes the keyboard a moment after a click in the preview has shown the source, unless the click
+     *  became a double or triple click there (which selects in the preview, and must keep the focus to finish). */
+    let focusAfterJump = 0;
+    const JUMP_FOCUS_MS = 300;
+    $effect(() => {
+        if (s.mirror !== null) clearTimeout(focusAfterJump);
+    });
+
     function onJump(at: SourcePoint, word: string | null): void {
         // The frame may point into files the build made (paper.bbl): only project files open.
         if (!(at.file in s.files)) return;
         if (narrow()) s.narrowPane = 'source';
         s.openFile(at.file);
-        // A column from the frame is exact, to the character the click was on: the caret goes there.
+        clearTimeout(focusAfterJump);
+        focusAfterJump = window.setTimeout(() => editor?.focus(), JUMP_FOCUS_MS);
+        // A column from the frame is exact, to the character the click was on: the caret goes there at once.
         if (at.column !== undefined) {
             const column = at.column;
-            setTimeout(() => editor?.reveal(at.file, at.line, column), 0);
+            setTimeout(() => editor?.reveal(at.file, at.line, column, { focus: false }), 0);
             return;
         }
         // Only the line is known: the first place the clicked word appears on it.
@@ -250,8 +261,8 @@
         const i = word ? text.indexOf(word) : -1;
         const col = i >= 0 ? i + 1 : 1;
         setTimeout(() => {
-            if (word && i >= 0) editor?.reveal(at.file, at.line, col, { select: { startLineNumber: at.line, startColumn: col, endLineNumber: at.line, endColumn: col + word.length } });
-            else editor?.reveal(at.file, at.line, col);
+            if (word && i >= 0) editor?.reveal(at.file, at.line, col, { focus: false, select: { startLineNumber: at.line, startColumn: col, endLineNumber: at.line, endColumn: col + word.length } });
+            else editor?.reveal(at.file, at.line, col, { focus: false });
         }, 0);
     }
 

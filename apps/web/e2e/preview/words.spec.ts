@@ -9,7 +9,8 @@ async function preview(page: Page): Promise<FrameLocator> {
     const frame = page.frameLocator('iframe.pv-frame');
     await expect(frame.locator('.pv-page .textLayer span').first()).toBeVisible({ timeout: 170_000 });
     // The sync to the word reads the document's text once the pages are laid out.
-    await page.waitForTimeout(1500);
+    await expect(page.locator('.pv-spin')).toHaveCount(0, { timeout: 120_000 });
+    await expect(frame.locator('.pv-pages[data-sync]')).toBeAttached({ timeout: 60_000 });
     return frame;
 }
 
@@ -86,7 +87,7 @@ test.describe('words picked in the preview', () => {
             const b = await textBox(page, frame, run, word, nth);
             await page.mouse.dblclick(b.x + b.width / 2, b.y + b.height / 2);
             // The preview selects the word without the space after it, and the editor mirrors exactly the word.
-            expect(await frame.locator('body').evaluate(() => window.getSelection()?.toString() ?? '')).toBe(word);
+            await expect.poll(() => frame.locator('body').evaluate(() => window.getSelection()?.toString() ?? '')).toBe(word);
             await expect.poll(() => mirroredText(page)).toBe(word);
         });
     }
