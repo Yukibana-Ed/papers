@@ -59,7 +59,8 @@ export function syncReview(session: Session, room: RoomClient): () => void {
                 user,
                 name: session.users[user]?.name ?? user,
                 cursor: { file: c.file, line: c.line, column: c.col },
-                selection: s === null || s.startColumn === undefined || s.endColumn === undefined ? null : { file: s.file, range: [s.startLine, s.startColumn, s.endLine, s.endColumn] },
+                selection:
+                    s === null || s.startColumn === undefined || s.endColumn === undefined ? null : { file: s.file, range: [s.startLine, s.startColumn, s.endLine, s.endColumn] },
             };
             if (JSON.stringify(room.awareness.getLocalState()) === JSON.stringify(next)) return;
             room.awareness.setLocalState(next);
