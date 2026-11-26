@@ -28,6 +28,9 @@ export interface PageText {
     readonly y: number;
     readonly width: number;
     readonly height: number;
+    /** The box of each character of `str` as the page draws its glyph (`charBoxes`), null for a character without a
+     *  glyph of its own (a space between words); absent when the glyphs were not read. */
+    readonly chars?: readonly (PageBox | null)[];
 }
 
 interface Word {

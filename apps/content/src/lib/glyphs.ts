@@ -17,7 +17,22 @@ type Matrix = readonly [number, number, number, number, number, number];
 const IDENTITY: Matrix = [1, 0, 0, 1, 0, 0];
 
 function multiply(m: Matrix, n: Matrix): Matrix {
-    return [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1], m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3], m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]];
+    return [
+        m[0] * n[0] + m[2] * n[1],
+        m[1] * n[0] + m[3] * n[1],
+        m[0] * n[2] + m[2] * n[3],
+        m[1] * n[2] + m[3] * n[3],
+        m[0] * n[4] + m[2] * n[5] + m[4],
+        m[1] * n[4] + m[3] * n[5] + m[5],
+    ];
+}
+
+/** `v` as a matrix when it is six numbers (PDF.js gives matrices as plain or typed arrays), else null. */
+function matrixOf(v: unknown): Matrix | null {
+    if (!Array.isArray(v) && !(v instanceof Float32Array) && !(v instanceof Float64Array)) return null;
+    const n: number[] = Array.from(v, Number);
+    const [a, b, c, d, e, f] = n;
+    return n.length !== 6 || a === undefined || b === undefined || c === undefined || d === undefined || e === undefined || f === undefined ? null : [a, b, c, d, e, f];
 }
 
 function apply(m: Matrix, x: number, y: number): [number, number] {
@@ -54,16 +69,24 @@ export async function pageGlyphs(page: PDFPageProxy, ink = false): Promise<Glyph
     const measure = ink ? new OffscreenCanvas(1, 1).getContext('2d') : null;
     const ops = await page.getOperatorList();
     const view = page.getViewport({ scale: 1 });
-    const toPage = view.transform as unknown as Matrix;
+    const toPage = matrixOf(view.transform) ?? IDENTITY;
     const out: Glyph[] = [];
-    const font = (name: string): FontInfo | null => {
-        try {
-            const f: unknown = page.commonObjs.get(name);
-            return typeof f === 'object' && f !== null ? (f as FontInfo) : null;
-        } catch {
-            return null;
-        }
-    };
+    // A font arrives from the worker a moment after the operator that names it: wait for each one named.
+    const fonts = new Map<string, FontInfo | null>();
+    for (let i = 0; i < ops.fnArray.length; i++) {
+        const args: unknown = ops.argsArray[i];
+        const name: unknown = ops.fnArray[i] === OPS.setFont && Array.isArray(args) ? args[0] : undefined;
+        if (typeof name !== 'string' || fonts.has(name)) continue;
+        const f = await new Promise<unknown>(resolve => {
+            try {
+                page.commonObjs.get(name, resolve);
+            } catch {
+                resolve(null);
+            }
+        });
+        fonts.set(name, typeof f === 'object' && f !== null ? f : null);
+    }
+    const font = (name: string): FontInfo | null => fonts.get(name) ?? null;
     interface Text {
         font: FontInfo | null;
         size: number;
@@ -117,7 +140,12 @@ export async function pageGlyphs(page: PDFPageProxy, ink = false): Promise<Glyph
                 measure.font = `100px "${f.loadedName}"`;
                 const mt = measure.measureText(g.fontChar);
                 const k = text.size / 100;
-                inkBox = boxOf(left - mt.actualBoundingBoxLeft * k * text.hScale, left + mt.actualBoundingBoxRight * k * text.hScale, -mt.actualBoundingBoxDescent * k, mt.actualBoundingBoxAscent * k);
+                inkBox = boxOf(
+                    left - mt.actualBoundingBoxLeft * k * text.hScale,
+                    left + mt.actualBoundingBoxRight * k * text.hScale,
+                    -mt.actualBoundingBoxDescent * k,
+                    mt.actualBoundingBoxAscent * k,
+                );
             }
             if (g.unicode !== '') out.push({ text: g.unicode, box: boxOf(left, right, descent, ascent), ...(inkBox === undefined ? {} : { ink: inkBox }) });
             at += advance + spacing;
@@ -142,8 +170,8 @@ export async function pageGlyphs(page: PDFPageProxy, ink = false): Promise<Glyph
                 break;
             case OPS.paintFormXObjectBegin: {
                 stack.push({ ctm, text: { ...text } });
-                const mat = a[0];
-                if (Array.isArray(mat) && mat.length === 6) ctm = multiply(ctm, mat.map(Number) as unknown as Matrix);
+                const mat = matrixOf(a[0]);
+                if (mat !== null) ctm = multiply(ctm, mat);
                 break;
             }
             case OPS.paintFormXObjectEnd: {
@@ -182,8 +210,7 @@ export async function pageGlyphs(page: PDFPageProxy, ink = false): Promise<Glyph
                 moveText(num(0), num(1));
                 break;
             case OPS.setTextMatrix: {
-                const mat = Array.isArray(a[0]) && a[0].length === 6 ? (a[0].map(Number) as unknown as Matrix) : ([num(0), num(1), num(2), num(3), num(4), num(5)] as const);
-                tm = mat;
+                tm = matrixOf(a[0]) ?? [num(0), num(1), num(2), num(3), num(4), num(5)];
                 x = y = lineX = lineY = 0;
                 break;
             }
