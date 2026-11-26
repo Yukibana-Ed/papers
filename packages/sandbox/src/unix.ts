@@ -55,6 +55,10 @@ export function bubblewrapRunner(o: SandboxOptions, bwrap = '/usr/bin/bwrap'): P
                 '--unshare-all',
                 '--die-with-parent',
                 '--new-session',
+                // The private /tmp first: bwrap mounts in order, and a work folder or TeX tree under /tmp (as in tests and
+                // CI) must be bound over it, not hidden by it.
+                '--tmpfs',
+                '/tmp',
                 ...['/usr', '/bin', '/lib', '/lib64', '/lib32', '/etc/fonts', '/etc/ssl', '/etc/alternatives', '/etc/ld.so.cache', '/etc/localtime'].flatMap(ro),
                 '--ro-bind',
                 o.texRoot,
@@ -67,8 +71,6 @@ export function bubblewrapRunner(o: SandboxOptions, bwrap = '/usr/bin/bwrap'): P
                 '/proc',
                 '--dev',
                 '/dev',
-                '--tmpfs',
-                '/tmp',
                 '--chdir',
                 req.cwd,
                 '--clearenv',
