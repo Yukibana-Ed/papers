@@ -41,7 +41,7 @@ button {
     background: var(--yk-bg);
 }
 .app.rail-open {
-    grid-template-columns: 44px 300px minmax(0, 1fr);
+    grid-template-columns: 44px var(--panel-w, 300px) minmax(0, 1fr);
 }
 
 /* --- header ------------------------------------------------------------------------------------------------------ */
@@ -430,6 +430,7 @@ button {
 }
 .panel {
     grid-area: panel;
+    position: relative;
     display: flex;
     flex-direction: column;
     min-height: 0;
@@ -437,6 +438,23 @@ button {
     border-right: 1px solid var(--yk-line);
     overflow: hidden;
     animation: fade-in var(--yk-motion-fast) var(--yk-motion-ease);
+}
+/* The panel's right edge: drag it to resize the panel. */
+.panel-resize {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 5px;
+    cursor: col-resize;
+    touch-action: none;
+    z-index: 2;
+}
+.panel-resize:hover,
+.panel-resize:active,
+.panel-resize:focus-visible {
+    background: var(--yk-line-strong);
+    outline: none;
 }
 .panel-head {
     display: flex;
@@ -1277,6 +1295,9 @@ button {
     }
     .app.rail-open {
         grid-template-columns: 44px 260px minmax(0, 1fr);
+    }
+    .panel-resize {
+        display: none;
     }
     .narrow-only {
         display: inline-flex;
