@@ -98,6 +98,10 @@ export class Session {
     commitMessage = $state('');
     justCommitted = $state(false);
     incoming = $state(0);
+    /** How the session reaches the room: `live`, `batched` (the room asked for fewer messages), `paused` (the room's
+     *  daily budget is spent; edits stay here until it is live again), `offline` (no connection; edits wait). Always
+     *  `live` in the demo. */
+    sync = $state<'live' | 'batched' | 'paused' | 'offline'>('live');
     narrowPane = $state<'source' | 'preview'>('source');
     commentFilter = $state<'all' | 'team' | 'github'>('all');
     showResolved = $state(false);

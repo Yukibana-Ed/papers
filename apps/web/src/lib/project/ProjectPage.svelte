@@ -93,7 +93,9 @@
                         welcome = { base, files };
                     },
                     base: () => {},
-                    sync: () => {},
+                    sync: m => {
+                        if (session) session.sync = m.mode;
+                    },
                     synced: () => {
                         if (session || !welcome) return;
                         const w = welcome;
@@ -127,7 +129,9 @@
                                 },
                             );
                     },
-                    connection: () => {},
+                    connection: state => {
+                        if (session && state !== 'connecting') session.sync = state === 'open' ? 'live' : 'offline';
+                    },
                     refused: (reason) => session?.flash(reason === 'paused' ? 'Live sync paused for today' : `Refused: ${reason}`),
                 });
                 room = r;
