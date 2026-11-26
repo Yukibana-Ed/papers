@@ -17,6 +17,15 @@ export interface SessionSeed {
     readonly commits: readonly Commit[];
     readonly threads: readonly Thread[];
     readonly presence: readonly Presence[];
+    /** Build inputs that are not text (images, fonts), for the compiler only. */
+    readonly assets?: Readonly<Record<string, Uint8Array>>;
+}
+
+/** What a repository's session does that the demo does not. */
+export interface SessionBackend {
+    /** Commits `changes` as the user with `message` and returns the new commit's SHA; throws with a message to show
+     *  when GitHub refuses. */
+    commit(message: string, changes: readonly { path: string; text: string | null }[]): Promise<string>;
 }
 
 export interface FileChange {
@@ -55,6 +64,9 @@ export class Session {
     /** The project's files in the order the file list shows them. */
     get order(): readonly string[] {
         return this.seed.order;
+    }
+    get assets(): Readonly<Record<string, Uint8Array>> {
+        return this.seed.assets ?? {};
     }
 
     files = $state<Record<string, string>>({});
@@ -217,16 +229,31 @@ export class Session {
     }
 
     /** Commits every uncommitted change with the message typed, or the default one. */
-    commit(): void {
-        if (!this.uncommitted) return;
+    /** Commits every uncommitted change with the message typed, or the default one: through `backend` when the
+     *  session is a repository's, else locally (the demo). A refused commit leaves everything uncommitted. */
+    async commit(): Promise<void> {
+        if (!this.uncommitted || this.committing) return;
         const msg = this.commitMessage.trim() || this.defaultCommitMessage;
-        this.commits.unshift({ hash: hex7(), author: this.me, when: 'just now', msg });
-        this.base = { ...this.files };
-        this.commitMessage = '';
-        this.popover = null;
-        this.justCommitted = true;
-        setTimeout(() => (this.justCommitted = false), 2000);
+        const changes = this.changes.map(c => ({ path: c.file, text: this.files[c.file] ?? null }));
+        this.committing = true;
+        try {
+            const hash = this.backend ? await this.backend.commit(msg, changes) : hex7();
+            this.commits.unshift({ hash: hash.slice(0, 7), author: this.me, when: 'just now', msg });
+            this.base = { ...this.base, ...Object.fromEntries(changes.map(c => [c.path, c.text ?? ''])) };
+            this.commitMessage = '';
+            this.popover = null;
+            this.justCommitted = true;
+            setTimeout(() => (this.justCommitted = false), 2000);
+        } catch (e) {
+            this.flash(e instanceof Error ? e.message : 'Commit failed');
+        } finally {
+            this.committing = false;
+        }
     }
+
+    /** Where commits go for a repository's session; null in the demo. */
+    backend: SessionBackend | null = null;
+    committing = $state(false);
 
     switchBranch(name: string): void {
         this.branch = name;

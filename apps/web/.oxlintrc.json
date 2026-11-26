@@ -4,6 +4,8 @@
   "rules": {
     /* SvelteKit's `redirect()` and `error()` never return; the rule cannot see that. */
     "typescript/consistent-return": "off",
+    /* JSON from GitHub and from requests is read into its known shape at the boundary, and checked where it matters. */
+    "typescript/no-unsafe-type-assertion": "off",
     /* `export {}` is how a .d.ts becomes a module, per SvelteKit's own template. */
     "unicorn/require-module-specifiers": "off",
     /* A Svelte 5 component renders itself recursively by importing itself (svelte:self is deprecated). */

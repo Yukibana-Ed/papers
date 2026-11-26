@@ -1,6 +1,8 @@
 import type { editor as Editor, IDisposable, IPosition, IRange } from 'monaco-editor/editor/editor.api';
 import type { Anchor, Cursor, Lines, PlacedSuggestion, Presence, Suggestion, TextRange, Thread, User } from '#lib/model/types.ts';
+import type * as Y from 'yjs';
 import { applyTheme, languageOf, monaco, remeasureWhenFontsLoad } from './monaco.ts';
+import { TextBinding } from './y-binding.ts';
 
 type Model = Editor.ITextModel;
 type Range = InstanceType<typeof monaco.Range>;
@@ -57,6 +59,7 @@ export class SourceEditor {
     private readonly deco = new Map<string, FileDecorations>();
     private readonly threadDeco = new Map<string, { file: string; id: string }>();
     private readonly sugg = new Map<string, SuggestionState>();
+    private readonly bindings = new Map<string, TextBinding>();
     private readonly disposables: IDisposable[] = [];
     private readonly stopRemeasure: () => void;
     private presenceStyle: HTMLStyleElement | null = null;
@@ -148,6 +151,7 @@ export class SourceEditor {
         this.host.removeEventListener('beforeinput', this.suggestInput, true);
         this.host.removeEventListener('paste', this.suggestPaste, true);
         this.stopRemeasure();
+        for (const b of this.bindings.values()) b.dispose();
         for (const d of this.disposables) d.dispose();
         this.ed.dispose();
         for (const m of this.models.values()) m.dispose();
@@ -159,6 +163,13 @@ export class SourceEditor {
         this.models.set(f, m);
         this.shadow.set(f, text);
         this.disposables.push(m.onDidChangeContent(e => this.onModelChange(f, m, e)));
+    }
+
+    /** Keeps `file` the same text as `text`, a file of the room, both ways; adds the file if it is new. */
+    bind(file: string, text: Y.Text): void {
+        if (!this.models.has(file)) this.addModel(file, text.toJSON());
+        this.bindings.get(file)?.dispose();
+        this.bindings.set(file, new TextBinding(this.model(file), text));
     }
 
     private fileOf(m: Model | null): string | null {
@@ -325,6 +336,7 @@ export class SourceEditor {
         const before = this.shadow.get(f) ?? '';
         this.shadow.set(f, m.getValue());
         const c = e.changes[0];
+        if (this.bindings.get(f)?.remote) return this.finishChange(f, m);
         if (this.internal || !this.suggestMode || e.isUndoing || e.isRedoing || e.changes.length !== 1 || !c) return this.finishChange(f, m);
         // Suggesting: put the text back as it was and record the change as a suggestion instead.
         const removed = before.substr(c.rangeOffset, c.rangeLength);

@@ -54,7 +54,7 @@ export class Room extends DurableObject<Env> {
         return {
             identity,
             awarenessIds: new Set(),
-            send: (data) => {
+            send: data => {
                 try {
                     ws.send(data);
                 } catch {

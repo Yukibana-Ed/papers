@@ -80,7 +80,7 @@ export function parseClientMessage(x: unknown): ClientMessage | null {
                 : null;
         case 'committed': {
             const files = x['files'];
-            return typeof x['commit'] === 'string' && Array.isArray(files) && files.every(isBaseFile) && files.every((f) => validPath(f.path))
+            return typeof x['commit'] === 'string' && Array.isArray(files) && files.every(isBaseFile) && files.every(f => validPath(f.path))
                 ? { type: 'committed', commit: x['commit'], files }
                 : null;
         }
@@ -93,5 +93,5 @@ export function parseClientMessage(x: unknown): ClientMessage | null {
 
 /** A repository-relative path as git has it: no leading `/`, no `.` or `..` segments, no empty segments. */
 export function validPath(p: string): boolean {
-    return p.length > 0 && p.length <= 4096 && !p.startsWith('/') && p.split('/').every((s) => s !== '' && s !== '.' && s !== '..');
+    return p.length > 0 && p.length <= 4096 && !p.startsWith('/') && p.split('/').every(s => s !== '' && s !== '.' && s !== '..');
 }

@@ -94,7 +94,7 @@
     {#if s.popover === 'commit'}
         <div class="popover pop-commit" role="dialog" aria-label="Commit">
             <!-- svelte-ignore a11y_autofocus -->
-            <input autofocus class="yk-input" placeholder={s.defaultCommitMessage} bind:value={s.commitMessage} onkeydown={(e) => e.key === 'Enter' && s.commit()} aria-label="Message" />
+            <input autofocus class="yk-input" placeholder={s.defaultCommitMessage} bind:value={s.commitMessage} onkeydown={(e) => e.key === 'Enter' && void s.commit()} aria-label="Message" />
             <ul class="changes">
                 {#each s.changes as c (c.file)}
                     <li>
@@ -118,7 +118,7 @@
             <div class="pop-row">
                 <span class="muted mono">{s.branch}</span>
                 <span class="grow"></span>
-                <button type="button" class="yk-btn yk-btn--primary btn-sm" onclick={() => s.commit()} {...tip('Commit and push', 'Enter')}>Commit</button>
+                <button type="button" class="yk-btn yk-btn--primary btn-sm" onclick={() => void s.commit()} {...tip('Commit and push', 'Enter')}>Commit</button>
             </div>
         </div>
     {/if}

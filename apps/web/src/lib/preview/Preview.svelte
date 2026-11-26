@@ -69,7 +69,7 @@
     function sendAll(): void {
         if (!client) return;
         sent = { ...session.files };
-        client.send({ type: 'project', files: sent, root: session.root, engine: engineOf(session.root) });
+        client.send({ type: 'project', files: { ...session.assets, ...sent }, root: session.root, engine: engineOf(session.root) });
         client.send({ type: 'theme', dark: session.dark });
         client.send({ type: 'zoom', zoom: session.zoom });
     }

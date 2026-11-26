@@ -14,33 +14,33 @@ export const ME = 'ambrus';
 export const REPO = { owner: 'yukibana-demo', name: 'feedback-paper' } as const;
 
 export const FILES: Readonly<Record<string, string>> = {
-    'paper.tex': String.raw`\documentclass[11pt]{article}
-\usepackage[T1]{fontenc}
-\usepackage{lmodern}
-\usepackage{amsmath}
-\usepackage{tikz}
-\usepackage[margin=1in]{geometry}
-
-\title{Instant Feedback in Introductory Programming}
-\author{Ambrus Tóth \and Lena Kraus \and Marco Rossi}
-
-\begin{document}
-\maketitle
-
-\begin{abstract}
-We study how feedback that arrives within seconds changes the way
-first-year students work on programming exercises. In a course of
-412 students, instant feedback halved the time to a first passing
-submission and reduced the number of abandoned exercises by a third.
-\end{abstract}
-
-\input{sections/intro}
-\input{sections/method}
-\input{sections/results}
-
-\bibliographystyle{plain}
-\bibliography{refs}
-\end{document}
+    'paper.tex': String.raw`\documentclass[11pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath}
+\usepackage{tikz}
+\usepackage[margin=1in]{geometry}
+
+\title{Instant Feedback in Introductory Programming}
+\author{Ambrus Tóth \and Lena Kraus \and Marco Rossi}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We study how feedback that arrives within seconds changes the way
+first-year students work on programming exercises. In a course of
+412 students, instant feedback halved the time to a first passing
+submission and reduced the number of abandoned exercises by a third.
+\end{abstract}
+
+\input{sections/intro}
+\input{sections/method}
+\input{sections/results}
+
+\bibliographystyle{plain}
+\bibliography{refs}
+\end{document}
 `,
     'sections/intro.tex': String.raw`\section{Introduction}
 Learning to program is very important for every student of computer

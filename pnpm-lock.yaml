@@ -188,6 +188,9 @@ catalogs:
     '@yukibana/papers-frame-protocol':
       specifier: workspace:*
       version: workspace:*
+    '@yukibana/papers-room':
+      specifier: workspace:*
+      version: workspace:*
     happy-dom:
       specifier: 21.0.4
       version: 21.0.4
@@ -367,6 +370,12 @@ importers:
       '@yukibana/papers-frame-protocol':
         specifier: 'catalog:'
         version: link:../../packages/frame-protocol
+      '@yukibana/papers-room':
+        specifier: 'catalog:'
+        version: link:../room
+      lib0:
+        specifier: 'catalog:'
+        version: 0.2.120
       markdown-it:
         specifier: 'catalog:'
         version: 14.3.3
@@ -400,6 +409,12 @@ importers:
       prosemirror-view:
         specifier: 'catalog:'
         version: 1.42.9
+      y-protocols:
+        specifier: 'catalog:'
+        version: 1.0.7(yjs@13.6.33)
+      yjs:
+        specifier: 'catalog:'
+        version: 13.6.33
     devDependencies:
       '@sveltejs/adapter-cloudflare':
         specifier: 'catalog:'

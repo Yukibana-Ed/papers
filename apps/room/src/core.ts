@@ -208,7 +208,7 @@ export class RoomCore {
         for (const id of [DOC_TEXT, DOC_REVIEW] as const) if (this.store.updateCount(id) > 1) this.store.compact(id, Y.encodeStateAsUpdate(this.docOf(id)), this.now());
         this.announceMode();
         if (this.store.getMeta('dirty') !== '1') return false;
-        const writer = [...this.peers].find((p) => p.identity.access === 'write');
+        const writer = [...this.peers].find(p => p.identity.access === 'write');
         if (writer) this.sendControl(writer, { type: 'backup-due' });
         return writer !== undefined;
     }

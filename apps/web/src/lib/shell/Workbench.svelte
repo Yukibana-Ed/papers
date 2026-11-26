@@ -5,6 +5,7 @@
     import type { CommentOps } from '#lib/comments/ops.ts';
     import type { SourceEditor } from '#lib/editor/source-editor.ts';
     import Preview from '#lib/preview/Preview.svelte';
+    import type { RoomClient } from '#lib/room/client.ts';
     import type { Session } from '#lib/session.svelte.ts';
     import Icon from '#lib/ui/Icon.svelte';
     import type { IconName } from '#lib/ui/icons.ts';
@@ -15,7 +16,7 @@
     import Palette from './Palette.svelte';
 
     /** The editor: header, rail and panels, source, preview. */
-    let { session: s, contentOrigin }: { session: Session; contentOrigin: string } = $props();
+    let { session: s, contentOrigin, room = null }: { session: Session; contentOrigin: string; room?: RoomClient | null } = $props();
 
     let host = $state<HTMLDivElement | null>(null);
     let editor = $state<SourceEditor | null>(null);
@@ -69,10 +70,26 @@
     });
     let seeded = false;
     $effect(() => {
-        if (editor && !seeded) {
+        if (editor && !seeded && !room) {
             seeded = true;
             void import('#lib/demo/project.ts').then(({ SUGGESTIONS }) => editor?.addSuggestions(SUGGESTIONS, s.users));
         }
+    });
+
+    // A repository's session: every file of the room bound to its model, and files others open bound as they come.
+    $effect(() => {
+        const ed = editor;
+        if (!ed || !room) return;
+        const files = room.files;
+        for (const [path, text] of files) ed.bind(path, text);
+        const onFiles = (e: { keysChanged: Set<string> }): void => {
+            for (const path of e.keysChanged) {
+                const text = files.get(path);
+                if (text) ed.bind(path, text);
+            }
+        };
+        files.observe(onFiles);
+        return () => files.unobserve(onFiles);
     });
 
     function setTheme(t: 'light' | 'dark' | 'system'): void {
@@ -202,7 +219,7 @@
     function runKey(id: string): void {
         if (id === 'palette') s.palette = !s.palette;
         else if (id === 'commit') {
-            if (s.popover === 'commit') s.commit();
+            if (s.popover === 'commit') void s.commit();
             else if (s.uncommitted) s.popover = 'commit';
         } else commands.find((c) => c.id === id)?.run();
     }

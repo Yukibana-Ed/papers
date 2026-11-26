@@ -34,6 +34,8 @@
   },
   "dependencies": {
     "@yukibana/papers-frame-protocol": "catalog:",
+    "@yukibana/papers-room": "catalog:",
+    "lib0": "catalog:",
     "markdown-it": "catalog:",
     "prosemirror-commands": "catalog:",
     "prosemirror-history": "catalog:",
@@ -44,6 +46,8 @@
     "prosemirror-schema-list": "catalog:",
     "prosemirror-state": "catalog:",
     "prosemirror-transform": "catalog:",
-    "prosemirror-view": "catalog:"
+    "prosemirror-view": "catalog:",
+    "y-protocols": "catalog:",
+    "yjs": "catalog:"
   }
 }

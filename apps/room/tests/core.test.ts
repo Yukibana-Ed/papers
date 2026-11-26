@@ -34,7 +34,7 @@ class Client {
         login: string,
         access: Access,
     ) {
-        this.peer = { identity: { login, name: login, access }, awarenessIds: new Set(), send: (d) => this.onServer(d) };
+        this.peer = { identity: { login, name: login, access }, awarenessIds: new Set(), send: d => this.onServer(d) };
         for (const [id, doc] of [
             [DOC_TEXT, this.text],
             [DOC_REVIEW, this.review],
@@ -114,7 +114,7 @@ describe('room', () => {
         w.open('paper.tex', 'Text');
         c.text.getMap<Y.Text>('files').get('paper.tex')?.insert(0, 'X');
         expect(w.file('paper.tex')).toBe('Text');
-        expect(c.control.some((m) => m.type === 'refused' && m.reason === 'access')).toBe(true);
+        expect(c.control.some(m => m.type === 'refused' && m.reason === 'access')).toBe(true);
         c.review.getMap('threads').set('t1', { body: 'Nice' });
         expect(w.review.getMap('threads').get('t1')).toEqual({ body: 'Nice' });
         c.room.receive(c.peer, JSON.stringify({ type: 'open', path: 'evil.tex', blob: 'b', text: 'x', commit: 'c1' }));
@@ -176,12 +176,12 @@ describe('room', () => {
         a.open('a.tex', '');
         const t = a.text.getMap<Y.Text>('files').get('a.tex');
         t?.insert(0, 'x'.repeat(1200));
-        expect(a.control.some((m) => m.type === 'sync' && m.sync.mode === 'batched')).toBe(true);
+        expect(a.control.some(m => m.type === 'sync' && m.sync.mode === 'batched')).toBe(true);
         now += 60_000;
         t?.insert(0, 'y'.repeat(5000));
         t?.insert(0, 'z');
-        expect(a.control.some((m) => m.type === 'refused' && m.reason === 'paused')).toBe(true);
-        expect(a.control.some((m) => m.type === 'sync' && m.sync.mode === 'paused')).toBe(true);
+        expect(a.control.some(m => m.type === 'refused' && m.reason === 'paused')).toBe(true);
+        expect(a.control.some(m => m.type === 'sync' && m.sync.mode === 'paused')).toBe(true);
     });
 
     it('asks a writer for a WIP backup after changes', () => {

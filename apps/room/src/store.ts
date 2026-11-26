@@ -57,7 +57,7 @@ export class RoomStore {
         return this.sql
             .exec('SELECT data FROM updates WHERE doc = ? ORDER BY id', doc)
             .toArray()
-            .map((r) => bytes(r['data']));
+            .map(r => bytes(r['data']));
     }
 
     appendUpdate(doc: DocId, data: Uint8Array, at: number): void {
@@ -78,7 +78,7 @@ export class RoomStore {
         return this.sql
             .exec('SELECT path, blob, text FROM base_files ORDER BY path')
             .toArray()
-            .map((r) => ({ path: str(r['path']), blob: str(r['blob']), text: str(r['text']) }));
+            .map(r => ({ path: str(r['path']), blob: str(r['blob']), text: str(r['text']) }));
     }
 
     baseFile(path: string): BaseFile | null {
@@ -87,7 +87,12 @@ export class RoomStore {
     }
 
     setBaseFile(f: BaseFile): void {
-        this.sql.exec('INSERT INTO base_files (path, blob, text) VALUES (?, ?, ?) ON CONFLICT (path) DO UPDATE SET blob = excluded.blob, text = excluded.text', f.path, f.blob, f.text);
+        this.sql.exec(
+            'INSERT INTO base_files (path, blob, text) VALUES (?, ?, ?) ON CONFLICT (path) DO UPDATE SET blob = excluded.blob, text = excluded.text',
+            f.path,
+            f.blob,
+            f.text,
+        );
     }
 
     usage(day: string, metric: string): number {
