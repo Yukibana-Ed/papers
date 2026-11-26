@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { dialogFocus } from '#lib/ui/focus.ts';
     import { keepInView } from '#lib/ui/place.ts';
     import { pair } from '#lib/runner/client.ts';
     import type { Session } from '#lib/session.svelte.ts';
@@ -26,7 +27,7 @@
     }
 </script>
 
-<div class="popover pop-builder" role="dialog" {@attach keepInView} aria-label="Build">
+<div class="popover pop-builder" role="dialog" {@attach keepInView} {@attach dialogFocus} aria-label="Build">
     <button
         type="button"
         class="row-btn"

@@ -33,6 +33,14 @@ export interface SyncTex {
     readonly records: readonly SyncRecord[];
 }
 
+/** The result of a backward search: the source line, its file as a project path (`inputPath`), and the path exactly
+ *  as the engine wrote it (absolute, or relative to the folder it ran in), for callers that resolve it themselves. */
+export interface BackwardHit {
+    readonly file: string;
+    readonly line: number;
+    readonly input: string;
+}
+
 /** A box on a page, in PDF points from the top-left. */
 export interface PageBox {
     readonly page: number;
@@ -171,13 +179,17 @@ function toBox(r: SyncRecord): PageBox {
 }
 
 /** Backward search for the point (`x`, `y`) in PDF points from the top-left of `page`: on the text line under the point,
- *  the last kern or glue record at or left of `x`, else the line's first one to the right of it; else the smallest box
+ *  the last kern or glue record at or left of `x` (of two at the same place, the later one in the file: the input
+ *  that starts there), else the line's first one to the right of it; else the smallest box
  *  that contains the point; else the nearest record. Returns null only when the page has no records.
  *
  *  Kerns and glue carry the source line they were read on. pdfTeX gives a line's first character record (`x`) and its
  *  box the line where the paragraph ended instead, so those decide only when a line has nothing else. */
-export function backward(sync: SyncTex, page: number, x: number, y: number): { file: string; line: number } | null {
-    const at = (r: SyncRecord): { file: string; line: number } => ({ file: inputPath(sync.inputs.get(r.tag) ?? ''), line: r.line });
+export function backward(sync: SyncTex, page: number, x: number, y: number): BackwardHit | null {
+    const at = (r: SyncRecord): BackwardHit => {
+        const input = sync.inputs.get(r.tag) ?? '';
+        return { file: inputPath(input), line: r.line, input };
+    };
     const onLine = (r: SyncRecord): boolean => r.page === page && r.y >= y - 1 && r.y <= y + 9;
     const pick = (kinds: readonly string[]): SyncRecord | null => {
         let left: SyncRecord | null = null;
@@ -185,7 +197,7 @@ export function backward(sync: SyncTex, page: number, x: number, y: number): { f
         for (const r of sync.records) {
             if (!kinds.includes(r.kind) || !onLine(r)) continue;
             if (r.x <= x + 1) {
-                if (left === null || r.y < left.y - 0.5 || (Math.abs(r.y - left.y) <= 0.5 && r.x > left.x)) left = r;
+                if (left === null || r.y < left.y - 0.5 || (Math.abs(r.y - left.y) <= 0.5 && r.x >= left.x)) left = r;
             } else if (right === null || r.y < right.y - 0.5 || (Math.abs(r.y - right.y) <= 0.5 && r.x < right.x)) right = r;
         }
         return left ?? right;

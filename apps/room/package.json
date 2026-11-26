@@ -4,9 +4,6 @@
   "version": "0.0.0-dev",
   "license": "Apache-2.0",
   "type": "module",
-  "exports": {
-    "./protocol": "./src/protocol.ts"
-  },
   "scripts": {
     "dev": "wrangler dev --port 5187",
     "build": "wrangler deploy --dry-run --outdir dist",
@@ -17,7 +14,8 @@
   "dependencies": {
     "lib0": "catalog:",
     "y-protocols": "catalog:",
-    "yjs": "catalog:"
+    "yjs": "catalog:",
+    "@yukibana/papers-room-protocol": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",

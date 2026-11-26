@@ -1,0 +1,19 @@
+{
+  "private": true,
+  "name": "@yukibana/papers-room-protocol",
+  "version": "0.0.0-dev",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p .",
+    "lint": "oxlint --type-aware --deny-warnings"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

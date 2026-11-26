@@ -4,7 +4,7 @@ import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwareness
 import { messageYjsSyncStep1, messageYjsSyncStep2, messageYjsUpdate, writeSyncStep1, writeSyncStep2 } from 'y-protocols/sync';
 import * as Y from 'yjs';
 import { DEFAULT_LIMITS, PersonMeter, UsageMeter, dayOf, type Limits } from './limits.ts';
-import { DOC_REVIEW, DOC_TEXT, MSG_AWARENESS, MSG_SYNC, parseClientMessage, type DocId, type Identity, type ServerMessage, type SyncMode } from './protocol.ts';
+import { DOC_REVIEW, DOC_TEXT, MSG_AWARENESS, MSG_SYNC, parseClientMessage, type DocId, type Identity, type ServerMessage, type SyncMode } from '@yukibana/papers-room-protocol';
 import type { RoomStore } from './store.ts';
 
 /** One connection to the room. */

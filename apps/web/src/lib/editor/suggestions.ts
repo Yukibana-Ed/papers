@@ -483,5 +483,5 @@ function offsetIn(text: string, line: number, col: number): number {
 }
 
 function newId(): string {
-    return `s${Math.random().toString(36).slice(2, 9)}`;
+    return `s${crypto.randomUUID()}`;
 }

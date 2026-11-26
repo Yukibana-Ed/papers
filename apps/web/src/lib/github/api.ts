@@ -5,6 +5,7 @@
 const API = 'https://api.github.com';
 const UA = 'yukibana-papers';
 
+/** A GitHub answer that was not a success, with its HTTP status (400 for a repository name refused before asking). */
 export class GitHubError extends Error {
     readonly status: number;
 
@@ -16,6 +17,47 @@ export class GitHubError extends Error {
 
 function headers(token: string, accept = 'application/vnd.github+json'): Record<string, string> {
     return { Authorization: `Bearer ${token}`, Accept: accept, 'User-Agent': UA, 'X-GitHub-Api-Version': '2022-11-28' };
+}
+
+/** How many times a GitHub call is made at most, and the longest wait between two that is worth making. */
+const ATTEMPTS = 3;
+const MAX_WAIT_MS = 20_000;
+
+/** How long to wait before trying `r` again (the `attempt`th try failed, from 0), or null when it is not worth it.
+ *  GitHub's rate limits (429, or 403 with `Retry-After` or no requests left) say when: that is honoured, unless it is
+ *  longer than `MAX_WAIT_MS`. A 502/503/504 of an idempotent `method` waits 0.5 s, then 1 s, each jittered down by up
+ *  to half. Anything else is the answer. */
+export function retryDelay(r: Response, method: string, attempt: number, now = Date.now()): number | null {
+    const after = r.headers.get('Retry-After');
+    const left = r.headers.get('X-RateLimit-Remaining');
+    const reset = r.headers.get('X-RateLimit-Reset');
+    const limited = r.status === 429 || (r.status === 403 && (after !== null || left === '0'));
+    if (limited) {
+        const wait = after !== null && /^\d+$/.test(after) ? Number(after) * 1000 : reset !== null && /^\d+$/.test(reset) ? Number(reset) * 1000 - now : 1000 * 2 ** attempt;
+        return wait <= MAX_WAIT_MS ? Math.max(0, wait) : null;
+    }
+    if ((r.status === 502 || r.status === 503 || r.status === 504) && (method === 'GET' || method === 'HEAD')) return 500 * 2 ** attempt * (0.5 + Math.random() / 2);
+    return null;
+}
+
+/** `fetch`, tried again up to `ATTEMPTS` times in all as `retryDelay` says, and once more after a network failure of
+ *  an idempotent request. Returns the last response; throws the network error when every try failed that way. A
+ *  rate-limited request was not carried out, so trying it again is safe whatever its method. */
+export async function githubFetch(url: string, init: RequestInit = {}, sleep: (ms: number) => Promise<void> = ms => new Promise(res => setTimeout(res, ms))): Promise<Response> {
+    const method = (init.method ?? 'GET').toUpperCase();
+    for (let attempt = 0; ; attempt++) {
+        let r: Response;
+        try {
+            r = await fetch(url, init);
+        } catch (e) {
+            if (attempt + 1 >= ATTEMPTS || (method !== 'GET' && method !== 'HEAD')) throw e;
+            await sleep(500 * 2 ** attempt * (0.5 + Math.random() / 2));
+            continue;
+        }
+        const wait = attempt + 1 < ATTEMPTS ? retryDelay(r, method, attempt) : null;
+        if (wait === null) return r;
+        await sleep(wait);
+    }
 }
 
 async function json<T>(r: Response): Promise<T> {
@@ -35,8 +77,10 @@ export interface Viewer {
     readonly avatar: string;
 }
 
+/** The signed-in user of `token`: login, display name (the login when none is set) and avatar URL. Throws a
+ *  `GitHubError` for any answer but a success. */
 export async function viewer(token: string): Promise<Viewer> {
-    const u = await json<{ login: string; name: string | null; avatar_url: string }>(await fetch(`${API}/user`, { headers: headers(token) }));
+    const u = await json<{ login: string; name: string | null; avatar_url: string }>(await githubFetch(`${API}/user`, { headers: headers(token) }));
     return { login: u.login, name: u.name ?? u.login, avatar: u.avatar_url };
 }
 
@@ -53,7 +97,7 @@ export interface RepoInfo {
 /** The repository as the user sees it. The one place access is derived: change it here and nowhere else. */
 export async function repoInfo(token: string, owner: string, repo: string): Promise<RepoInfo> {
     const r = await json<{ full_name: string; default_branch: string; private: boolean; permissions?: { push?: boolean; pull?: boolean } }>(
-        await fetch(`${API}/repos/${repoPath(owner, repo)}`, { headers: headers(token) }),
+        await githubFetch(`${API}/repos/${repoPath(owner, repo)}`, { headers: headers(token) }),
     );
     if (!r.permissions?.pull) throw new GitHubError(404, 'Not found');
     return { fullName: r.full_name, defaultBranch: r.default_branch, private: r.private, access: r.permissions.push ? 'write' : 'comment' };
@@ -78,11 +122,11 @@ export interface TreeEntry {
  *  list (above 100 000 entries or 7 MB): the caller then lists the document's folder instead. */
 export async function tree(token: string, owner: string, repo: string, branch: string): Promise<{ commit: string; files: TreeEntry[]; truncated: boolean }> {
     const p = repoPath(owner, repo);
-    const ref = await json<{ object: { sha: string } }>(await fetch(`${API}/repos/${p}/git/ref/heads/${encodeURIComponent(branch)}`, { headers: headers(token) }));
+    const ref = await json<{ object: { sha: string } }>(await githubFetch(`${API}/repos/${p}/git/ref/heads/${encodeURIComponent(branch)}`, { headers: headers(token) }));
     const head = ref.object.sha;
-    const c = await json<{ tree: { sha: string } }>(await fetch(`${API}/repos/${p}/git/commits/${head}`, { headers: headers(token) }));
+    const c = await json<{ tree: { sha: string } }>(await githubFetch(`${API}/repos/${p}/git/commits/${head}`, { headers: headers(token) }));
     const t = await json<{ tree: { path: string; type: string; sha: string; size?: number }[]; truncated: boolean }>(
-        await fetch(`${API}/repos/${p}/git/trees/${c.tree.sha}?recursive=1`, { headers: headers(token) }),
+        await githubFetch(`${API}/repos/${p}/git/trees/${c.tree.sha}?recursive=1`, { headers: headers(token) }),
     );
     return { commit: head, truncated: t.truncated, files: t.tree.filter(e => e.type === 'blob').map(e => ({ path: e.path, sha: e.sha, size: e.size ?? 0 })) };
 }
@@ -90,7 +134,7 @@ export async function tree(token: string, owner: string, repo: string, branch: s
 /** A blob's bytes. Blobs are immutable, so callers may cache them by `sha` forever. */
 export async function blob(token: string, owner: string, repo: string, sha: string): Promise<Response> {
     if (!/^[0-9a-f]{40}$/.test(sha)) throw new GitHubError(400, 'Invalid blob');
-    const r = await fetch(`${API}/repos/${repoPath(owner, repo)}/git/blobs/${sha}`, { headers: headers(token, 'application/vnd.github.raw') });
+    const r = await githubFetch(`${API}/repos/${repoPath(owner, repo)}/git/blobs/${sha}`, { headers: headers(token, 'application/vnd.github.raw') });
     if (!r.ok) throw new GitHubError(r.status, `GitHub answered ${r.status}`);
     return r;
 }
@@ -129,7 +173,7 @@ export async function commit(token: string, owner: string, repo: string, branch:
         },
     };
     const r = await json<{ data?: { createCommitOnBranch?: { commit?: { oid: string } } }; errors?: { message: string; type?: string }[] }>(
-        await fetch(`${API}/graphql`, {
+        await githubFetch(`${API}/graphql`, {
             method: 'POST',
             headers: { ...headers(token), 'Content-Type': 'application/json' },
             body: JSON.stringify({ query, variables: { input } }),
@@ -145,9 +189,9 @@ export async function commit(token: string, owner: string, repo: string, branch:
 export async function wipBackup(token: string, owner: string, repo: string, branch: string, head: string, changes: readonly FileChange[]): Promise<string> {
     const p = repoPath(owner, repo);
     const h = headers(token);
-    const parent = await json<{ tree: { sha: string } }>(await fetch(`${API}/repos/${p}/git/commits/${head}`, { headers: h }));
+    const parent = await json<{ tree: { sha: string } }>(await githubFetch(`${API}/repos/${p}/git/commits/${head}`, { headers: h }));
     const newTree = await json<{ sha: string }>(
-        await fetch(`${API}/repos/${p}/git/trees`, {
+        await githubFetch(`${API}/repos/${p}/git/trees`, {
             method: 'POST',
             headers: h,
             body: JSON.stringify({
@@ -157,12 +201,16 @@ export async function wipBackup(token: string, owner: string, repo: string, bran
         }),
     );
     const c = await json<{ sha: string }>(
-        await fetch(`${API}/repos/${p}/git/commits`, { method: 'POST', headers: h, body: JSON.stringify({ message: `WIP of ${branch}`, tree: newTree.sha, parents: [head] }) }),
+        await githubFetch(`${API}/repos/${p}/git/commits`, {
+            method: 'POST',
+            headers: h,
+            body: JSON.stringify({ message: `WIP of ${branch}`, tree: newTree.sha, parents: [head] }),
+        }),
     );
     const ref = `yukibana/wip/${branch}`;
-    const update = await fetch(`${API}/repos/${p}/git/refs/${ref}`, { method: 'PATCH', headers: h, body: JSON.stringify({ sha: c.sha, force: true }) });
+    const update = await githubFetch(`${API}/repos/${p}/git/refs/${ref}`, { method: 'PATCH', headers: h, body: JSON.stringify({ sha: c.sha, force: true }) });
     if (update.status === 422 || update.status === 404)
-        await json(await fetch(`${API}/repos/${p}/git/refs`, { method: 'POST', headers: h, body: JSON.stringify({ ref: `refs/${ref}`, sha: c.sha }) }));
+        await json(await githubFetch(`${API}/repos/${p}/git/refs`, { method: 'POST', headers: h, body: JSON.stringify({ ref: `refs/${ref}`, sha: c.sha }) }));
     else await json(update);
     return c.sha;
 }

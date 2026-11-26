@@ -18,6 +18,7 @@
     "vitest": "catalog:"
   },
   "dependencies": {
-    "@yukibana/papers-project": "catalog:"
+    "@yukibana/papers-project": "catalog:",
+    "@yukibana/papers-tex": "catalog:"
   }
 }

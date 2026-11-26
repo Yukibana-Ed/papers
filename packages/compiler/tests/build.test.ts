@@ -50,9 +50,12 @@ describe.skipIf(texBin === null)('buildDocument with the local TeX', () => {
         const sync = parseSynctex(readFileSync(r.synctex));
         const boxes = forwardSearch(sync, 'body.tex', 1);
         expect(boxes.length).toBeGreaterThan(0);
-        const b = boxes[0];
-        if (!b) throw new Error('no box');
-        const back = inverseSearch(sync, b.page, b.x + 5, b.y + b.height - 1);
+        // body.tex's words continue main.tex's paragraph on the same typeset line, so the inverse search is checked at a
+        // kern or glue of body.tex itself (the records that carry the line they were read on), not at the box's edge.
+        const tag = [...sync.inputs].find(([, path]) => path.endsWith('body.tex'))?.[0];
+        const word = sync.records.find(rec => rec.tag === tag && (rec.kind === 'k' || rec.kind === 'g'));
+        if (!word) throw new Error('no record of body.tex');
+        const back = inverseSearch(sync, word.page, word.x + 1, word.y);
         expect(back?.file).toMatch(/body\.tex$/);
         expect(back?.line).toBe(1);
     }, 60_000);

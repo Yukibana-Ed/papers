@@ -1,4 +1,4 @@
-import type { BaseFile, DocId } from './protocol.ts';
+import type { BaseFile, DocId } from '@yukibana/papers-room-protocol';
 
 /** The subset of a Durable Object's SQL API the room uses (`ctx.storage.sql`): run a statement with bindings and get
  *  its rows. Tests give it node:sqlite instead. */
