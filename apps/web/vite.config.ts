@@ -13,9 +13,15 @@ const design = dirname(fileURLToPath(import.meta.resolve('@yukibana/design/packa
  *  TeX engine) need SharedArrayBuffer, and a cross-origin-isolated frame needs an isolated top-level page. */
 const isolation = { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' };
 
+/** Browsers that have CSS's light-dark(), so the build keeps it as it is. Lowered for older browsers, a token like
+ *  `light-dark(a, b)` becomes two variables that resolve where the token is defined, on the root, and an element that
+ *  sets its own colour scheme (the preview's pages, always light paper) then still gets the root's dark colours. */
+const cssTarget = ['chrome123', 'edge123', 'firefox120', 'safari17.5'];
+
 /** One Worker serves the app's pages; the adapter emulates its bindings in development from wrangler.jsonc. SvelteKit 3
  *  takes its configuration here, in the plugin; there is no svelte.config.js. */
 export default {
+    build: { cssTarget },
     plugins: [
         sveltekit({
             adapter: adapter({ platformProxy: { configPath: './wrangler.jsonc', persist: true } }),

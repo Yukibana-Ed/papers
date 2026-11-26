@@ -6,7 +6,10 @@ body {
     background: var(--yk-bg);
     overflow: hidden;
 }
-body > div {
+/* Not "body > div": PDF.js measures the smallest font size with a div of its own that it adds to the body, and at
+ * 100% height that read the size as the frame's height, so every text run was set hundreds of times too large, past
+ * the browser's limit on font sizes, and the selection drifted from the glyphs. */
+.frame-root {
     height: 100%;
 }
 
@@ -86,6 +89,15 @@ body > div {
 }
 .pv-sel-rect {
     background: var(--yk-chip-blue-bg);
+}
+/* The source line under the pointer, as the prototype showed it: a soft box. */
+.pv-hover {
+    z-index: 1;
+}
+.pv-hover-box {
+    position: absolute;
+    border-radius: 3px;
+    background: color-mix(in oklab, var(--yk-chip-blue-bg) 45%, transparent);
 }
 .pv-flash {
     background: color-mix(in oklab, var(--yk-accent) 22%, transparent);
@@ -186,7 +198,8 @@ body > div {
     top: 0;
 }
 
-/* The selection's toolbar, above its first line. */
+/* The selection's toolbar: standing in the margin beside the selection, or, when a zoomed page leaves no margin,
+ * above its first line or below its last. */
 .pv-toolbar {
     position: absolute;
     z-index: 10;
@@ -201,10 +214,31 @@ body > div {
         0 4px 14px color-mix(in oklab, var(--yk-ink) 14%, transparent);
     animation: pv-pop var(--yk-motion-fast, 120ms) ease-out;
 }
+.pv-toolbar[data-place='below'] {
+    translate: -50% 8px;
+    animation-name: pv-pop-below;
+}
+.pv-toolbar[data-place='side'] {
+    flex-direction: column;
+    translate: none;
+    animation-name: pv-pop-side;
+}
+@keyframes pv-pop-side {
+    from {
+        opacity: 0;
+        translate: -4px 0;
+    }
+}
 @keyframes pv-pop {
     from {
         opacity: 0;
         translate: -50% calc(-100% - 4px);
+    }
+}
+@keyframes pv-pop-below {
+    from {
+        opacity: 0;
+        translate: -50% 4px;
     }
 }
 .pv-tool {
