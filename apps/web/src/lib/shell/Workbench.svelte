@@ -145,7 +145,9 @@
     $effect(() => {
         void lspStarts;
         const p = preview;
-        if (!editor || !p || languageClient || !Object.keys(s.files).some((f) => f.endsWith('.typ'))) return;
+        // Only once Typst is in use (its document or a Typst file open): the server is 8.5 MB, which a LaTeX paper
+        // would load for nothing on its first visit.
+        if (!editor || !p || languageClient || !(s.root.endsWith('.typ') || s.activeFile.endsWith('.typ'))) return;
         startTypstServer(p);
     });
     onDestroy(() => languageClient?.dispose());
