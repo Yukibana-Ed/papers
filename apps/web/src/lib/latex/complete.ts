@@ -5,7 +5,12 @@ import { CLASSES, COMMANDS, ENVIRONMENTS, environmentSnippet, PACKAGES, withLoad
 
 export interface BibEntry {
     readonly key: string;
+    /** The first author's family name. */
     readonly author: string;
+    /** Every named author's family name, in order. */
+    readonly authors: readonly string[];
+    /** Whether the entry ends its authors with "and others". */
+    readonly others: boolean;
     readonly year: string;
     readonly title: string;
 }
@@ -37,8 +42,14 @@ export function factsOf(path: string, text: string): FileFacts {
         starts.forEach((m, i) => {
             if (/^(string|comment|preamble)$/i.test(m[1] ?? '')) return;
             const body = text.slice(m.index ?? 0, starts[i + 1]?.index ?? text.length);
-            const author = field(body, 'author').split(/\s+and\s+/i)[0] ?? '';
-            bib.push({ key: m[2] ?? '', author: author.split(',')[0]?.trim() ?? '', year: field(body, 'year'), title: field(body, 'title') });
+            // "Family, Given" or "Given Family": the family name is before the comma, or the last word.
+            const named = field(body, 'author').split(/\s+and\s+/i);
+            const others = named.at(-1)?.toLowerCase() === 'others';
+            const authors = named
+                .slice(0, others ? -1 : undefined)
+                .map(a => (a.includes(',') ? (a.split(',')[0] ?? '') : (a.split(' ').at(-1) ?? '')).trim())
+                .filter(Boolean);
+            bib.push({ key: m[2] ?? '', author: authors[0] ?? '', authors, others, year: field(body, 'year'), title: field(body, 'title') });
         });
         return { ...NO_FACTS, bib };
     }
@@ -116,6 +127,9 @@ export interface Offer {
     readonly insert: string;
     readonly kind: 'command' | 'snippet' | 'environment' | 'label' | 'citation' | 'file' | 'package' | 'class';
     readonly detail: string;
+    /** What typed text is matched against, when more than the label: a citation is found by its authors, year and
+     *  title too. */
+    readonly filter?: string;
 }
 
 /** `items` with the kernel's first, then those of the packages in `loaded`, then the others: each group in its order. */
@@ -172,7 +186,13 @@ export function complete(before: string, after: string, index: LatexIndex, file:
         if (/^(cite|citep|citet|citeauthor|citeyear|parencite|textcite|autocite|nocite|footcite)\*?$/.test(cmd)) {
             return {
                 start,
-                offers: index.bib().map(b => ({ label: b.key, insert: b.key, kind: 'citation', detail: [b.author, b.year, b.title].filter(Boolean).join(' · ') })),
+                offers: index.bib().map(b => ({
+                    label: b.key,
+                    insert: b.key,
+                    kind: 'citation',
+                    detail: [b.others || b.authors.length > 2 ? `${b.author} et al.` : b.authors.join(' and '), b.year, b.title].filter(Boolean).join(' · '),
+                    filter: [b.key, ...b.authors, b.year, b.title].filter(Boolean).join(' '),
+                })),
             };
         }
         if (cmd === 'usepackage' || cmd === 'RequirePackage') return { start, offers: PACKAGES.map(p => ({ label: p, insert: p, kind: 'package', detail: '' })) };

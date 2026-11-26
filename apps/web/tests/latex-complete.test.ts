@@ -31,8 +31,8 @@ const labels = (r: ReturnType<typeof complete>): string[] => r?.offers.map(o => 
 describe('factsOf', () => {
     it('reads bibliography entries with their first author, year and title', () => {
         expect(factsOf('refs.bib', BIB).bib).toEqual([
-            { key: 'knuth84', author: 'Knuth', year: '1984', title: 'Literate Programming' },
-            { key: 'becker2019', author: 'Brett A. Becker', year: '2019', title: 'Compiler Error Messages' },
+            { key: 'knuth84', author: 'Knuth', authors: ['Knuth', 'Else'], others: false, year: '1984', title: 'Literate Programming' },
+            { key: 'becker2019', author: 'Becker', authors: ['Becker'], others: false, year: '2019', title: 'Compiler Error Messages' },
         ]);
     });
 
@@ -114,7 +114,12 @@ describe('complete', () => {
         const r = complete(before, '}', index(), 'main.tex');
         expect(labels(r)).toEqual(['knuth84', 'becker2019']);
         expect(r?.start).toBe(before.length - 'bec'.length);
-        expect(r?.offers[0]?.detail).toBe('Knuth · 1984 · Literate Programming');
+        expect(r?.offers[0]?.detail).toBe('Knuth and Else · 1984 · Literate Programming');
+        // Found by any author, the year and the title, not only by the key.
+        expect(r?.offers[0]?.filter).toBe('knuth84 Knuth Else 1984 Literate Programming');
+        const others = new LatexIndex();
+        others.update('r.bib', '@book{b, author = {Becker, Brett A. and others}, title = {T}, year = 2019}');
+        expect(complete(String.raw`\cite{`, '', others, 'main.tex')?.offers[0]?.detail).toBe('Becker et al. · 2019 · T');
     });
 
     it('offers packages, classes and paths', () => {
