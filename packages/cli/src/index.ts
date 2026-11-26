@@ -10,6 +10,7 @@ import { createPapersServer } from '@yukibana/papers-mcp';
 import { folderFiles, openProject, readProject, type Project, type ProjectDocument } from '@yukibana/papers-project';
 import { DEFAULT_PORT, startRunner } from '@yukibana/papers-runner';
 import { cacheDir, sandboxSupport, type SandboxChoice } from '@yukibana/papers-sandbox';
+import { createOnDisk } from '@yukibana/papers-templates/disk';
 import { buildLocal } from './local.ts';
 import { resolveToolchain } from './toolchain.ts';
 
@@ -23,6 +24,7 @@ const HELP = `papers ${VERSION}: build LaTeX papers on this computer, safely.
   papers lsp                                                         texlab over stdio
   papers mcp [dir] [--tex …] [--sandbox …]                           an MCP server over stdio
   papers doctor [dir] [--tex …]
+  papers new <template> [folder] [--title …]                        a paper from a template: latex-article, owner/repo/folder, @preview/name, a .zip
 
 --sandbox none runs TeX unconfined, with access to all your files: only for a toolchain you trust.
 `;
@@ -72,6 +74,7 @@ async function main(argv: string[]): Promise<number> {
             sandbox: { type: 'string' },
             port: { type: 'string' },
             dev: { type: 'boolean' },
+            title: { type: 'string' },
             help: { type: 'boolean', short: 'h' },
             version: { type: 'boolean', short: 'v' },
         },
@@ -89,6 +92,15 @@ async function main(argv: string[]): Promise<number> {
     const sandbox = sandboxOf(values.sandbox);
 
     switch (command) {
+        case 'new': {
+            const spec = arg;
+            if (!spec) throw new Error('papers new <template> [folder]: which template?');
+            const folder = positionals[2] ?? (spec.replace(/^.*[\\/@:]/, '').replace(/\.zip$/i, '') || 'paper');
+            const r = await createOnDisk(spec, folder, values.title ? { title: values.title } : {});
+            console.log(`${r.files.length} files from ${r.origin} in ${resolve(folder)}`);
+            console.log(`papers build ${folder} --doc ${r.root}`);
+            return 0;
+        }
         case 'build':
             return (await build(dir, values.doc, values.tex, sandbox)) ? 0 : 1;
 

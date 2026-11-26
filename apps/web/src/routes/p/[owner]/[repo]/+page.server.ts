@@ -7,5 +7,6 @@ const DEV_CONTENT_ORIGIN = 'http://localhost:5185';
  *  asks for a GitHub token and is sent to sign in when there is none. */
 export const load: PageServerLoad = event => ({
     branch: event.url.searchParams.get('branch'),
+    root: event.url.searchParams.get('root'),
     contentOrigin: event.platform?.env.CONTENT_ORIGIN ?? DEV_CONTENT_ORIGIN,
 });
