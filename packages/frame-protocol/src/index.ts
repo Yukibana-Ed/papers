@@ -115,6 +115,20 @@ export function isWelcome(x: unknown): x is Welcome {
     return isRecord(x) && x['kind'] === WELCOME && typeof x['version'] === 'number';
 }
 
+/** Posted by the frame to the app's origin once its scripts run: a `hello` sent before then (on the iframe's `load`,
+ *  which can fire before the frame's code starts) may be lost, so the app answers `ready` with a `hello` too. The frame
+ *  also keeps any `hello` that arrived before its code started, so either side may go first. */
+export const READY = 'yukibana-papers/ready' as const;
+
+export interface Ready {
+    readonly kind: typeof READY;
+    readonly version: number;
+}
+
+export function isReady(x: unknown): x is Ready {
+    return isRecord(x) && x['kind'] === READY && typeof x['version'] === 'number';
+}
+
 const APP_TYPES: ReadonlySet<string> = new Set(['project', 'files', 'root', 'reveal', 'mirror', 'marks', 'presence', 'zoom', 'centre?', 'theme']);
 const FRAME_TYPES: ReadonlySet<string> = new Set(['built', 'status', 'jump', 'selection', 'action', 'centre', 'scale', 'key']);
 

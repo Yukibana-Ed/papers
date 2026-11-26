@@ -9,7 +9,9 @@
   },
   "scripts": {
     "prepare": "svelte-kit sync",
-    "dev": "vite dev --port 5181",
+    "dev": "vite dev --port 5185",
+    "fetch:engine": "node scripts/engine.ts fetch",
+    "tlstore": "node scripts/tlstore.ts",
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
@@ -21,6 +23,7 @@
     "@sveltejs/kit": "catalog:",
     "@sveltejs/vite-plugin-svelte": "catalog:",
     "@types/node": "catalog:",
+    "@yukibana/design": "catalog:",
     "pdfjs-dist": "catalog:",
     "svelte": "catalog:",
     "svelte-check": "catalog:",
