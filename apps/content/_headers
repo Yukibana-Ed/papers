@@ -1,0 +1,9 @@
+# Static files are served by Cloudflare's assets layer, which the Worker's hook never sees. The frame is cross-origin
+# isolated (COOP and COEP from src/hooks.server.ts), and an isolated page may start a worker only from a script that is
+# isolated too: without these, the TeX engine's, PDF.js's and the language server's workers were refused. CORP is
+# cross-origin because the app, another site, embeds the frame.
+/*
+  Cross-Origin-Embedder-Policy: require-corp
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Resource-Policy: cross-origin
+  X-Content-Type-Options: nosniff
