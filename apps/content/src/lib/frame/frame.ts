@@ -215,7 +215,14 @@ export class Frame {
             for (const [path, c] of files) if (path.endsWith('.typ') && typeof c === 'string') sources.set(path, c);
             this.#viewer.setSourceMap(textMap(await this.#viewer.pageTexts(), sources));
         }
-        this.#bridge.send({ type: 'built', ok: out.ok, pages: this.#viewer.pageCount, ms: Math.round(out.ms), diagnostics: out.diagnostics });
+        this.#bridge.send({
+            type: 'built',
+            ok: out.ok,
+            pages: this.#viewer.pageCount,
+            ms: Math.round(out.ms),
+            diagnostics: out.diagnostics,
+            packages: await this.#typst.packages(),
+        });
     }
 
     /** Keyboard shortcuts belong to the app: the frame forwards Ctrl/⌘ combinations, except copying and selecting all,

@@ -95,7 +95,15 @@ export type SelectionAction = 'comment' | 'suggest' | 'source';
 /** What the frame sends the app. */
 export type FrameMessage =
     /** A build finished. `ok` false keeps the last good pages on screen. */
-    | { readonly type: 'built'; readonly ok: boolean; readonly pages: number; readonly ms: number; readonly diagnostics: readonly Diagnostic[] }
+    | {
+          readonly type: 'built';
+          readonly ok: boolean;
+          readonly pages: number;
+          readonly ms: number;
+          readonly diagnostics: readonly Diagnostic[];
+          /** A Typst build's Typst Universe packages so far, each with its archive's SHA-256, for papers.lock. */
+          readonly packages?: readonly { readonly namespace: string; readonly name: string; readonly version: string; readonly sha256: string }[];
+      }
     /** The engine is loading or running, for the status in the preview's bar. */
     | { readonly type: 'status'; readonly status: 'loading' | 'compiling' | 'idle' }
     /** The user clicked a spot in the preview: go to its source. `word` is the word under the pointer, if any. */

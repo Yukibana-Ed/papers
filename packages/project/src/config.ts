@@ -156,23 +156,63 @@ export function parseConfig(text: string): PapersConfig {
     return { environment, documents };
 }
 
-/** `papers.lock`: what `managed` resolved to, so every machine builds with the same files.
+/** `papers.lock`: what the environment resolved to, so every machine builds with the same files.
  *
- *  `snapshot` names one immutable snapshot of the TeX Live store (the sha256 of its index); a later snapshot of the
- *  same year only adds objects. JSON, written by the tools, never by hand. */
+ *  - `texlive`: `snapshot` names one immutable snapshot of the TeX Live store (the sha256 of its index); a later
+ *    snapshot of the same year only adds objects.
+ *  - `typst`: the Typst version the project was built with, and every Typst Universe package it imports, with the
+ *    SHA-256 of the package's archive (`<name>-<version>.tar.gz` as packages.typst.org serves it). A published version
+ *    never changes on Typst Universe, so the hash only guards against a changed or substituted archive.
+ *
+ *  JSON, written by the tools, never by hand. A Typst-only project has no `texlive`; a LaTeX-only one no `typst`. */
 export interface PapersLock {
     readonly version: 1;
-    readonly texlive: { readonly year: string; readonly snapshot: string };
+    readonly texlive?: { readonly year: string; readonly snapshot: string };
+    readonly typst?: { readonly version: string; readonly packages: readonly TypstPackageLock[] };
+}
+
+/** A Typst Universe package, pinned. */
+export interface TypstPackageLock {
+    readonly namespace: string;
+    readonly name: string;
+    readonly version: string;
+    readonly sha256: string;
+}
+
+const SHA256 = /^[0-9a-f]{64}$/;
+
+function parsePackage(x: unknown): TypstPackageLock {
+    if (!isRecord(x) || typeof x['namespace'] !== 'string' || typeof x['name'] !== 'string' || typeof x['version'] !== 'string' || typeof x['sha256'] !== 'string')
+        throw new Error('papers.lock: a typst package needs namespace, name, version and sha256');
+    if (!/^\d+\.\d+\.\d+$/.test(x['version']) || !SHA256.test(x['sha256'])) throw new Error(`papers.lock: typst package ${x['name']} has a bad version or sha256`);
+    return { namespace: x['namespace'], name: x['name'], version: x['version'], sha256: x['sha256'] };
 }
 
 /** The lock in `text`, or a thrown error naming what is wrong. */
 export function parseLock(text: string): PapersLock {
     const raw: unknown = JSON.parse(text);
     if (!isRecord(raw) || raw['version'] !== 1) throw new Error('papers.lock: unsupported version');
+    const out: { version: 1; texlive?: { year: string; snapshot: string }; typst?: { version: string; packages: TypstPackageLock[] } } = { version: 1 };
     const tl = raw['texlive'];
-    if (!isRecord(tl) || typeof tl['year'] !== 'string' || typeof tl['snapshot'] !== 'string' || !/^[0-9a-f]{64}$/.test(tl['snapshot']))
-        throw new Error('papers.lock: texlive must have a year and a sha256 snapshot');
-    return { version: 1, texlive: { year: tl['year'], snapshot: tl['snapshot'] } };
+    if (tl !== undefined) {
+        if (!isRecord(tl) || typeof tl['year'] !== 'string' || typeof tl['snapshot'] !== 'string' || !SHA256.test(tl['snapshot']))
+            throw new Error('papers.lock: texlive must have a year and a sha256 snapshot');
+        out.texlive = { year: tl['year'], snapshot: tl['snapshot'] };
+    }
+    const ty = raw['typst'];
+    if (ty !== undefined) {
+        if (!isRecord(ty) || typeof ty['version'] !== 'string' || !Array.isArray(ty['packages'])) throw new Error('papers.lock: typst must have a version and packages');
+        out.typst = { version: ty['version'], packages: (ty['packages'] as unknown[]).map(parsePackage) };
+    }
+    return out;
+}
+
+/** The lock with these Typst packages pinned (each package once, sorted), keeping what else it pins. */
+export function withTypstPackages(lock: PapersLock | null, typstVersion: string, packages: readonly TypstPackageLock[]): PapersLock {
+    const byId = new Map<string, TypstPackageLock>();
+    for (const p of [...(lock?.typst?.packages ?? []), ...packages]) byId.set(`${p.namespace}/${p.name}/${p.version}`, p);
+    const sorted = [...byId.values()].toSorted((a, b) => `${a.namespace}/${a.name}/${a.version}`.localeCompare(`${b.namespace}/${b.name}/${b.version}`));
+    return { ...(lock ?? { version: 1 }), version: 1, typst: { version: typstVersion, packages: sorted } };
 }
 
 export function formatLock(lock: PapersLock): string {

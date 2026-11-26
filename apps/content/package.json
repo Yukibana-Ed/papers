@@ -11,6 +11,7 @@
     "prepare": "svelte-kit sync",
     "dev": "vite dev --port 5185",
     "fetch:engine": "node scripts/engine.ts fetch",
+    "fetch:typst": "node scripts/typst.ts fetch",
     "tlstore": "node scripts/tlstore.ts",
     "build": "vite build",
     "preview": "vite preview",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ConfigError, formatLock, memoryFiles, outline, parseConfig, parseLock, readProject } from '../src/index.ts';
+import { ConfigError, formatLock, memoryFiles, outline, parseConfig, parseLock, readProject, withTypstPackages } from '../src/index.ts';
 
 const PAPER = {
     // One string per line: a multi-line template literal would take the checkout's line endings into the source.
@@ -81,5 +81,24 @@ describe('parseLock', () => {
         const lock = { version: 1, texlive: { year: '2026', snapshot: 'b'.repeat(64) } } as const;
         expect(parseLock(formatLock(lock))).toEqual(lock);
         expect(() => parseLock('{"version":2}')).toThrow();
+    });
+});
+
+describe('typst in papers.lock', () => {
+    const cetz = { namespace: 'preview', name: 'cetz', version: '0.3.4', sha256: 'a'.repeat(64) };
+    const oxifmt = { namespace: 'preview', name: 'oxifmt', version: '0.2.1', sha256: 'b'.repeat(64) };
+
+    it('pins packages next to TeX Live, each once and sorted', () => {
+        const base = { version: 1 as const, texlive: { year: '2026', snapshot: 'c'.repeat(64) } };
+        const lock = withTypstPackages(withTypstPackages(base, '0.15.1', [oxifmt]), '0.15.1', [cetz, oxifmt]);
+        expect(lock.texlive).toEqual(base.texlive);
+        expect(lock.typst?.packages.map(p => p.name)).toEqual(['cetz', 'oxifmt']);
+        expect(parseLock(formatLock(lock))).toEqual(lock);
+    });
+
+    it('reads a Typst-only lock and refuses a bad hash', () => {
+        const lock = withTypstPackages(null, '0.15.1', [cetz]);
+        expect(parseLock(formatLock(lock)).texlive).toBeUndefined();
+        expect(() => parseLock(JSON.stringify({ version: 1, typst: { version: '0.15.1', packages: [{ ...cetz, sha256: 'xyz' }] } }))).toThrow(/bad version or sha256/);
     });
 });
