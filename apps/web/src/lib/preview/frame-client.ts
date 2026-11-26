@@ -70,7 +70,7 @@ export class FrameClient {
 const LATEST_ONLY: ReadonlySet<AppMessage['type']> = new Set(['root', 'reveal', 'mirror', 'marks', 'presence', 'zoom', 'theme', 'builder', 'output']);
 
 /** What of `queue` (in the order sent) still matters to a frame that has just connected and been sent the whole
- *  project: no `project` or `files`, the last message of each kind in `LATEST_ONLY`, every `centre?` (someone waits
+ *  project: no `project`, `files` or `print`, the last message of each kind in `LATEST_ONLY`, every `centre?` (someone waits
  *  for each answer), and the language-server messages in order, unless `reconnected` (they were for a frame that is
  *  gone). Promises: the kept messages keep their relative order. */
 export function collapseQueue(queue: readonly AppMessage[], reconnected: boolean): AppMessage[] {
@@ -78,6 +78,8 @@ export function collapseQueue(queue: readonly AppMessage[], reconnected: boolean
     queue.forEach((m, i) => last.set(m.type, i));
     return queue.filter((m, i) => {
         if (m.type === 'project' || m.type === 'files') return false;
+        // A print asked for before the frame was there has nothing to print.
+        if (m.type === 'print') return false;
         if (LATEST_ONLY.has(m.type)) return last.get(m.type) === i;
         if (m.type === 'lsp' || m.type === 'lsp-start' || m.type === 'lsp-stop') return !reconnected;
         return true;

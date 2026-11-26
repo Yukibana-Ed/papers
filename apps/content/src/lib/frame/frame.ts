@@ -129,6 +129,9 @@ export class Frame {
                 this.#typst = new TypstEngine();
                 this.#schedule(0);
                 return;
+            case 'print':
+                void this.#viewer.print();
+                return;
             case 'lsp-stop':
                 this.#servers.get(m.server)?.terminate();
                 this.#servers.delete(m.server);

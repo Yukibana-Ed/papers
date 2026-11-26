@@ -236,6 +236,12 @@
     });
 
     /** Asks the frame to start whatever failed to load again, and build. */
+    /** Prints the shown build: the frame opens the browser's print dialog for its pages (the sandbox's `allow-modals`
+     *  is for that dialog). Nothing happens when no build is shown. */
+    export function print(): void {
+        client?.send({ type: 'print' });
+    }
+
     export function retry(): void {
         session.service = null;
         client?.send({ type: 'retry' });
@@ -305,7 +311,7 @@
     title="Preview"
     src="{contentOrigin}/frame"
     allow="cross-origin-isolated; clipboard-write"
-    sandbox="allow-scripts allow-same-origin allow-downloads"
+    sandbox="allow-scripts allow-same-origin allow-downloads allow-modals"
     referrerpolicy="no-referrer"
     data-pane="preview"
 ></iframe>

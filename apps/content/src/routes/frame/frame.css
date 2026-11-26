@@ -278,3 +278,29 @@ body {
     font: var(--yk-font-weight-regular) var(--yk-font-size-xs) / 1.3 var(--yk-font-family-body);
     pointer-events: none;
 }
+
+/* Printing (`Viewer.print`): only the sheets, one page image each, on paper the size of the document's pages. */
+.pv-print {
+    display: none;
+}
+@media print {
+    html,
+    body {
+        height: auto;
+        overflow: visible;
+        background: #fff;
+    }
+    body > :not(.pv-print) {
+        display: none !important;
+    }
+    .pv-print {
+        display: block;
+    }
+    .pv-print img {
+        display: block;
+        break-after: page;
+    }
+    .pv-print img:last-child {
+        break-after: auto;
+    }
+}
