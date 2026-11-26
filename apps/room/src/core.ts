@@ -36,7 +36,7 @@ function changesText(data: Uint8Array): boolean {
  *
  *  Invariants: every change applied to a document is in the store before it is sent to anyone; a connection with
  *  `comment` access never changes the text document; the base commit and the files' committed state change only on
- *  `open` (for a file the room does not have yet) and `committed`, both from `write` connections. */
+ *  `open` (for a file the room does not have yet), `committed` and `pulled`, all from `write` connections. */
 export class RoomCore {
     readonly text = new Y.Doc();
     readonly review = new Y.Doc();
@@ -230,6 +230,20 @@ export class RoomCore {
                 for (const f of m.files) this.store.setBaseFile(f);
                 const all = this.store.baseFiles();
                 for (const peer of this.peers) this.sendControl(peer, { type: 'base', base: m.commit, files: all });
+                return;
+            }
+            case 'pulled': {
+                // Someone else's merge of the same push got here first: theirs stands, and this one is dropped whole.
+                if (this.store.getMeta('base') !== m.from) return;
+                Y.applyUpdate(
+                    this.text,
+                    Uint8Array.from(atob(m.update), c => c.charCodeAt(0)),
+                    'server',
+                );
+                this.store.setMeta('base', m.to);
+                for (const f of m.files) this.store.setBaseFile(f);
+                const all = this.store.baseFiles();
+                for (const peer of this.peers) this.sendControl(peer, { type: 'base', base: m.to, files: all });
                 return;
             }
             case 'backed-up':

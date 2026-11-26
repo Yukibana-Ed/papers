@@ -53,7 +53,12 @@ export type ClientMessage =
      *  as committed. Write access only. */
     | { readonly type: 'committed'; readonly commit: string; readonly files: readonly BaseFile[] }
     /** A WIP backup of the session was pushed to `refs/yukibana/wip/<branch>` at `commit`. */
-    | { readonly type: 'backed-up'; readonly commit: string };
+    | { readonly type: 'backed-up'; readonly commit: string }
+    /** The branch moved outside the room, from the room's base `from` to `to`: `update` (a Yjs update of the text
+     *  document, base64) merges those commits' changes into the session, and `files` are the committed state of the
+     *  files they changed. Taken as one step and only while the room's base is still `from`, so that of several
+     *  people who notice the same push, one merge is applied. Write access only. */
+    | { readonly type: 'pulled'; readonly from: string; readonly to: string; readonly update: string; readonly files: readonly BaseFile[] };
 
 /** Control messages from the room. */
 export type ServerMessage =
@@ -90,6 +95,17 @@ export function parseClientMessage(x: unknown): ClientMessage | null {
         }
         case 'backed-up':
             return typeof x['commit'] === 'string' ? { type: 'backed-up', commit: x['commit'] } : null;
+        case 'pulled': {
+            const files = x['files'];
+            return typeof x['from'] === 'string' &&
+                typeof x['to'] === 'string' &&
+                typeof x['update'] === 'string' &&
+                Array.isArray(files) &&
+                files.every(isBaseFile) &&
+                files.every(f => validPath(f.path))
+                ? { type: 'pulled', from: x['from'], to: x['to'], update: x['update'], files }
+                : null;
+        }
         default:
             return null;
     }

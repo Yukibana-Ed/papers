@@ -124,6 +124,16 @@ export async function branchNames(token: string, owner: string, repo: string): P
     return out;
 }
 
+/** How `head` stands to `base` in `owner/repo`'s history: `ahead` when it has commits on top of `base` and lacks
+ *  none of its, `behind` the other way round, `diverged` when each has commits the other lacks (a rewritten branch). */
+export async function compare(token: string, owner: string, repo: string, base: string, head: string): Promise<'ahead' | 'behind' | 'identical' | 'diverged'> {
+    if (!/^[0-9a-f]{40}$/.test(base) || !/^[0-9a-f]{40}$/.test(head)) throw new GitHubError(400, 'Invalid commit');
+    const r = await json<{ status: 'ahead' | 'behind' | 'identical' | 'diverged' }>(
+        await githubFetch(`${API}/repos/${repoPath(owner, repo)}/compare/${base}...${head}?per_page=1`, { headers: headers(token) }),
+    );
+    return r.status;
+}
+
 export interface TreeEntry {
     readonly path: string;
     readonly sha: string;

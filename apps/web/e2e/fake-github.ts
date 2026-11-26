@@ -8,7 +8,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
  *  Who asks is in the token: `e2e:<login>`. A repository's `readers` may read but not push.
  *
  *  Test control: `PUT /__repos/<owner>/<repo>` with `{ files, readers? }` makes (or replaces) a repository with one
- *  commit on `main`; `GET /__repos/<owner>/<repo>` gives its commits (newest first) and current files.
+ *  commit on `main`; `POST` there with `{ files, message?, author? }` adds a commit that sets those files, as a push
+ *  from a clone would; `GET /__repos/<owner>/<repo>` gives its commits (newest first) and current files.
  *
  *  Run: `node e2e/fake-github.ts [port]` (default 4175). */
 
@@ -59,6 +60,19 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         }
         const repo = repos.get(name);
         if (repo === undefined) return send(res, 404, { message: 'Not Found' });
+        if (req.method === 'POST') {
+            const b = await body(req);
+            const head = repo.commits.at(-1);
+            const files = new Map(head?.files);
+            for (const [p, text] of Object.entries((field(b, 'files') ?? {}) as Record<string, string>)) files.set(p, Buffer.from(text));
+            const text = (k: string, otherwise: string): string => {
+                const v = field(b, k);
+                return typeof v === 'string' ? v : otherwise;
+            };
+            const message = text('message', 'Push');
+            repo.commits.push({ oid: sha1(`${head?.oid}\0${treeSha(files)}\0${message}`), message, author: text('author', 'clone'), files });
+            return send(res, 200, {});
+        }
         return send(res, 200, {
             commits: repo.commits.toReversed().map(c => ({ oid: c.oid, message: c.message, author: c.author })),
             files: Object.fromEntries([...(repo.commits.at(-1)?.files ?? [])].map(([p, b]) => [p, b.toString('utf8')])),
@@ -102,6 +116,13 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     if (commit !== undefined) {
         const c = repo.commits.find(x => x.oid === commit);
         return c === undefined ? send(res, 404, { message: 'Not Found' }) : send(res, 200, { sha: c.oid, tree: { sha: treeSha(c.files) } });
+    }
+    const compared = /^\/compare\/([0-9a-f]{40})\.\.\.([0-9a-f]{40})$/.exec(rest);
+    if (compared !== null) {
+        const base = repo.commits.findIndex(x => x.oid === compared[1]);
+        const to = repo.commits.findIndex(x => x.oid === compared[2]);
+        if (base < 0 || to < 0) return send(res, 404, { message: 'Not Found' });
+        return send(res, 200, { status: to > base ? 'ahead' : to < base ? 'behind' : 'identical' });
     }
     const tree = /^\/git\/trees\/([0-9a-f]{40})$/.exec(rest)?.[1];
     if (tree !== undefined) {

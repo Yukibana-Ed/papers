@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
-import { makeRepo, repoState, signedInToFake } from './signed-in.ts';
+import { makeRepo, pushTo, repoState, signedInToFake } from './signed-in.ts';
 
 /** A repository opened from GitHub (a stand-in: e2e/fake-github.ts), with the real room beside the app: its files
  *  open, edits reach the other people in the room as they are typed, and Commit writes them to the branch. */
@@ -109,6 +109,37 @@ test('uncommitted edits are still there for whoever opens the branch next', asyn
     await expect(bob.locator('.monaco-editor .view-lines')).toContainText('Not committed yet.');
     await expect(bob.locator('.pending')).toBeVisible();
     expect((await repoState(repo)).files['main.tex']).toBe(MAIN);
+    await bob.context().close();
+});
+
+test('a push from a clone is merged into the session, when the branch is opened and when a commit meets it', async ({ page, browser }, info) => {
+    const repo = await repoFor(info.title);
+    await open(page, 'ada', repo);
+    await typeAfter(page, 'Hello from the repository.', ' Typed in the room.');
+    await expect(page.locator('.pending')).toBeVisible();
+
+    // Someone pushes a new first line from a clone. Ada's commit meets it: the push is merged in, and she commits again.
+    await pushTo(repo, { 'main.tex': MAIN.replace('\\documentclass{article}', '\\documentclass[a4paper]{article}') });
+    await page.getByRole('button', { name: 'Commit' }).click();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.monaco-editor .view-lines')).toContainText('a4paper');
+    await expect(page.locator('.monaco-editor .view-lines')).toContainText('Typed in the room.');
+    await expect(page.locator('.pending')).toBeVisible();
+    await page.getByRole('textbox', { name: 'Message' }).press('Enter');
+    await expect(page.locator('.pending')).toBeHidden();
+    const merged = (await repoState(repo)).files['main.tex'] ?? '';
+    expect(merged).toContain('\\documentclass[a4paper]{article}');
+    expect(merged).toContain('Hello from the repository. Typed in the room.');
+
+    // Another push, with nobody committing: whoever opens the branch next brings it into the room, for everyone.
+    await pushTo(repo, { 'main.tex': merged.replace('a4paper', 'a4paper,11pt'), 'notes.tex': 'A new file.\n' });
+    const bob = await another(browser);
+    await signedInToFake(bob, 'bob');
+    await bob.goto(`/p/${repo}`);
+    await expect(bob.locator('.monaco-editor .view-lines')).toContainText('a4paper,11pt', { timeout: 30_000 });
+    await expect(page.locator('.monaco-editor .view-lines')).toContainText('a4paper,11pt');
+    await expect(bob.locator('.pending')).toBeHidden();
+    await expect(page.locator('.pending')).toBeHidden();
     await bob.context().close();
 });
 

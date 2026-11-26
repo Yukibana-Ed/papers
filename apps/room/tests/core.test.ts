@@ -150,6 +150,35 @@ describe('room', () => {
         expect(b.control.at(-1)).toMatchObject({ type: 'base', base: 'c2', files: [{ path: 'a.tex', blob: 'b2', text: 'a!' }] });
     });
 
+    it('takes a push made outside the room once, whoever of several notices it first', () => {
+        const room = new RoomCore(new RoomStore(memorySql()));
+        const a = new Client(room, 'ada', 'write');
+        const b = new Client(room, 'lena', 'write');
+        a.open('a.tex', 'one\n');
+        const from = 'c1';
+        // Each merges the push's change (a line added) into a copy of the session and sends that as one step.
+        const pulled = (c: Client): string => {
+            const copy = new Y.Doc();
+            Y.applyUpdate(copy, Y.encodeStateAsUpdate(c.text));
+            const before = Y.encodeStateVector(copy);
+            copy.getMap<Y.Text>('files').get('a.tex')?.insert(4, 'two\n');
+            const update = btoa(String.fromCharCode(...Y.encodeStateAsUpdate(copy, before)));
+            return JSON.stringify({ type: 'pulled', from, to: 'c9', update, files: [{ path: 'a.tex', blob: 'b9', text: 'one\ntwo\n' }] });
+        };
+        const fromA = pulled(a);
+        const fromB = pulled(b);
+        room.receive(a.peer, fromA);
+        room.receive(b.peer, fromB);
+        expect(room.text.getMap<Y.Text>('files').get('a.tex')?.toJSON()).toBe('one\ntwo\n');
+        expect(a.text.getMap<Y.Text>('files').get('a.tex')?.toJSON()).toBe('one\ntwo\n');
+        expect(b.text.getMap<Y.Text>('files').get('a.tex')?.toJSON()).toBe('one\ntwo\n');
+        expect(b.control.filter(m => m.type === 'base')).toEqual([{ type: 'base', base: 'c9', files: [{ path: 'a.tex', blob: 'b9', text: 'one\ntwo\n' }] }]);
+        // Someone with read access cannot.
+        const r = new Client(room, 'rita', 'comment');
+        room.receive(r.peer, JSON.stringify({ type: 'pulled', from: 'c9', to: 'c10', update: '', files: [] }));
+        expect(r.control.at(-1)).toEqual({ type: 'refused', reason: 'access' });
+    });
+
     it('relays presence and drops it when the connection goes', () => {
         const room = new RoomCore(new RoomStore(memorySql()));
         const a = new Client(room, 'ada', 'write');

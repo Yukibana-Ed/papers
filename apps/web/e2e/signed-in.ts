@@ -34,6 +34,12 @@ export async function makeRepo(name: string, files: Record<string, string>, read
     if (!r.ok) throw new Error(`fake GitHub answered ${r.status}`);
 }
 
+/** Adds a commit to `name` on the stand-in GitHub that sets `files` (path → text): a push from someone's clone. */
+export async function pushTo(name: string, files: Record<string, string>, message = 'Push from a clone'): Promise<void> {
+    const r = await fetch(`${E2E_GITHUB}/__repos/${name}`, { method: 'POST', body: JSON.stringify({ files, message }) });
+    if (!r.ok) throw new Error(`fake GitHub answered ${r.status}`);
+}
+
 /** Repository `name` on the stand-in GitHub now: its commits, newest first, and its files. */
 export async function repoState(name: string): Promise<{ commits: { oid: string; message: string; author: string }[]; files: Record<string, string> }> {
     const r = await fetch(`${E2E_GITHUB}/__repos/${name}`);
