@@ -79,7 +79,10 @@ async function seed(): Promise<void> {
         });
     };
     for (const f of TYPST_ASSETS.compiler.files) put(`${TYPST_ASSETS.compiler.key}${f}`, join(compilerDir(), f));
-    // The fonts too, kept between runs: a Typst build must not hang on what the deployed origin happens to serve.
+    // The language server and the fonts too, kept between runs: a Typst paper must not hang on what the deployed
+    // origin happens to serve.
+    const tinymist = await fetchTinymist(join(here, '..', '.engine'));
+    for (const f of TYPST_ASSETS.tinymist.files) put(`${TYPST_ASSETS.tinymist.key}${f}`, join(tinymist, f));
     const fonts = join(here, '..', '.engine', 'typst-fonts', TYPST_FONTS_VERSION);
     mkdirSync(fonts, { recursive: true });
     for (const f of TYPST_ASSETS.fonts.files) {
