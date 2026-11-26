@@ -204,7 +204,7 @@ export class Frame {
 /** SyncTeX's text from its bytes, gunzipped when they are gzip (magic 1f 8b). */
 async function synctexText(bytes: Uint8Array): Promise<string> {
     if (bytes[0] !== 0x1f || bytes[1] !== 0x8b) return new TextDecoder().decode(bytes);
-    const stream = new Blob([bytes as Uint8Array<ArrayBuffer>]).stream().pipeThrough(new DecompressionStream('gzip'));
+    const stream = new Blob([bytes.slice()]).stream().pipeThrough(new DecompressionStream('gzip'));
     return new Response(stream).text();
 }
 
