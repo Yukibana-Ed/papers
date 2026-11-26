@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { contentHeaders, contentPolicy } from '#lib/headers.ts';
 
 describe('contentHeaders', () => {
-    const headers = contentHeaders('https://papers.yukibana.dev');
+    const headers = contentHeaders();
 
     it('is cross-origin isolated and embeddable by another site', () => {
         expect(headers['Cross-Origin-Opener-Policy']).toBe('same-origin');
