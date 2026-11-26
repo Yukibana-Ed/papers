@@ -1,3 +1,4 @@
+import { ASSETS } from '#lib/asset-path.ts';
 import type { Diagnostic, FileContents } from '@yukibana/papers-frame-protocol';
 import { CompileFormatEnum, type TypstCompiler } from '@myriaddreamin/typst.ts/compiler';
 import { FetchPackageRegistry, MemoryAccessModel, createTypstCompiler, initOptions, loadFonts } from '@myriaddreamin/typst.ts';
@@ -26,7 +27,7 @@ class OriginPackageRegistry extends FetchPackageRegistry {
     readonly archives = new Map<string, Uint8Array>();
 
     override resolvePath(spec: { namespace: string; name: string; version: string }): string {
-        return `${location.origin}/typst-packages/${spec.namespace}/${spec.name}-${spec.version}.tar.gz`;
+        return `${location.origin}${ASSETS}/typst-packages/${spec.namespace}/${spec.name}-${spec.version}.tar.gz`;
     }
 
     override pullPackageData(spec: { namespace: string; name: string; version: string }): Uint8Array | undefined {
