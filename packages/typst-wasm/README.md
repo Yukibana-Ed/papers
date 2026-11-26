@@ -18,3 +18,8 @@ they call each other by are the build's), so the app takes both from the one arc
 
 Change a patch or `upstream.json`, and raise `build` (or set it to 1 for a new upstream version). After the merge, run
 the workflow on main with `release`. A release is never replaced.
+
+Then the app takes it: the catalog's `@myriaddreamin/typst-ts-web-compiler` (`pnpm-workspace.yaml`) is the release
+archive's address, pinned by its hash in the lockfile, and `TYPST_COMPILER_BUILD` (`apps/content/src/lib/typst-assets.ts`)
+names the same build; a unit test holds the two together. After that merge, run the Assets workflow with `typst`, which
+uploads the wasm under the build's name; until it has, the deployed preview cannot load the Typst compiler.

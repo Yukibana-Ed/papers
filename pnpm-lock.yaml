@@ -171,8 +171,8 @@ catalogs:
       specifier: 1.32.2
       version: 1.32.2
     '@myriaddreamin/typst-ts-web-compiler':
-      specifier: file:/tmp/claude-0/-home-user/ed4a08a0-dbf2-5eeb-967a-721e87fac86c/scratchpad/tw/out/typst-ts-web-compiler-0.8.0-rc4-yb.1.tgz
-      version: file:/tmp/claude-0/-home-user/ed4a08a0-dbf2-5eeb-967a-721e87fac86c/scratchpad/tw/out/typst-ts-web-compiler-0.8.0-rc4-yb.1.tgz
+      specifier: https://github.com/Yukibana-Ed/papers/releases/download/typst-wasm-0.8.0-rc4-yb.1/typst-ts-web-compiler-0.8.0-rc4-yb.1.tgz
+      version: https://github.com/Yukibana-Ed/papers/releases/download/typst-wasm-0.8.0-rc4-yb.1/typst-ts-web-compiler-0.8.0-rc4-yb.1.tgz
     '@myriaddreamin/typst.ts':
       specifier: 0.8.0-rc4
       version: 0.8.0-rc4
@@ -352,10 +352,10 @@ importers:
     dependencies:
       '@myriaddreamin/typst-ts-web-compiler':
         specifier: 'catalog:'
-        version: file:../../../tmp/claude-0/-home-user/ed4a08a0-dbf2-5eeb-967a-721e87fac86c/scratchpad/tw/out/typst-ts-web-compiler-0.8.0-rc4-yb.1.tgz
+        version: https://github.com/Yukibana-Ed/papers/releases/download/typst-wasm-0.8.0-rc4-yb.1/typst-ts-web-compiler-0.8.0-rc4-yb.1.tgz
       '@myriaddreamin/typst.ts':
         specifier: 'catalog:'
-        version: 0.8.0-rc4(@myriaddreamin/typst-ts-web-compiler@file:../../../tmp/claude-0/-home-user/ed4a08a0-dbf2-5eeb-967a-721e87fac86c/scratchpad/tw/out/typst-ts-web-compiler-0.8.0-rc4-yb.1.tgz)
+        version: 0.8.0-rc4(@myriaddreamin/typst-ts-web-compiler@https://github.com/Yukibana-Ed/papers/releases/download/typst-wasm-0.8.0-rc4-yb.1/typst-ts-web-compiler-0.8.0-rc4-yb.1.tgz)
       '@yukibana/papers-frame-protocol':
         specifier: 'catalog:'
         version: link:../../packages/frame-protocol
@@ -736,7 +736,7 @@ importers:
     devDependencies:
       '@myriaddreamin/typst.ts':
         specifier: 'catalog:'
-        version: 0.8.0-rc4(@myriaddreamin/typst-ts-web-compiler@0.8.0-rc4(patch_hash=75431c7fa54fe628b1b5389b57506b5471a82897b5a0322c97f2a06083942c2b))
+        version: 0.8.0-rc4(@myriaddreamin/typst-ts-web-compiler@https://github.com/Yukibana-Ed/papers/releases/download/typst-wasm-0.8.0-rc4-yb.1/typst-ts-web-compiler-0.8.0-rc4-yb.1.tgz)
       pdfjs-dist:
         specifier: 'catalog:'
         version: 6.5.438
@@ -1158,8 +1158,8 @@ packages:
       '@cfworker/json-schema':
         optional: true
 
-  '@myriaddreamin/typst-ts-web-compiler@file:../../../tmp/claude-0/-home-user/ed4a08a0-dbf2-5eeb-967a-721e87fac86c/scratchpad/tw/out/typst-ts-web-compiler-0.8.0-rc4-yb.1.tgz':
-    resolution: {integrity: sha512-FBG7Qs3NdBEsgDKUaH9HPuThTDC3VkCBM+bo+fdIPsVnlEyq+Bkpxei9oplRudu0lP5g0aPyOzDQzL6HbZn5oQ==, tarball: file:../../../tmp/claude-0/-home-user/ed4a08a0-dbf2-5eeb-967a-721e87fac86c/scratchpad/tw/out/typst-ts-web-compiler-0.8.0-rc4-yb.1.tgz}
+  '@myriaddreamin/typst-ts-web-compiler@https://github.com/Yukibana-Ed/papers/releases/download/typst-wasm-0.8.0-rc4-yb.1/typst-ts-web-compiler-0.8.0-rc4-yb.1.tgz':
+    resolution: {integrity: sha512-hJ5KPiVNqaUr5YI5C8ILCsR1Z56RLfzWDOkYThy8/ozIGkhTKnKp0C4AGV58n/A5RFsWuPWJcxu3+eUlj6c37w==, tarball: https://github.com/Yukibana-Ed/papers/releases/download/typst-wasm-0.8.0-rc4-yb.1/typst-ts-web-compiler-0.8.0-rc4-yb.1.tgz}
     version: 0.8.0-rc4-yb.1
 
   '@myriaddreamin/typst.ts@0.8.0-rc4':
@@ -3285,13 +3285,13 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@myriaddreamin/typst-ts-web-compiler@file:../../../tmp/claude-0/-home-user/ed4a08a0-dbf2-5eeb-967a-721e87fac86c/scratchpad/tw/out/typst-ts-web-compiler-0.8.0-rc4-yb.1.tgz': {}
+  '@myriaddreamin/typst-ts-web-compiler@https://github.com/Yukibana-Ed/papers/releases/download/typst-wasm-0.8.0-rc4-yb.1/typst-ts-web-compiler-0.8.0-rc4-yb.1.tgz': {}
 
-  '@myriaddreamin/typst.ts@0.8.0-rc4(@myriaddreamin/typst-ts-web-compiler@file:../../../tmp/claude-0/-home-user/ed4a08a0-dbf2-5eeb-967a-721e87fac86c/scratchpad/tw/out/typst-ts-web-compiler-0.8.0-rc4-yb.1.tgz)':
+  '@myriaddreamin/typst.ts@0.8.0-rc4(@myriaddreamin/typst-ts-web-compiler@https://github.com/Yukibana-Ed/papers/releases/download/typst-wasm-0.8.0-rc4-yb.1/typst-ts-web-compiler-0.8.0-rc4-yb.1.tgz)':
     dependencies:
       idb: 7.1.1
     optionalDependencies:
-      '@myriaddreamin/typst-ts-web-compiler': file:../../../tmp/claude-0/-home-user/ed4a08a0-dbf2-5eeb-967a-721e87fac86c/scratchpad/tw/out/typst-ts-web-compiler-0.8.0-rc4-yb.1.tgz
+      '@myriaddreamin/typst-ts-web-compiler': https://github.com/Yukibana-Ed/papers/releases/download/typst-wasm-0.8.0-rc4-yb.1/typst-ts-web-compiler-0.8.0-rc4-yb.1.tgz
 
   '@napi-rs/canvas-android-arm64@1.1.0':
     optional: true

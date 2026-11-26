@@ -2,7 +2,7 @@ import { ASSETS } from '#lib/asset-path.ts';
 import type { Diagnostic, FileContents } from '@yukibana/papers-frame-protocol';
 import type { TypstCompiler, TypstWorld } from '@myriaddreamin/typst.ts/compiler';
 import { FetchPackageRegistry, MemoryAccessModel, createTypstCompiler, initOptions } from '@myriaddreamin/typst.ts';
-import { TYPST_ASSETS } from '#lib/typst-assets.ts';
+import { TYPST_ASSETS, TYPST_COMPILER_BUILD } from '#lib/typst-assets.ts';
 import { readSpans, type GlyphSpans } from '#lib/typst-spans.ts';
 
 /** A Typst package a build used, for papers.lock: its spec and the SHA-256 of its archive. */
@@ -61,7 +61,9 @@ export class TypstEngine {
             const c = createTypstCompiler();
             const fonts = TYPST_ASSETS.fonts.files.map(f => `${TYPST_ASSETS.fonts.path}${f}`);
             await c.init({
-                getModule: () => `${TYPST_ASSETS.compiler.path}typst_ts_web_compiler_bg.wasm`,
+                // The build in the address: the script that loads the wasm is this build's, and a browser that kept
+                // another build's wasm (the files are cached for good) must not pair it with this script.
+                getModule: () => `${TYPST_ASSETS.compiler.path}typst_ts_web_compiler_bg.wasm?build=${TYPST_COMPILER_BUILD}`,
                 beforeBuild: [addFonts(fonts), initOptions.withAccessModel(this.#access), initOptions.withPackageRegistry(this.#registry)],
             });
             return c;

@@ -5,7 +5,8 @@ import { appOrigin } from '#lib/origin.ts';
 import { workerPlatform } from '#lib/platform.ts';
 
 export const handle: Handle = async ({ event, resolve }) => {
-    const response = (await fromFallback(event.url, event.request)) ?? (await resolve(event));
+    const own = await resolve(event);
+    const response = own.status === 404 ? ((await fromFallback(event.url, event.request)) ?? own) : own;
     const app = appOrigin(workerPlatform(), dev);
     for (const [name, value] of Object.entries(contentHeaders())) response.headers.set(name, value);
     response.headers.set('Content-Security-Policy', contentPolicy(response.headers.get('Content-Security-Policy') ?? '', app));
@@ -13,8 +14,9 @@ export const handle: Handle = async ({ event, resolve }) => {
 };
 
 /** Browser tests only (ASSETS_FALLBACK is set by playwright.config.ts with E2E_ENGINE, never in wrangler.jsonc): an
- *  asset (`/r2/…`) comes from the fallback origin, kept in this Worker's cache, so the tests run the real engine without
- *  an upload to the local bucket. Null for everything else, and always when the variable is unset. */
+ *  asset (`/r2/…`) the local bucket does not have comes from the fallback origin, kept in this Worker's cache, so the
+ *  tests run the real engine without an upload to the local bucket. Null for everything else, and always when the
+ *  variable is unset. */
 async function fromFallback(url: URL, request: Request): Promise<Response | null> {
     const origin = workerPlatform().env.ASSETS_FALLBACK;
     if (origin === undefined || origin === '' || request.method !== 'GET' || !url.pathname.startsWith('/r2/')) return null;
