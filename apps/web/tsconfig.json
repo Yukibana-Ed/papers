@@ -1,0 +1,12 @@
+{
+  /* The repository's strict settings, then what SvelteKit provides ($app/tsconfig): the module system, the target and
+     the libraries for Vite. */
+  "extends": ["../../tsconfig.strict.json", "$app/tsconfig"],
+  "compilerOptions": {
+    "moduleDetection": "force",
+    "allowJs": false,
+    "checkJs": false,
+    "types": ["$app/types", "vite/client"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.svelte", "tests/**/*.ts", "vite.config.ts"]
+}

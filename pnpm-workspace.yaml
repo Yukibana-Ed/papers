@@ -1,0 +1,43 @@
+saveExact: true
+# Resolves only versions at least 14 days old (in minutes), the same window as Dependabot's cooldown. It also applies to
+# what the lockfile already holds: `pnpm install --frozen-lockfile` refuses an entry younger than this. A git dependency
+# (@yukibana/design) has no publish date, so the check does not apply to it.
+minimumReleaseAge: 20160
+verifyDepsBeforeRun: warn
+changedFilesIgnorePattern:
+  - '**/*.md'
+testPattern:
+  - '**/tests/**'
+  - '**/*.spec.ts'
+  - '**/*.test.ts'
+packages:
+  - apps/*
+  - packages/*
+allowBuilds:
+  esbuild: true
+  # The Workers runtime that wrangler runs locally.
+  workerd: true
+  sharp: false
+
+# Every dependency of every package is named here, and only here, with its version (catalogMode: strict).
+catalog:
+  '@sveltejs/adapter-cloudflare': 8.0.2
+  '@sveltejs/kit': 3.1.1
+  '@sveltejs/vite-plugin-svelte': 7.3.1
+  '@types/node': 24.19.2
+  # The design system, pinned to a commit of Yukibana-Ed/Yukibana main.
+  '@yukibana/design': github:Yukibana-Ed/Yukibana#7eee6311b75e8ea9c25ece97feee9b085ba39685&path:packages/design
+  oxfmt: 0.75.0
+  oxlint: 1.90.0
+  oxlint-tsgolint: 7.0.2005
+  svelte: 5.57.3
+  svelte-check: 4.7.7
+  vite: 8.3.5
+  vitest: 5.0.5
+  wrangler: 4.156.0
+catalogs:
+  # The SvelteKit apps only: svelte-check supports TypeScript 6 at most (its peer dependency is ^5 || ^6).
+  ts6:
+    typescript: 6.0.3
+catalogMode: strict
+catalogPrune: true

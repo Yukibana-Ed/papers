@@ -1,0 +1,9 @@
+/* The app's own layout on top of @yukibana/design. Every colour, size and font comes from the design tokens. */
+html,
+body {
+    height: 100%;
+    margin: 0;
+}
+body > div {
+    height: 100%;
+}

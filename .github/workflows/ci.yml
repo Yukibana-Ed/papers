@@ -1,0 +1,90 @@
+# Every check, for pull requests. ci-ok is the one required check: it always reports, so the triggers have no paths
+# filters. Not on pushes to main: a pull request merges only up to date with main (the ruleset), and its run tests it
+# merged onto main, so the merge lands the tree its run tested.
+name: CI
+
+on:
+  pull_request:
+  # By hand: everything runs.
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Lint, typecheck, unit tests and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm and Node.js
+        uses: ./.github/actions/setup
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --fetch-timeout 100000
+
+      - name: Check formatting
+        run: pnpm run format:check
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Unit tests
+        run: pnpm run test
+
+      - name: Build
+        run: pnpm run build
+
+      # Each Worker of a pull request, for the Preview workflow to upload once a maintainer approves: bundled here, with
+      # the pull request's dependencies, since SvelteKit's output imports them by name and an upload that bundles would
+      # take them from main's checkout. Only for branches of this repository.
+      - name: Bundle the previews
+        id: preview
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          for app in web content; do
+            (cd "apps/$app" && pnpm exec wrangler versions upload --dry-run --outdir .svelte-kit/preview-worker)
+          done
+
+      # The bundles, and the static assets beside them that each wrangler.jsonc's `assets` names.
+      - name: Upload the previews
+        if: steps.preview.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: preview
+          path: |
+            apps/*/.svelte-kit/cloudflare/
+            apps/*/.svelte-kit/preview-worker/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 5
+
+  # The one required check. A job that was not needed is skipped, which passes; one that failed or was cancelled fails
+  # this.
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs: [check]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Every job passed or was not needed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"$NEEDS"
+          if jq -e 'any(.[]; .result == "failure" or .result == "cancelled")' <<<"$NEEDS" >/dev/null; then
+            exit 1
+          fi

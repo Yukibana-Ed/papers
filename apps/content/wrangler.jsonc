@@ -1,0 +1,19 @@
+{
+    "$schema": "../../node_modules/wrangler/config-schema.json",
+
+    // The content origin: compilers, the language server and the preview run here, in a frame of the app, on a site of
+    // its own (yukibana.run) so that nothing a document does can reach the app's cookies or storage.
+    "name": "yukibana-papers-content",
+    "main": ".svelte-kit/cloudflare/_worker.js",
+    "compatibility_date": "2026-10-01",
+    "compatibility_flags": ["nodejs_compat"],
+    "assets": { "binding": "ASSETS", "directory": ".svelte-kit/cloudflare" },
+    "observability": { "enabled": true },
+    "preview_urls": true,
+    "routes": [{ "pattern": "user-content-papers.yukibana.run", "custom_domain": true }],
+
+    "vars": {
+        // The one origin allowed to frame this one (frame-ancestors) and to talk to it (postMessage).
+        "APP_ORIGIN": "https://papers.yukibana.dev",
+    },
+}

@@ -1,0 +1,86 @@
+# Deploys both Workers from main: the content origin first (user-content-papers.yukibana.run), then the app
+# (papers.yukibana.dev), so a new app never embeds a frame older than it expects. A failed deploy is re-run ("Re-run
+# jobs" on its run); a run whose commit is older than the last successful deploy's refuses, so a re-run of an old run
+# cannot put an old Worker back. The run's title, "Deploy <sha>", is how that guard finds the last commit deployed.
+#
+# On every push to main of Yukibana-Ed/papers (a fork has no production environment), and never by hand: main moves
+# only by merging a pull request that is up to date with it and whose ci-ok passed.
+#
+# The secrets are on the `production` environment (Settings, Environments):
+#   CLOUDFLARE_API_TOKEN    a token that can deploy the yukibana-papers and yukibana-papers-content Workers and add
+#                           their custom domains in the yukibana.dev and yukibana.run zones
+#   CLOUDFLARE_ACCOUNT_ID   the Cloudflare account they are in
+name: Deploy
+run-name: Deploy ${{ github.sha }}
+
+on:
+  push:
+    branches: [main]
+
+# One deploy at a time, and none cancelled halfway.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  COMMIT: ${{ github.sha }}
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy
+    if: github.repository == 'Yukibana-Ed/papers'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    environment:
+      name: production
+      url: https://papers.yukibana.dev
+    steps:
+      - name: Not older than the last deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          last=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/deploy.yml/runs?branch=main&status=success&per_page=100" \
+            --jq '[.workflow_runs[].display_title | select(test("^Deploy [0-9a-f]{40}$"))][0] // empty | ltrimstr("Deploy ")')
+          if [ -n "$last" ]; then
+            status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$last...$COMMIT" --jq .status)
+            case "$status" in
+              ahead|identical) ;;
+              *) echo "::error::$COMMIT is $status of $last, the commit of the last successful deploy; nothing was deployed. Re-run the newest Deploy run instead."
+                 exit 1 ;;
+            esac
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.COMMIT }}
+          persist-credentials: false
+
+      - name: Install pnpm and Node.js
+        uses: ./.github/actions/setup
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --fetch-timeout 100000
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Deploy the content origin
+        working-directory: apps/content
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler deploy --message "Deploy $COMMIT"
+
+      - name: Deploy the app
+        working-directory: apps/web
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler deploy --message "Deploy $COMMIT"

@@ -1,0 +1,19 @@
+{
+    "$schema": "../../node_modules/wrangler/config-schema.json",
+
+    // The app: pages and the user's GitHub token. Compilers, language servers and previews never run here; they run on
+    // the content origin (apps/content), which this page embeds.
+    "name": "yukibana-papers",
+    "main": ".svelte-kit/cloudflare/_worker.js",
+    "compatibility_date": "2026-10-01",
+    "compatibility_flags": ["nodejs_compat"],
+    "assets": { "binding": "ASSETS", "directory": ".svelte-kit/cloudflare" },
+    "observability": { "enabled": true },
+    "preview_urls": true,
+    "routes": [{ "pattern": "papers.yukibana.dev", "custom_domain": true }],
+
+    "vars": {
+        // Where this app embeds the compile and preview frame from.
+        "CONTENT_ORIGIN": "https://user-content-papers.yukibana.run",
+    },
+}

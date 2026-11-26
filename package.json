@@ -1,0 +1,28 @@
+{
+  "private": true,
+  "name": "yukibana-papers",
+  "version": "0.0.0-dev",
+  "license": "Apache-2.0",
+  "type": "module",
+  "packageManager": "pnpm@12.15.0",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "24.22.1",
+      "onFail": "download"
+    }
+  },
+  "scripts": {
+    "lint": "pnpm -r run --if-present lint",
+    "typecheck": "pnpm -r run --if-present typecheck",
+    "test": "pnpm -r run --if-present test",
+    "build": "pnpm -r run --if-present build",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check"
+  },
+  "devDependencies": {
+    "oxfmt": "catalog:",
+    "oxlint": "catalog:",
+    "oxlint-tsgolint": "catalog:"
+  }
+}
