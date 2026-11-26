@@ -47,12 +47,12 @@ export default defineConfig({
                   },
                   {
                       // With E2E_ENGINE, the engine and TeX Live come from the deployed content origin; the Typst compiler
-                      // is this checkout's build, put into the local bucket first (scripts/typst.ts seed).
+                      // is this checkout's build, put into the local bucket first with the fonts (scripts/typst.ts seed).
                       command: `${process.env['E2E_ENGINE'] ? 'node scripts/typst.ts seed && ' : ''}pnpm exec wrangler dev --port 4174 --ip 127.0.0.1 --local --var APP_ORIGIN:${APP}${process.env['E2E_ENGINE'] ? ' --var ASSETS_FALLBACK:https://user-content-papers.yukibana.run' : ''}`,
                       cwd: '../content',
                       url: `${CONTENT}/`,
                       reuseExistingServer: !process.env['CI'],
-                      timeout: 120_000,
+                      timeout: 300_000,
                   },
               ],
 });
