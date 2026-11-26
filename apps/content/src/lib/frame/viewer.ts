@@ -943,7 +943,7 @@ function flatText(root: Element): {
         nodes.push(n);
         starts.push(text.length);
         text += n.data;
-        before = box;
+        before = rect;
     }
     return {
         text,
