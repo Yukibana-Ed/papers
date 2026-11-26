@@ -1,0 +1,26 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{siunitx}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tikz}
+\usepackage[backend=biber]{biblatex}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\input{macros}
+\addbibresource{refs.bib}
+\title{Feedback at the right time}
+\begin{document}
+\maketitle
+\input{sections/intro}
+\input{sections/method}
+\section{Results}\label{sec:results}
+As \cref{sec:method,sec:intro} show, and by \eqref{eq:norm}, we get \cite{knuth84}.
+% \ref{sec:results} in a comment
+\begin{claim}\label{claim:main}
+For all $x \in \R$ we have $\norm{x} \geq 0 \Rightarrow x$.
+\end{claim}
+See \autoref{claim:main} and \ref{sec:results-extra}.
+\subsection{Extra}\label{sec:results-extra}
+\printbibliography
+\end{document}

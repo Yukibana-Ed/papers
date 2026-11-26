@@ -22,6 +22,7 @@ import 'monaco-editor/editor/contrib/snippet/browser/snippetController2';
 import 'monaco-editor/editor/contrib/suggest/browser/suggestController';
 import 'monaco-editor/editor/contrib/wordHighlighter/browser/wordHighlighter';
 import 'monaco-editor/editor/contrib/wordOperations/browser/wordOperations';
+import 'monaco-editor/editor/standalone/browser/referenceSearch/standaloneReferenceSearch';
 // Vite builds `?worker` imports into a worker constructor; the import plugin cannot see that default export.
 // oxlint-disable-next-line import/default
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker';
@@ -169,6 +170,20 @@ export function applyTheme(dark: boolean): void {
             'menu.selectionForeground': tokenHex('--yk-ink'),
             'menu.separatorBackground': tokenHex('--yk-line'),
             'menu.border': tokenHex('--yk-line'),
+            // The references view (Shift+F12).
+            'peekView.border': tokenHex('--yk-line'),
+            'peekViewTitle.background': tokenHex('--yk-bg'),
+            'peekViewTitleLabel.foreground': tokenHex('--yk-ink'),
+            'peekViewTitleDescription.foreground': tokenHex('--yk-soft'),
+            'peekViewEditor.background': tokenHex('--yk-surface'),
+            'peekViewEditorGutter.background': tokenHex('--yk-surface'),
+            'peekViewEditor.matchHighlightBackground': tokenHex('--yk-chip-blue-bg'),
+            'peekViewResult.background': tokenHex('--yk-bg'),
+            'peekViewResult.fileForeground': tokenHex('--yk-ink'),
+            'peekViewResult.lineForeground': tokenHex('--yk-soft'),
+            'peekViewResult.matchHighlightBackground': tokenHex('--yk-chip-blue-bg'),
+            'peekViewResult.selectionBackground': tokenHex('--yk-surface'),
+            'peekViewResult.selectionForeground': tokenHex('--yk-ink'),
         },
     });
     monaco.editor.setTheme('yk');

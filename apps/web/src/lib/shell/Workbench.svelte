@@ -117,6 +117,7 @@
                 anchors: (a) => (s.anchors = { ...a }),
                 suggestions: (list) => (s.suggestions = [...list]),
                 selectionButton: (top) => (selButton = top),
+                open: (f, line, col) => openFile(f, line, col),
             });
             editor = ed;
             // Browser tests read the editor's state through this; nothing else does.

@@ -3,6 +3,7 @@ import type { Anchor, Cursor, Lines, PlacedSuggestion, Presence, Suggestion, Tex
 import type * as Y from 'yjs';
 import { applyTheme, followPageTheme, languageOf, modelUri, monaco, remeasureWhenFontsLoad } from './monaco.ts';
 import { LatexIndex, complete, type Offer } from '#lib/latex/complete.ts';
+import { definition, nameAt, references, rename, validName, type Place } from '#lib/latex/navigate.ts';
 import { FileSuggestions } from './suggestions.ts';
 import { TextBinding } from './y-binding.ts';
 
@@ -24,6 +25,8 @@ export interface SourceEditorEvents {
     suggestions(list: readonly PlacedSuggestion[]): void;
     /** Where the selection's comment button goes, in pixels from the editor's top; null hides it. */
     selectionButton(top: number | null): void;
+    /** Go to definition (or a reference) leads to another file: show it at this position. */
+    open(file: string, line: number, col: number): void;
 }
 
 export interface Diagnostic {
@@ -146,7 +149,7 @@ export class SourceEditor {
         e.addCommand(K.CtrlCmd | K.Shift | C.KeyZ, () => shown()?.redo(), 'ykSuggesting');
         this.stopRemeasure = remeasureWhenFontsLoad();
         this.stopTheme = followPageTheme();
-        this.disposables.push(this.latexCompletion());
+        this.disposables.push(this.latexCompletion(), ...this.latexNavigation(), this.opener());
     }
 
     /** The project's LaTeX facts, for completion: each file parsed again only when its model changed. */
@@ -161,6 +164,69 @@ export class SourceEditor {
     /** Every path of the project, binary files included, for the paths that LaTeX completion offers. */
     setProjectPaths(paths: readonly string[]): void {
         this.latex.setPaths(paths);
+    }
+
+    /** Lets Monaco's own navigation (go to definition, a reference picked in the peek view) lead to another file of
+     *  the project, through the workbench, so its tab opens too. */
+    private opener(): IDisposable {
+        return monaco.editor.registerEditorOpener({
+            openCodeEditor: (_source, resource, at) => {
+                const file = [...this.models].find(([, m]) => m.uri.toString() === resource.toString())?.[0];
+                if (file === undefined) return false;
+                const line = at === undefined ? 1 : 'lineNumber' in at ? at.lineNumber : at.startLineNumber;
+                const col = at === undefined ? 1 : 'column' in at ? at.column : at.startColumn;
+                this.on.open(file, line, col);
+                return true;
+            },
+        });
+    }
+
+    /** Go to definition, find references and rename for LaTeX and BibTeX files, from the project's text (no language
+     *  server): labels, citation keys, the project's own commands and environments, included files. A rename is
+     *  refused for someone who cannot edit and while suggesting, since it changes other files directly. */
+    private latexNavigation(): IDisposable[] {
+        const texts = (): Map<string, string> => new Map([...this.models].filter(([f]) => /\.(tex|sty|cls|ltx|bib)$/.test(f)).map(([f, m]) => [f, m.getValue()]));
+        const locations = (places: readonly Place[]): languages.Location[] =>
+            places.flatMap(p => {
+                const m = this.models.get(p.file);
+                return m === undefined ? [] : [{ uri: m.uri, range: monaco.Range.fromPositions(m.getPositionAt(p.start), m.getPositionAt(p.end)) }];
+            });
+        const at = <T>(model: Model, position: IPosition, empty: T, f: (files: Map<string, string>, file: string, offset: number) => T): T => {
+            const file = this.fileOf(model);
+            return file === null ? empty : f(texts(), file, model.getOffsetAt(position));
+        };
+        return ['latex', 'bibtex'].flatMap(language => [
+            monaco.languages.registerDefinitionProvider(language, {
+                provideDefinition: (model, position) => at(model, position, [], (files, file, offset) => locations(definition(files, file, offset))),
+            }),
+            monaco.languages.registerReferenceProvider(language, {
+                provideReferences: (model, position) => at(model, position, [], (files, file, offset) => locations(references(files, file, offset))),
+            }),
+            monaco.languages.registerRenameProvider(language, {
+                resolveRenameLocation: (model, position) =>
+                    at<languages.RenameLocation & languages.Rejection>(
+                        model,
+                        position,
+                        { range: monaco.Range.fromPositions(position), text: '', rejectReason: 'Nothing to rename here' },
+                        (files, file, offset) => {
+                            const named = nameAt(files, file, offset);
+                            const none = { range: monaco.Range.fromPositions(position), text: '' };
+                            if (named === null || rename(files, file, offset).length === 0) return { ...none, rejectReason: 'Nothing to rename here' };
+                            if (this.ed.getOption(monaco.editor.EditorOption.readOnly) || this.suggestMode) return { ...none, rejectReason: 'Rename needs direct editing' };
+                            return { range: monaco.Range.fromPositions(model.getPositionAt(named.start), model.getPositionAt(named.end)), text: named.name };
+                        },
+                    ),
+                provideRenameEdits: (model, position, newName) =>
+                    at<languages.WorkspaceEdit & languages.Rejection>(model, position, { edits: [] }, (files, file, offset) => {
+                        const named = nameAt(files, file, offset);
+                        if (named === null || this.ed.getOption(monaco.editor.EditorOption.readOnly) || this.suggestMode) return { edits: [] };
+                        if (!validName(named.kind, newName)) return { edits: [], rejectReason: `Not a valid ${named.kind === 'citation' ? 'citation key' : named.kind} name` };
+                        return {
+                            edits: locations(rename(files, file, offset)).map(l => ({ resource: l.uri, versionId: undefined, textEdit: { range: l.range, text: newName } })),
+                        };
+                    }),
+            }),
+        ]);
     }
 
     /** LaTeX completion in the editor itself, from the project's files (no language server): commands, environments,
