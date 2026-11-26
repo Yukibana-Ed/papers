@@ -21,6 +21,12 @@ interface Rpc {
 
 const WASM = '/engine/tinymist/tinymist_bg.wasm';
 
+/** To the frame. A worker's postMessage takes no target origin (the rule is for windows). */
+function post(message: unknown): void {
+    // oxlint-disable-next-line unicorn/require-post-message-target-origin
+    self.postMessage(message);
+}
+
 let server: TinymistLanguageServer | null = null;
 const events: number[] = [];
 const pending: Rpc[] = [];
@@ -42,13 +48,13 @@ async function handle(m: Rpc): Promise<void> {
         try {
             result = await Promise.resolve(s.on_request(m.method, m.params ?? null));
         } catch (e) {
-            self.postMessage({ jsonrpc: '2.0', id: m.id, error: { code: -32603, message: String(e) } });
+            post({ jsonrpc: '2.0', id: m.id, error: { code: -32603, message: String(e) } });
             drain();
             return;
         }
         // Upstream returns an error object instead of throwing; an LSP result is never shaped like one.
-        if (isErrorShape(result)) self.postMessage({ jsonrpc: '2.0', id: m.id, error: result });
-        else self.postMessage({ jsonrpc: '2.0', id: m.id, result: result ?? null });
+        if (isErrorShape(result)) post({ jsonrpc: '2.0', id: m.id, error: result });
+        else post({ jsonrpc: '2.0', id: m.id, result: result ?? null });
         drain();
         return;
     }
@@ -71,15 +77,15 @@ void (async () => {
         await init({ module_or_path: WASM });
         server = new TinymistLanguageServer({
             sendEvent: (event: number): void => void events.push(event),
-            sendRequest: (r: { id: number; method: string; params: unknown }): void => self.postMessage({ jsonrpc: '2.0', id: r.id, method: r.method, params: r.params }),
-            sendNotification: (n: { method: string; params: unknown }): void => self.postMessage({ jsonrpc: '2.0', method: n.method, params: n.params }),
+            sendRequest: (r: { id: number; method: string; params: unknown }): void => post({ jsonrpc: '2.0', id: r.id, method: r.method, params: r.params }),
+            sendNotification: (n: { method: string; params: unknown }): void => post({ jsonrpc: '2.0', method: n.method, params: n.params }),
             // Typst Universe packages are not available to the language server yet: imports of @preview packages show as
             // unresolved here, while the compiler (typst.ts) resolves them for the preview.
             resolveFn: (): undefined => undefined,
         });
-        self.postMessage({ ready: true, ms: Math.round(performance.now() - t0), version: TinymistLanguageServer.version() });
+        post({ ready: true, ms: Math.round(performance.now() - t0), version: TinymistLanguageServer.version() });
         for (const m of pending.splice(0)) await handle(m);
     } catch (e) {
-        self.postMessage({ failed: String(e) });
+        post({ failed: String(e) });
     }
 })();
