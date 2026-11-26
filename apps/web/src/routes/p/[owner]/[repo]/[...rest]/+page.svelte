@@ -7,6 +7,6 @@
 
 <svelte:head><title>{params.repo} · Yukibana Papers</title></svelte:head>
 
-{#key `${params.owner}/${params.repo}/${data.branch ?? ''}`}
-    <ProjectPage owner={params.owner} repo={params.repo} branch={data.branch} contentOrigin={data.contentOrigin} root={data.root} />
+{#key `${params.owner}/${params.repo}/${data.rest}/${data.branch ?? ''}`}
+    <ProjectPage owner={params.owner} repo={params.repo} rest={data.rest} branch={data.branch} contentOrigin={data.contentOrigin} root={data.root} />
 {/key}

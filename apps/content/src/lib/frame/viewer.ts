@@ -84,6 +84,9 @@ export class Viewer {
     #precise: PreciseMap | null = null;
     /** The shown build's words, whose boxes the drawn text layers refine. */
     #words: DocWord[] = [];
+    /** The build `#words` were read from: a page of another build must not refine them. */
+    #wordsTask: PDFDocumentLoadingTask | null = null;
+    #syncs = 0;
     #sources: ReadonlyMap<string, string> = new Map();
     #format: 'latex' | 'typst' = 'latex';
     #pages: PageView[] = [];
@@ -131,14 +134,22 @@ export class Viewer {
 
     /** Reads the shown build's text and aligns it with the sources, for `#precise`. A newer build or map replaces it. */
     async #makePrecise(): Promise<void> {
-        this.#precise = null;
+        // The previous build's map stays in use meanwhile: a click just after a rebuild (every edit makes one) still
+        // goes to the character, which it would not if the map went blank while the new one is made.
         const sync = this.#sync;
         if (sync === null) return;
+        const task = this.#task;
         const words = docWords(await this.pageTexts());
-        if (this.#sync !== sync) return;
+        if (this.#sync !== sync || this.#task !== task) return;
         this.#words = words;
+        this.#wordsTask = task;
         for (const p of this.#pages) if (p.drawn !== 0) this.#refine(p);
         this.#precise = preciseMap(sync, words, this.#sources, this.#format);
+        // For browser tests: the sync to the word of the shown build is ready, and its pages in view are drawn (a
+        // selection made before the new text layer swaps in would be lost with the old one).
+        await Promise.all(this.#pages.map(p => p.rendering ?? Promise.resolve()));
+        if (this.#task !== task) return;
+        this.#column.dataset['sync'] = String(++this.#syncs);
         this.#drawOverlays();
         // Development only (gone from builds): the maps, for the sync-accuracy probe to measure.
         if (import.meta.env.DEV) Object.assign(window, { papersSync: { coarse: sync, precise: this.#precise, words, sources: this.#sources } });
@@ -544,14 +555,14 @@ export class Viewer {
         const s = this.scale;
         const x = (e.clientX - rect.left) / s;
         const y = (e.clientY - rect.top) / s;
+        const word = wordAt(e.clientX, e.clientY);
         const exact = this.#precise?.pointToSource(n, x, y) ?? null;
         if (exact !== null) {
-            this.#events.jump({ file: exact.file, line: exact.line, column: exact.column + 1 }, wordAt(e.clientX, e.clientY));
+            this.#events.jump({ file: exact.file, line: exact.line, column: exact.column + 1 }, word);
             return;
         }
         const hit = this.#sync.backward(n, x, y);
-        if (hit === null) return;
-        this.#events.jump({ file: hit.file, line: hit.line }, wordAt(e.clientX, e.clientY));
+        if (hit !== null) this.#events.jump({ file: hit.file, line: hit.line }, word);
     };
 
     /** A triple click selects the typeset line under the pointer, as in a PDF reader; the browser's own would select
@@ -731,7 +742,7 @@ export class Viewer {
     /** Gives the shown build's words on `view`'s page the boxes its text layer draws them in. */
     #refine(view: PageView): void {
         const n = this.#pages.indexOf(view) + 1;
-        if (n === 0 || this.#words.length === 0) return;
+        if (n === 0 || this.#words.length === 0 || this.#wordsTask !== this.#task) return;
         const page = view.el.getBoundingClientRect();
         const s = this.scale;
         const spans = new Map<number, HTMLElement>();

@@ -1,4 +1,4 @@
-import { GitHubError, blob, repoInfo, tree } from '#lib/github/api.ts';
+import { GitHubError, blob, branchNames, repoInfo, tree } from '#lib/github/api.ts';
 import { SignInNeeded, dropToken, githubToken } from '#lib/github/token.ts';
 import { findRoots, includedFiles } from '#lib/model/tex.ts';
 
@@ -134,4 +134,23 @@ export function firstDocument(texts: ReadonlyMap<string, { text: string }>, orde
     const roots = findRoots(files, order);
     const first = roots[0];
     return { roots, files: first ? includedFiles(first, files) : [] };
+}
+
+/** `rest` (what follows `/p/<owner>/<repo>/` in an address: a branch, then maybe a file in it) split by `branches`:
+ *  the longest branch that `rest` is, or starts with followed by `/`; the rest is the file, or null. With no such branch,
+ *  the first segment is taken for the branch (and the load then says it is missing). */
+export function splitRef(rest: string, branches: readonly string[]): { branch: string; path: string | null } {
+    const clean = rest.replace(/^\/+|\/+$/g, '');
+    let best: string | null = null;
+    for (const b of branches) if ((clean === b || clean.startsWith(`${b}/`)) && (best === null || b.length > best.length)) best = b;
+    const branch = best ?? clean.split('/')[0] ?? '';
+    const path = clean.length > branch.length ? clean.slice(branch.length + 1) : null;
+    return { branch, path: path === '' ? null : path };
+}
+
+/** `rest` split against `owner/repo`'s branches, read from GitHub (only when it has a slash: a lone segment is a branch). */
+export async function resolveRef(owner: string, repo: string, rest: string): Promise<{ branch: string; path: string | null }> {
+    if (!rest.includes('/')) return { branch: rest, path: null };
+    const names = await gh(token => branchNames(token, owner, repo));
+    return splitRef(rest, names);
 }
