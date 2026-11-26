@@ -26,3 +26,11 @@ test.describe('keys pressed in the preview frame', () => {
         await expect(page.locator('.palette')).toBeVisible();
     });
 });
+
+test('the content frame runs no code built from text', async ({ page }) => {
+    const policy = page.waitForResponse(r => new URL(r.url()).pathname === '/frame').then(r => r.headers()['content-security-policy'] ?? '');
+    await openDemo(page);
+    const scripts = /script-src[^;]*/.exec(await policy)?.[0] ?? '';
+    expect(scripts).toContain("'wasm-unsafe-eval'");
+    expect(scripts).not.toContain("'unsafe-eval'");
+});
