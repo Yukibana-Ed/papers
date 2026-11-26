@@ -1,0 +1,187 @@
+diff --git a/packages/compiler/src/lib.rs b/packages/compiler/src/lib.rs
+index a18f3cc..145c529 100644
+--- a/packages/compiler/src/lib.rs
++++ b/packages/compiler/src/lib.rs
+@@ -2,6 +2,7 @@ pub mod builder;
+ 
+ #[cfg(feature = "incr")]
+ mod incr;
++mod spans;
+ pub(crate) mod utils;
+ 
+ pub use crate::builder::TypstFontResolver;
+@@ -522,6 +523,31 @@ impl TypstCompileWorld {
+         Ok(serde_json::to_string_pretty(&mapped).map_err(|e| format!("{e:?}"))?)
+     }
+ 
++    /// Yukibana: `{ files, pages }`, the source of every glyph of the paged document that came from a file of
++    /// the project: `files` are paths and each of `pages` is a `Uint8Array` holding `spans::FIELDS` little-endian f64 numbers per glyph
++    /// (see `spans.rs`). Undefined when the document did not compile.
++    pub fn glyph_spans(&mut self) -> Result<JsValue, JsValue> {
++        let Some(doc) = self.do_compile_paged()? else {
++            return Ok(JsValue::UNDEFINED);
++        };
++        let spans = spans::glyph_spans(&self.graph.snap.world, &doc);
++        let files = Array::new();
++        for f in &spans.files {
++            files.push(&JsValue::from_str(f));
++        }
++        let pages = Array::new();
++        for p in &spans.pages {
++            // As bytes (little-endian f64), read on the other side through a Float64Array on the same buffer: the
++            // module then imports nothing the published build does not, and its JS bindings fit this build too.
++            let bytes: Vec<u8> = p.iter().flat_map(|v| v.to_le_bytes()).collect();
++            pages.push(&Uint8Array::from(bytes.as_slice()));
++        }
++        let result = js_sys::Object::new();
++        js_sys::Reflect::set(&result, &"files".into(), &files)?;
++        js_sys::Reflect::set(&result, &"pages".into(), &pages)?;
++        Ok(result.into())
++    }
++
+     #[cfg(feature = "incr")]
+     pub fn incr_compile(
+         &mut self,
+diff --git a/packages/compiler/src/spans.rs b/packages/compiler/src/spans.rs
+new file mode 100644
+index 0000000..4a4e315
+--- /dev/null
++++ b/packages/compiler/src/spans.rs
+@@ -0,0 +1,137 @@
++//! Yukibana: where each glyph of a paged document came from in the source.
++
++use std::collections::HashMap;
++
++use typst::layout::{Frame, FrameItem, Point, Transform};
++use typst::syntax::{FileId, Source, Span, SyntaxKind};
++use typst::World;
++use reflexo_typst::vfs::WorkspaceResolver;
++use reflexo_typst::TypstPagedDocument;
++
++/// The numbers kept for one glyph, in this order: the baseline's start `x0 y0` and end `x1 y1` on the page (pt, y
++/// down, the page's transforms applied), the font size (pt), the index of the source file in [`GlyphSpans::files`],
++/// the source range `start end` the glyph came from (UTF-16 code units), and `1` when that range is the glyph's own
++/// characters or `0` when it is the whole syntax node that produced the glyph (a heading number, a reference...).
++pub const FIELDS: usize = 9;
++
++/// The glyphs of a document that came from the project's own source files.
++pub struct GlyphSpans {
++    /// The source files' paths, without the leading slash.
++    pub files: Vec<String>,
++    /// One flat array of [`FIELDS`] numbers per glyph for each page, in paint order.
++    pub pages: Vec<Vec<f64>>,
++}
++
++struct Walk<'a> {
++    world: &'a dyn World,
++    files: Vec<String>,
++    sources: HashMap<FileId, Option<(f64, Source)>>,
++    /// The last span resolved: glyphs of one word share it.
++    last: Option<(Span, Option<Resolved>)>,
++}
++
++#[derive(Clone)]
++struct Resolved {
++    file: f64,
++    source: Source,
++    start: usize,
++    end: usize,
++    text: bool,
++}
++
++impl Walk<'_> {
++    fn resolve(&mut self, span: Span) -> Option<Resolved> {
++        if let Some((s, r)) = &self.last {
++            if *s == span {
++                return r.clone();
++            }
++        }
++        let r = self.resolve_slow(span);
++        self.last = Some((span, r.clone()));
++        r
++    }
++
++    fn resolve_slow(&mut self, span: Span) -> Option<Resolved> {
++        let id = span.id()?;
++        let world = self.world;
++        let files = &mut self.files;
++        let (file, source) = self
++            .sources
++            .entry(id)
++            .or_insert_with(|| {
++                // Text from a package is not the project's source.
++                if WorkspaceResolver::is_package_file(id) {
++                    return None;
++                }
++                let source = world.source(id).ok()?;
++                files.push(id.vpath().get_without_slash().to_string());
++                Some(((files.len() - 1) as f64, source))
++            })
++            .clone()?;
++        let node = source.find(span)?;
++        let range = node.range();
++        let text = matches!(node.kind(), SyntaxKind::Text | SyntaxKind::MathText);
++        Some(Resolved { file, source, start: range.start, end: range.end, text })
++    }
++
++    fn frame(&mut self, frame: &Frame, ts: Transform, out: &mut Vec<f64>) {
++        for (pos, item) in frame.items() {
++            match item {
++                FrameItem::Group(group) => {
++                    let ts = ts
++                        .pre_concat(Transform::translate(pos.x, pos.y))
++                        .pre_concat(group.transform);
++                    self.frame(&group.frame, ts, out);
++                }
++                FrameItem::Text(text) => {
++                    let mut x = pos.x;
++                    for glyph in &text.glyphs {
++                        let width = glyph.x_advance.at(text.size);
++                        let from = Point::new(x, pos.y).transform(ts);
++                        let to = Point::new(x + width, pos.y).transform(ts);
++                        x += width;
++                        let (span, offset) = glyph.span;
++                        let Some(r) = self.resolve(span) else { continue };
++                        let (start, end) = if r.text {
++                            let start = (r.start + usize::from(offset)).min(r.end);
++                            (start, (start + glyph.range().len()).min(r.end))
++                        } else {
++                            (r.start, r.end)
++                        };
++                        let lines = r.source.lines();
++                        let (Some(start), Some(end)) = (lines.byte_to_utf16(start), lines.byte_to_utf16(end)) else {
++                            continue;
++                        };
++                        out.extend_from_slice(&[
++                            from.x.to_pt(),
++                            from.y.to_pt(),
++                            to.x.to_pt(),
++                            to.y.to_pt(),
++                            text.size.to_pt(),
++                            r.file,
++                            start as f64,
++                            end as f64,
++                            if r.text { 1.0 } else { 0.0 },
++                        ]);
++                    }
++                }
++                _ => {}
++            }
++        }
++    }
++}
++
++/// The source of every glyph of `doc` that came from a file of the project `world` holds.
++pub fn glyph_spans(world: &dyn World, doc: &TypstPagedDocument) -> GlyphSpans {
++    let mut walk = Walk { world, files: Vec::new(), sources: HashMap::new(), last: None };
++    let pages = doc
++        .pages()
++        .iter()
++        .map(|page| {
++            let mut out = Vec::new();
++            walk.frame(&page.frame, Transform::identity(), &mut out);
++            out
++        })
++        .collect();
++    GlyphSpans { files: walk.files, pages }
++}
