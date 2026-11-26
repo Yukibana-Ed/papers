@@ -41,7 +41,7 @@ button {
     background: var(--yk-bg);
 }
 .app.rail-open {
-    grid-template-columns: 44px 300px minmax(0, 1fr);
+    grid-template-columns: 44px var(--panel-w, 300px) minmax(0, 1fr);
 }
 
 /* --- header ------------------------------------------------------------------------------------------------------ */
@@ -236,6 +236,23 @@ button {
     align-items: center;
     gap: 8px;
 }
+.ctx-menu {
+    position: fixed;
+    /* A manual popover in the top layer: undo the UA's centring so left/top place it. */
+    inset: auto;
+    margin: 0;
+    min-width: 200px;
+    padding: 6px;
+    background: var(--yk-surface);
+    color: var(--yk-ink);
+    border: 1px solid var(--yk-line);
+    border-radius: var(--yk-radius-md);
+    box-shadow: 0 16px 40px -20px oklch(0% 0 0 / 0.45);
+    font-size: var(--yk-font-size-sm);
+}
+.ctx-menu .row-btn:focus-visible {
+    background: var(--yk-sunken);
+}
 .pop-sep {
     height: 1px;
     background: var(--yk-line);
@@ -413,6 +430,7 @@ button {
 }
 .panel {
     grid-area: panel;
+    position: relative;
     display: flex;
     flex-direction: column;
     min-height: 0;
@@ -420,6 +438,23 @@ button {
     border-right: 1px solid var(--yk-line);
     overflow: hidden;
     animation: fade-in var(--yk-motion-fast) var(--yk-motion-ease);
+}
+/* The panel's right edge: drag it to resize the panel. */
+.panel-resize {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 5px;
+    cursor: col-resize;
+    touch-action: none;
+    z-index: 2;
+}
+.panel-resize:hover,
+.panel-resize:active,
+.panel-resize:focus-visible {
+    background: var(--yk-line-strong);
+    outline: none;
 }
 .panel-head {
     display: flex;
@@ -462,6 +497,19 @@ button {
     bottom: 4px;
     width: 2px;
     background: var(--yk-ink);
+}
+.filelist .folder .yk-icon {
+    transition: transform var(--yk-duration-fast, 120ms);
+}
+.filelist .folder.is-closed .yk-icon:first-child {
+    transform: rotate(-90deg);
+}
+.filelist .is-unread {
+    color: var(--yk-soft);
+    cursor: default;
+}
+.filelist .is-unread:hover {
+    background: transparent;
 }
 .filelist .mod {
     font-family: var(--yk-font-family-mono);
@@ -1247,6 +1295,9 @@ button {
     }
     .app.rail-open {
         grid-template-columns: 44px 260px minmax(0, 1fr);
+    }
+    .panel-resize {
+        display: none;
     }
     .narrow-only {
         display: inline-flex;

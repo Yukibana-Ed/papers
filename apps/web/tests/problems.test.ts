@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { byFile, countProblems, mergeProblems, nextProblem, readable } from '#lib/problems/model.ts';
+import { byFile, countProblems, mergeProblems, nextProblem, problemText, readable, type Problem } from '#lib/problems/model.ts';
 import { SETTLE_MS, settleDelay } from '#lib/session.svelte.ts';
 
 const order = ['paper.tex', 'sections/intro.tex', 'sections/method.tex'];
@@ -11,6 +11,10 @@ describe('readable', () => {
 
     it('rewords the common TeX errors and leaves others alone', () => {
         expect(readable("LaTeX Error: File `tikzz.sty' not found.")?.message).toBe('tikzz.sty is not in TeX Live or the project');
+        // A file of the repository that was not loaded is named with why, by its path in the project.
+        const unread = { 'paper/generated/numbers.tex': 'larger than 2 MB' };
+        expect(readable("LaTeX Error: File `generated/numbers.tex' not found.", undefined, unread)?.message).toBe('paper/generated/numbers.tex was not loaded: larger than 2 MB');
+        expect(readable("LaTeX Error: File `other.tex' not found.", undefined, unread)?.message).toBe('other.tex is not in TeX Live or the project');
         expect(readable('Missing $ inserted.')?.message).toMatch(/^Math outside/);
         expect(readable('Runaway argument?')?.message).toMatch(/not closed/);
         expect(readable('File ended while scanning use of \\textbf.')?.message).toMatch(/not closed/);
@@ -97,5 +101,26 @@ describe('settleDelay', () => {
     it('waits until typing has paused for a while, and not at all after a pause', () => {
         expect(settleDelay(1000, 1100)).toBe(SETTLE_MS - 100);
         expect(settleDelay(1000, 1000 + SETTLE_MS + 5)).toBe(0);
+    });
+});
+
+describe('problemText', () => {
+    const p: Problem = {
+        id: 'e',
+        severity: 'error',
+        file: 'sections/intro.tex',
+        line: 4,
+        message: 'Unknown command \\foo',
+        raw: 'Undefined control sequence.',
+        sources: ['build'],
+        excerpt: 'l.4 \\foo',
+    };
+    it('is the message and what the reporter said', () => {
+        expect(problemText(p, false)).toBe('Unknown command \\foo\nUndefined control sequence.');
+        expect(problemText({ ...p, raw: 'Unclosed delimiter', message: 'Unclosed delimiter' }, false)).toBe('Unclosed delimiter');
+    });
+    it('with its location, starts like a compiler line and ends with the excerpt', () => {
+        expect(problemText(p, true)).toBe('sections/intro.tex:4: error: Unknown command \\foo\nUndefined control sequence.\nl.4 \\foo');
+        expect(problemText({ id: 'n', severity: 'info', file: 'a.typ', line: 2, column: 7, message: 'Overfull', sources: ['tinymist'] }, true)).toBe('a.typ:2:7: note: Overfull');
     });
 });

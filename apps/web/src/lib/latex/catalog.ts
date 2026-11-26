@@ -57,6 +57,32 @@ export const ENVIRONMENTS: readonly string[] = `document abstract itemize enumer
     .trim()
     .split(/\s+/);
 
+/** What goes between `\begin{name}` and `\end{name}` for the environments that have a usual shape, as a Monaco snippet:
+ *  the arguments, then the body. The others get an empty indented line. */
+const BODIES: Readonly<Record<string, string>> = {
+    itemize: '\n\t\\item $0\n',
+    enumerate: '\n\t\\item $0\n',
+    description: '\n\t\\item[$1] $0\n',
+    figure: '[${1:htbp}]\n\t\\centering\n\t\\includegraphics[width=${2:\\linewidth}]{$3}\n\t\\caption{$4}\n\t\\label{fig:$5}\n',
+    'figure*': '[${1:htbp}]\n\t\\centering\n\t\\includegraphics[width=${2:\\linewidth}]{$3}\n\t\\caption{$4}\n\t\\label{fig:$5}\n',
+    table: '[${1:htbp}]\n\t\\centering\n\t\\caption{$2}\n\t\\label{tab:$3}\n\t\\begin{tabular}{${4:lcr}}\n\t\t$0\n\t\\end{tabular}\n',
+    'table*': '[${1:htbp}]\n\t\\centering\n\t\\caption{$2}\n\t\\label{tab:$3}\n\t\\begin{tabular}{${4:lcr}}\n\t\t$0\n\t\\end{tabular}\n',
+    tabular: '{${1:lcr}}\n\t$0\n',
+    'tabular*': '{${1:\\linewidth}}{${2:lcr}}\n\t$0\n',
+    minipage: '{${1:0.5\\linewidth}}\n\t$0\n',
+    thebibliography: '{${1:99}}\n\t\\bibitem{$2} $0\n',
+    frame: '{$1}\n\t$0\n',
+    block: '{$1}\n\t$0\n',
+    column: '{${1:0.5\\textwidth}}\n\t$0\n',
+    cases: '\n\t$1 & $2 \\\\\\\\\n\t$0\n',
+};
+
+/** The snippet for a whole environment from just after `\begin{`: the name, its closing brace, its usual arguments
+ *  and body, and its `\end`. */
+export function environmentSnippet(name: string): string {
+    return `${name}}${BODIES[name] ?? '\n\t$0\n'}\\end{${name}}`;
+}
+
 /** Package names, for `\usepackage{`. */
 export const PACKAGES: readonly string[] = `amsmath amssymb amsthm mathtools graphicx hyperref cleveref xcolor booktabs tabularx longtable multirow
     array geometry fontenc inputenc babel csquotes biblatex natbib siunitx tikz pgfplots listings minted algorithm2e algorithmic caption subcaption

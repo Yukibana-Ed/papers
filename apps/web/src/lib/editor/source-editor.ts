@@ -97,6 +97,8 @@ export class SourceEditor {
             unicodeHighlight: { ambiguousCharacters: false },
             quickSuggestions: false,
             contextmenu: true,
+            // The menu's styles are in the page's stylesheet, which does not reach into a shadow root.
+            useShadowDOM: false,
             guides: { indentation: false },
             stickyScroll: { enabled: false },
             // Hover, completion and parameter hints float over the page, not inside the editor's box, so they are never
@@ -167,6 +169,7 @@ export class SourceEditor {
     private latexCompletion(): IDisposable {
         const KIND: Record<Offer['kind'], languages.CompletionItemKind> = {
             command: monaco.languages.CompletionItemKind.Function,
+            snippet: monaco.languages.CompletionItemKind.Snippet,
             environment: monaco.languages.CompletionItemKind.Module,
             label: monaco.languages.CompletionItemKind.Reference,
             citation: monaco.languages.CompletionItemKind.Reference,
@@ -192,7 +195,9 @@ export class SourceEditor {
                 return {
                     suggestions: found.offers.map((o, i) => ({
                         label: o.label,
-                        filterText: o.kind === 'command' ? o.label.slice(1) : o.label,
+                        // Without the backslash, which is already typed. An environment is found by its own name
+                        // too: `\item` finds `\begin{itemize}`.
+                        filterText: o.kind === 'command' ? o.label.slice(1) : o.kind === 'snippet' ? `${o.label.slice(7, -1)} ${o.label.slice(1)}` : o.label,
                         insertText: o.insert,
                         insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
                         kind: KIND[o.kind],

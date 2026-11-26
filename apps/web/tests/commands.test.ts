@@ -7,6 +7,8 @@ describe('commandFor', () => {
     it('names the commands of the plain shortcuts', () => {
         expect(commandFor(chord('k', 'KeyK'))).toBe('palette');
         expect(commandFor(chord('s', 'KeyS'))).toBe('commit');
+        expect(commandFor(chord('p', 'KeyP'))).toBe('print');
+        expect(commandFor(chord('P', 'KeyP', { shift: true }))).toBe('palette');
         expect(commandFor(chord('s', 'KeyS', { alt: true }))).toBe('suggest');
         expect(commandFor(chord('m', 'KeyM', { alt: true }))).toBe('comment');
         expect(commandFor(chord('w', 'KeyW', { alt: true }))).toBe('close-tab');
