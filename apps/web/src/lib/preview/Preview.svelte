@@ -148,7 +148,9 @@
     });
 
     $effect(() => {
-        client?.send({ type: 'mirror', lines: $state.snapshot(session.selection) });
+        const lines = $state.snapshot(session.selection);
+        // A selection the source took from the preview is the preview's own already.
+        if (session.selectionFrom === 'source') client?.send({ type: 'mirror', lines });
     });
 
     $effect(() => {

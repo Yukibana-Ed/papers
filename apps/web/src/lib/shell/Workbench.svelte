@@ -3,7 +3,7 @@
     import { keepInView } from '#lib/ui/place.ts';
     import { chooseTheme, readTheme } from '@yukibana/design/theme';
     import type { FrameMessage, SelectionAction, SourceLines, SourcePoint } from '@yukibana/papers-frame-protocol';
-    import { onDestroy, onMount } from 'svelte';
+    import { onDestroy, onMount, untrack } from 'svelte';
     import type { CommentOps } from '#lib/comments/ops.ts';
     import type { SourceEditor } from '#lib/editor/source-editor.ts';
     import BuilderMenu from '#lib/preview/BuilderMenu.svelte';
@@ -51,7 +51,11 @@
             ed = new SourceEditor(host, s.files, s.activeFile, s.me, {
                 change: (f, text) => s.edit(f, text),
                 cursor: (c) => s.setCursor(c),
-                selection: (sel) => (s.selection = sel),
+                selection: (sel) => {
+                    s.selectionFrom = fromPreview ? 'preview' : 'source';
+                    if (!fromPreview) previewSelected = false;
+                    s.selection = sel;
+                },
                 openThread: (id, opts) => focusItem(id, opts),
                 anchors: (a) => (s.anchors = { ...a }),
                 suggestions: (list) => (s.suggestions = [...list]),
@@ -75,7 +79,21 @@
     $effect(() => editor?.setSuggestMode(s.suggestMode));
     $effect(() => editor?.setReadOnly(s.readOnly));
     $effect(() => editor?.setPresence(s.presence, s.users));
-    $effect(() => editor?.setMirror(s.mirror));
+    // One selection: text selected in the preview is the source editor's selection, and goes when the preview's does.
+    $effect(() => {
+        const lines = s.mirror;
+        const ed = editor;
+        if (!ed) return;
+        untrack(() => {
+            if (lines !== null && lines.file in s.files) {
+                asPreview(() => ed.selectLines(lines, false));
+                previewSelected = true;
+            } else if (previewSelected) {
+                previewSelected = false;
+                asPreview(() => ed.collapseSelection());
+            }
+        });
+    });
     $effect(() => editor?.setProjectPaths([...Object.keys(s.files), ...Object.keys(s.assets)]));
     $effect(() => editor?.setHover(s.hover));
     // The settled build's problems (language servers mark their own); notes only when the Problems panel shows them.
@@ -244,6 +262,19 @@
         if (s.mirror !== null) clearTimeout(focusAfterJump);
     });
 
+    /** True while the editor's selection is being set from the preview: the editor's news of it says so. */
+    let fromPreview = false;
+    /** True while the editor's selection is the one made in the preview. */
+    let previewSelected = false;
+    function asPreview(run: () => void): void {
+        fromPreview = true;
+        try {
+            run();
+        } finally {
+            fromPreview = false;
+        }
+    }
+
     function onJump(at: SourcePoint, word: string | null): void {
         // The frame may point into files the build made (paper.bbl): only project files open.
         if (!(at.file in s.files)) return;
@@ -254,7 +285,8 @@
         // A column from the frame is exact, to the character the click was on: the caret goes there at once.
         if (at.column !== undefined) {
             const column = at.column;
-            setTimeout(() => editor?.reveal(at.file, at.line, column, { focus: false }), 0);
+            // The click cleared the preview's own selection and highlight: the caret is not news to it.
+            setTimeout(() => asPreview(() => editor?.reveal(at.file, at.line, column, { focus: false })), 0);
             return;
         }
         // Only the line is known: the first place the clicked word appears on it.
