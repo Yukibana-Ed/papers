@@ -24,3 +24,14 @@ test('the editor page has a heading for screen readers: the project', async ({ p
     await openDemo(page);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('feedback-paper');
 });
+
+test('Sign in sends the browser to GitHub, to come back to the callback here', async ({ request, baseURL }) => {
+    const res = await request.get('/auth/login', { maxRedirects: 0 });
+    expect(res.status()).toBe(302);
+    const to = new URL(res.headers()['location'] ?? '');
+    expect(to.origin + to.pathname).toBe('https://github.com/login/oauth/authorize');
+    expect(to.searchParams.get('redirect_uri')).toBe(`${baseURL}/auth/callback`);
+    // A page on another site is never the place to return to.
+    const away = await request.get('/auth/login?to=//evil.example/x', { maxRedirects: 0 });
+    expect(new URL(away.headers()['location'] ?? '').origin).toBe('https://github.com');
+});
