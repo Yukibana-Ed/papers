@@ -1,3 +1,4 @@
+import { ASSETS } from './asset-path.ts';
 /** The Typst side of the content origin's assets: the typst.ts compiler, the tinymist language server, the default
  *  fonts, and Typst Universe packages. Like the TeX engine, they are served from the R2 bucket in production (the
  *  compiler and the server are each above the Workers static asset limit) and from disk or upstream in development.
@@ -37,9 +38,9 @@ export const TYPST_TEXT_FONTS: readonly string[] = [
 
 /** Where each kind of asset lives: its URL path on the content origin, and its key prefix in the bucket. */
 export const TYPST_ASSETS = {
-    compiler: { path: '/engine/typst/', key: `typst/${TYPST_TS_VERSION}/`, files: ['typst_ts_web_compiler_bg.wasm'] },
-    tinymist: { path: '/engine/tinymist/', key: `tinymist/${TINYMIST_VERSION}/`, files: ['tinymist_bg.wasm'] },
-    fonts: { path: '/engine/typst-fonts/', key: `typst-fonts/${TYPST_FONTS_VERSION}/`, files: TYPST_TEXT_FONTS },
+    compiler: { path: `${ASSETS}/engine/typst/`, key: `typst/${TYPST_TS_VERSION}/`, files: ['typst_ts_web_compiler_bg.wasm'] },
+    tinymist: { path: `${ASSETS}/engine/tinymist/`, key: `tinymist/${TINYMIST_VERSION}/`, files: ['tinymist_bg.wasm'] },
+    fonts: { path: `${ASSETS}/engine/typst-fonts/`, key: `typst-fonts/${TYPST_FONTS_VERSION}/`, files: TYPST_TEXT_FONTS },
 } as const;
 
 export type TypstAssetKind = keyof typeof TYPST_ASSETS;
