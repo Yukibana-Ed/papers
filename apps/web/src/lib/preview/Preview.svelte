@@ -68,9 +68,6 @@
             case 'selection':
                 session.mirror = m.lines;
                 break;
-            case 'hover':
-                session.hover = m.lines;
-                break;
             case 'action':
                 onAction(m.action, m.lines, m.text);
                 break;

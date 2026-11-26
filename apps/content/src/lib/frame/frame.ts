@@ -47,7 +47,6 @@ export class Frame {
                 this.#bridge.send({ type: 'selection', lines, text });
                 this.#onToolbar(anchor === null || lines === null ? null : anchor);
             },
-            hover: lines => this.#bridge.send({ type: 'hover', lines }),
         });
         this.#bridge = new Bridge(
             appOrigin,

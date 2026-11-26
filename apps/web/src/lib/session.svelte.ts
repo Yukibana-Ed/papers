@@ -110,8 +110,6 @@ export class Session {
     /** The source lines of the text selected in the preview, which the source editor takes as its selection; null
      *  when nothing is selected there. */
     mirror = $state<Lines | null>(null);
-    /** The lines whose typeset text is under the pointer in the preview, softly marked in the source. */
-    hover = $state<Lines | null>(null);
     anchors = $state<Record<string, Anchor>>({});
     suggestions = $state<PlacedSuggestion[]>([]);
     activeThread = $state<string | null>(null);
