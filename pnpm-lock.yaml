@@ -164,6 +164,9 @@ settings:
 
 catalogs:
   default:
+    '@cloudflare/workers-types':
+      specifier: 5.20261112.1
+      version: 5.20261112.1
     '@sveltejs/adapter-cloudflare':
       specifier: 8.0.2
       version: 8.0.2
@@ -188,6 +191,9 @@ catalogs:
     happy-dom:
       specifier: 21.0.4
       version: 21.0.4
+    lib0:
+      specifier: 0.2.120
+      version: 0.2.120
     markdown-it:
       specifier: 14.3.3
       version: 14.3.3
@@ -257,6 +263,12 @@ catalogs:
     wrangler:
       specifier: 4.156.0
       version: 4.156.0
+    y-protocols:
+      specifier: 1.0.7
+      version: 1.0.7
+    yjs:
+      specifier: 13.6.33
+      version: 13.6.33
   ts6:
     typescript:
       specifier: 6.0.3
@@ -315,6 +327,34 @@ importers:
       vite:
         specifier: 'catalog:'
         version: 8.3.5(@types/node@24.19.2)(esbuild@0.28.2)
+      vitest:
+        specifier: 'catalog:'
+        version: 5.0.5(@types/node@24.19.2)(happy-dom@21.0.4)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2))
+      wrangler:
+        specifier: 'catalog:'
+        version: 4.156.0(@cloudflare/workers-types@5.20261112.1)(@types/node@24.19.2)
+
+  apps/room:
+    dependencies:
+      lib0:
+        specifier: 'catalog:'
+        version: 0.2.120
+      y-protocols:
+        specifier: 'catalog:'
+        version: 1.0.7(yjs@13.6.33)
+      yjs:
+        specifier: 'catalog:'
+        version: 13.6.33
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: 'catalog:'
+        version: 5.20261112.1
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.2
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
       vitest:
         specifier: 'catalog:'
         version: 5.0.5(@types/node@24.19.2)(happy-dom@21.0.4)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.28.2))
@@ -1627,9 +1667,17 @@ packages:
   is-reference@3.0.3:
     resolution: {integrity: sha512-ixkJoqQvAP88E6wLydLGGqCJsrFUnqoH6HnaczB8XmDH1oaWU+xxdptvikTgaEhtZ53Ky6YXiBuUI2WXLMCwjw==}
 
+  isomorphic.js@0.2.5:
+    resolution: {integrity: sha512-PIeMbHqMt4DnUP3MA/Flc0HElYjMXArsw1qwJZcm9sqR8mq3l8NYizFMty0pWwE/tzIGH3EKK5+jes5mAr85yw==}
+
   kleur@4.1.5:
     resolution: {integrity: sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ==}
     engines: {node: '>=6'}
+
+  lib0@0.2.120:
+    resolution: {integrity: sha512-/a2eRImR8sZbmMVKe2we1/KukDQkuPyPf8yol6epvCu2PH6hurjcRI3mdGFFAi0uGoRJGyns99JquZgxwW1tQg==}
+    engines: {node: '>=16'}
+    hasBin: true
 
   lightningcss-android-arm64@1.33.0:
     resolution: {integrity: sha512-gEpRTalKdosp4Bb8qWtc2iOgE5SeIHlpS1up9bFq2wAyYhl1UdTObYiHe98zEM9SQvSoqQZ1IQD0JNpg3Ml5pg==}
@@ -2217,6 +2265,16 @@ packages:
         optional: true
       utf-8-validate:
         optional: true
+
+  y-protocols@1.0.7:
+    resolution: {integrity: sha512-YSVsLoXxO67J6eE/nV4AtFtT3QEotZf5sK5BHxFBXso7VDUT3Tx07IfA6hsu5Q5OmBdMkQVmFZ9QOA7fikWvnw==}
+    engines: {node: '>=16.0.0', npm: '>=8.0.0'}
+    peerDependencies:
+      yjs: ^13.0.0
+
+  yjs@13.6.33:
+    resolution: {integrity: sha512-q/UYvr1gOk4XII+Cu1CW2dINjYqJJFifTzogEaIARznrvX7uOlHsdTEXcnOBMuIsrCGEEKdNxi74kyMLZlKVfw==}
+    engines: {node: '>=16.0.0', npm: '>=8.0.0'}
 
   youch-core@0.3.3:
     resolution: {integrity: sha512-ho7XuGjLaJ2hWHoK8yFnsUGy2Y5uDpqSTq1FkHLK4/oqKtyUU1AFbOOxY4IpC9f0fTLjwYbslUz0Po5BpD1wrA==}
@@ -3008,7 +3066,13 @@ snapshots:
     dependencies:
       '@types/estree': 1.0.10
 
+  isomorphic.js@0.2.5: {}
+
   kleur@4.1.5: {}
+
+  lib0@0.2.120:
+    dependencies:
+      isomorphic.js: 0.2.5
 
   lightningcss-android-arm64@1.33.0:
     optional: true
@@ -3484,6 +3548,15 @@ snapshots:
       - utf-8-validate
 
   ws@8.21.0: {}
+
+  y-protocols@1.0.7(yjs@13.6.33):
+    dependencies:
+      lib0: 0.2.120
+      yjs: 13.6.33
+
+  yjs@13.6.33:
+    dependencies:
+      lib0: 0.2.120
 
   youch-core@0.3.3:
     dependencies:

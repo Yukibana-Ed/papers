@@ -21,6 +21,7 @@ allowBuilds:
 
 # Every dependency of every package is named here, and only here, with its version (catalogMode: strict).
 catalog:
+  '@cloudflare/workers-types': 5.20261112.1
   '@sveltejs/adapter-cloudflare': 8.0.2
   '@sveltejs/kit': 3.1.1
   '@sveltejs/vite-plugin-svelte': 7.3.1
@@ -30,6 +31,7 @@ catalog:
   '@yukibana/design': github:Yukibana-Ed/Yukibana#7eee6311b75e8ea9c25ece97feee9b085ba39685&path:packages/design
   '@yukibana/papers-frame-protocol': workspace:*
   happy-dom: 21.0.4
+  lib0: 0.2.120
   markdown-it: 14.3.3
   monaco-editor: 0.57.0
   oxfmt: 0.75.0
@@ -53,6 +55,8 @@ catalog:
   vite: 8.3.5
   vitest: 5.0.5
   wrangler: 4.156.0
+  y-protocols: 1.0.7
+  yjs: 13.6.33
 catalogs:
   # The SvelteKit apps only: svelte-check supports TypeScript 6 at most (its peer dependency is ^5 || ^6).
   ts6:

@@ -1,0 +1,12 @@
+{
+  "$schema": "../../node_modules/oxlint/configuration_schema.json",
+  "extends": ["../../oxlint.strict.json"],
+  "overrides": [
+    {
+      /* The tests read the room's frames and node:sqlite's rows as the shapes they know them to be. */
+      "files": ["tests/**"],
+      "rules": { "typescript/no-unsafe-type-assertion": "off", "typescript/no-base-to-string": "off" }
+    }
+  ],
+  "ignorePatterns": ["dist/**", "node_modules/**"]
+}
