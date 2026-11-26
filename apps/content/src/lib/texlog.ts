@@ -33,7 +33,9 @@ function normalise(path: string): string {
  *  against `root` when none is (an error inside a package is shown where the project's text called it). Reads:
  *  - errors, `! Message` with the line from the `l.<n>` line that follows it;
  *  - `file:line: message` errors, as `-file-line-error` writes them;
- *  - LaTeX and package warnings that name an input line (`... on input line 12.`).
+ *  - LaTeX and package warnings that name an input line (`... on input line 12.`);
+ *  - over- and underfull boxes, as `info` (with the paragraph's last line as `endLine`).
+ *  An error's `excerpt` is the log's context after it, through the `l.<n>` lines that show where TeX stopped.
  *
  *  Promises: every diagnostic's `file` is accepted by `isProjectFile` or is `root`; `line` is at least 1. Duplicates
  *  (same file, line and message) are reported once. */
@@ -73,14 +75,36 @@ export function parseTexLog(log: string, root: string, isProjectFile: (path: str
             if (message.startsWith('==> Fatal error') && out.some(d => d.severity === 'error')) continue;
             const file = current();
             let at = 1;
+            let end = i;
             for (let j = i + 1; j < Math.min(lines.length, i + 30); j++) {
                 const l = /^l\.(\d+)/.exec(lines[j] ?? '');
                 if (l !== null) {
                     at = Number(l[1]);
+                    // TeX prints where it stopped as two lines: the text read so far, then what was left.
+                    end = j + 1 < lines.length && (lines[j + 1] ?? '').trim() !== '' ? j + 1 : j;
                     break;
                 }
             }
-            push({ file, line: Math.max(1, at), severity: 'error', message });
+            const excerpt =
+                end > i
+                    ? lines
+                          .slice(i + 1, end + 1)
+                          .join('\n')
+                          .trim()
+                    : '';
+            push({ file, line: Math.max(1, at), severity: 'error', message, ...(excerpt ? { excerpt } : {}) });
+            continue;
+        }
+
+        // Boxes TeX could not fill or fit: notes, not problems (shown only when asked for).
+        const box = /^(Overfull|Underfull) \\([hv])box (\([^)]*\) )?.*?(?:in paragraph at lines (\d+)--(\d+)|detected at line (\d+)|has occurred while \\output is active)/.exec(
+            line,
+        );
+        if (box !== null) {
+            const start = Number(box[4] ?? box[6] ?? 1);
+            const endLine = Number(box[5] ?? start);
+            const message = `${box[1] ?? ''} \\${box[2] ?? 'h'}box ${(box[3] ?? '').trim()}`.trim();
+            push({ file: current(), line: Math.max(1, start), severity: 'info', message, ...(endLine > start ? { endLine } : {}) });
             continue;
         }
 

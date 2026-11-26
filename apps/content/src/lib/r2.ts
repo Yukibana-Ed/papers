@@ -39,6 +39,7 @@ export function objectResponse(object: AssetObject, type: string | undefined, ex
 }
 
 export function notFound(): Response {
-    // A miss is as permanent as a hit within one snapshot: kpathsea probes many names that do not exist.
-    return new Response(null, { status: 404, headers: { 'Cache-Control': IMMUTABLE, 'Cross-Origin-Resource-Policy': 'same-origin' } });
+    // Misses are cached briefly only: kpathsea probes many names that do not exist, but a miss is not permanent (an
+    // asset upload may still be on its way; misses cached for a year while the store was empty broke builds).
+    return new Response(null, { status: 404, headers: { 'Cache-Control': 'public, max-age=300', 'Cross-Origin-Resource-Policy': 'same-origin' } });
 }

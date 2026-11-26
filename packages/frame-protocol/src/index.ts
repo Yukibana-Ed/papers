@@ -41,11 +41,25 @@ export interface PreviewPresence extends SourcePoint {
     readonly hue: number;
 }
 
+/** A problem a build or a language server found in the document. */
 export interface Diagnostic {
     readonly file: string;
     readonly line: number;
-    readonly severity: 'error' | 'warning';
+    /** `info`: notes a build makes that change nothing (an overfull box); hidden unless asked for. */
+    readonly severity: 'error' | 'warning' | 'info';
     readonly message: string;
+    /** The last line the problem spans, when the reporter knows it (an overfull box in a paragraph). */
+    readonly endLine?: number;
+    /** For a TeX error: the log's lines after the message (the `l.<n>` context showing where TeX stopped). */
+    readonly excerpt?: string;
+}
+
+/** A part of the build service the frame could not start: the TeX engine, the Typst compiler, or the TeX Live store.
+ *  Not a problem with the document. */
+export interface ServiceFailure {
+    readonly what: 'tex-engine' | 'typst-compiler' | 'texlive';
+    /** What failed, for people: the file and HTTP status when a download failed. */
+    readonly detail: string;
 }
 
 /** What the app sends the frame. */
@@ -82,8 +96,12 @@ export type AppMessage =
       }
     /** Starts `server` in the frame (once; later starts are ignored). Its messages then flow as `lsp`. */
     | { readonly type: 'lsp-start'; readonly server: LanguageServer }
+    /** Stops `server` (its worker ends); a later `lsp-start` starts a fresh one. */
+    | { readonly type: 'lsp-stop'; readonly server: LanguageServer }
     /** A JSON-RPC message for `server`: a request, a notification, or the response to one of the server's requests. */
-    | { readonly type: 'lsp'; readonly server: LanguageServer; readonly message: unknown };
+    | { readonly type: 'lsp'; readonly server: LanguageServer; readonly message: unknown }
+    /** Try again after a `service` failure: the frame starts the failed part afresh and builds. */
+    | { readonly type: 'retry' };
 
 /** The language servers the frame can run. They read user content, so they run on the content origin; the editor, on
  *  the app's, talks to them through the frame. */
@@ -101,11 +119,16 @@ export type FrameMessage =
           readonly pages: number;
           readonly ms: number;
           readonly diagnostics: readonly Diagnostic[];
+          /** The engine's log (TeX's, the last 256 KB), for "Show log". */
+          readonly log?: string;
           /** A Typst build's Typst Universe packages so far, each with its archive's SHA-256, for papers.lock. */
           readonly packages?: readonly { readonly namespace: string; readonly name: string; readonly version: string; readonly sha256: string }[];
       }
     /** The engine is loading or running, for the status in the preview's bar. */
     | { readonly type: 'status'; readonly status: 'loading' | 'compiling' | 'idle' }
+    /** A part of the build service could not start (`failure`), or works again (`failure` null). While it fails there
+     *  are no builds and no `built` messages. */
+    | { readonly type: 'service'; readonly failure: ServiceFailure | null }
     /** The user clicked a spot in the preview: go to its source. `word` is the word under the pointer, if any. */
     | { readonly type: 'jump'; readonly at: SourcePoint; readonly word: string | null }
     /** The user selected text in the preview, or chose an action of the selection's toolbar. */
@@ -175,9 +198,11 @@ const APP_TYPES: ReadonlySet<string> = new Set([
     'builder',
     'output',
     'lsp-start',
+    'lsp-stop',
     'lsp',
+    'retry',
 ]);
-const FRAME_TYPES: ReadonlySet<string> = new Set(['built', 'status', 'jump', 'selection', 'action', 'centre', 'scale', 'key', 'lsp', 'lsp-status']);
+const FRAME_TYPES: ReadonlySet<string> = new Set(['built', 'status', 'jump', 'selection', 'action', 'centre', 'scale', 'key', 'lsp', 'lsp-status', 'service']);
 
 /** Whether `x` is shaped as an app message: an object with a known `type`. The port is private to the two sides, so this
  *  guards against version skew, not against an attacker. */

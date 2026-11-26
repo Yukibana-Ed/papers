@@ -19,7 +19,9 @@ interface Rpc {
     readonly error?: unknown;
 }
 
-const WASM = '/engine/tinymist/tinymist_bg.wasm';
+import { ASSETS } from '#lib/asset-path.ts';
+
+const WASM = `${ASSETS}/engine/tinymist/tinymist_bg.wasm`;
 
 /** To the frame. A worker's postMessage takes no target origin (the rule is for windows). */
 function post(message: unknown): void {
@@ -74,7 +76,10 @@ self.addEventListener('message', (e: MessageEvent<Rpc>) => void handle(e.data));
 void (async () => {
     const t0 = performance.now();
     try {
-        await init({ module_or_path: WASM });
+        // Fetched first, so a missing file is reported with its HTTP status rather than as a WebAssembly error.
+        const wasm = await fetch(WASM);
+        if (!wasm.ok) throw new Error(`assets missing: ${WASM} answered HTTP ${wasm.status}`);
+        await init({ module_or_path: wasm });
         server = new TinymistLanguageServer({
             sendEvent: (event: number): void => void events.push(event),
             sendRequest: (r: { id: number; method: string; params: unknown }): void => post({ jsonrpc: '2.0', id: r.id, method: r.method, params: r.params }),
@@ -86,6 +91,6 @@ void (async () => {
         post({ ready: true, ms: Math.round(performance.now() - t0), version: TinymistLanguageServer.version() });
         for (const m of pending.splice(0)) await handle(m);
     } catch (e) {
-        post({ failed: String(e) });
+        post({ failed: e instanceof Error ? e.message : String(e) });
     }
 })();

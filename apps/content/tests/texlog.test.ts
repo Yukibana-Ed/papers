@@ -15,7 +15,9 @@ describe('parseTexLog', () => {
             '                 bar',
             ')',
         ].join('\n');
-        expect(parseTexLog(log, 'paper.tex', isProject)).toEqual([{ file: 'sections/intro.tex', line: 7, severity: 'error', message: 'Undefined control sequence.' }]);
+        expect(parseTexLog(log, 'paper.tex', isProject)).toEqual([
+            { file: 'sections/intro.tex', line: 7, severity: 'error', message: 'Undefined control sequence.', excerpt: 'l.7 Feedback \\foo\n                 bar' },
+        ]);
     });
 
     it('attributes an error inside a package to the project file that loaded it', () => {
@@ -57,5 +59,12 @@ describe('parseTexLog', () => {
     it('reports a repeated message once', () => {
         const log = ['(./paper.tex', '! Oops.', 'l.2 a', '! Oops.', 'l.2 a', ')'].join('\n');
         expect(parseTexLog(log, 'paper.tex', isProject)).toHaveLength(1);
+    });
+
+    it('reports over- and underfull boxes as notes, with the paragraph they span', () => {
+        const log = ['(./paper.tex (./sections/method.tex', 'Overfull \\hbox (12.5pt too wide) in paragraph at lines 5--9', '[]\\T1/lmr/m/n/10.95 Some text', '))'].join('\n');
+        expect(parseTexLog(log, 'paper.tex', isProject)).toEqual([
+            { file: 'sections/method.tex', line: 5, endLine: 9, severity: 'info', message: 'Overfull \\hbox (12.5pt too wide)' },
+        ]);
     });
 });
