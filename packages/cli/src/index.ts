@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { Diagnostic } from '@yukibana/papers-compiler';
-import { ensureProgram, startLanguageServer, TEXLAB } from '@yukibana/papers-lsp';
+import { ensureProgram, serverFor, startLanguageServer, TEXLAB, TINYMIST } from '@yukibana/papers-lsp';
 import { createPapersServer } from '@yukibana/papers-mcp';
 import { folderFiles, openProject, readProject, type Project, type ProjectDocument } from '@yukibana/papers-project';
 import { DEFAULT_PORT, startRunner } from '@yukibana/papers-runner';
@@ -71,6 +71,7 @@ async function main(argv: string[]): Promise<number> {
             tex: { type: 'string' },
             sandbox: { type: 'string' },
             port: { type: 'string' },
+            server: { type: 'string' },
             dev: { type: 'boolean' },
             help: { type: 'boolean', short: 'h' },
             version: { type: 'boolean', short: 'v' },
@@ -148,17 +149,23 @@ async function main(argv: string[]): Promise<number> {
                     const b = await buildLocal(workDir, files, d, toolchain, sandbox, onStep);
                     return { ...b.result, diagnostics: b.result.diagnostics };
                 },
-                languageServer: workDir => {
+                languageServer: (workDir, server) => {
                     const pending: unknown[] = [];
                     const listeners: ((m: unknown) => void)[] = [];
                     let ls: ReturnType<typeof startLanguageServer> | null = null;
-                    const ready = (texlab ? Promise.resolve(texlab) : ensureProgram({ cacheDir: cacheDir() })).then(path => {
-                        texlab = path;
-                        ls = startLanguageServer(path, workDir);
+                    const program =
+                        server === 'tinymist'
+                            ? ensureProgram({ cacheDir: cacheDir(), pinned: TINYMIST })
+                            : texlab
+                              ? Promise.resolve(texlab)
+                              : ensureProgram({ cacheDir: cacheDir() });
+                    const ready = program.then(path => {
+                        if (server === 'texlab') texlab = path;
+                        ls = startLanguageServer(path, workDir, server === 'tinymist' ? ['lsp'] : []);
                         for (const l of listeners) ls.onMessage(l);
                         for (const m of pending) ls.send(m);
                     });
-                    void ready.catch((e: unknown) => console.error(`texlab: ${e instanceof Error ? e.message : String(e)}`));
+                    void ready.catch((e: unknown) => console.error(`${server}: ${e instanceof Error ? e.message : String(e)}`));
                     return {
                         send: m => (ls ? ls.send(m) : pending.push(m)),
                         onMessage: l => (ls ? ls.onMessage(l) : listeners.push(l)),
@@ -171,8 +178,20 @@ async function main(argv: string[]): Promise<number> {
         }
 
         case 'lsp': {
-            const path = await ensureProgram({ cacheDir: cacheDir() });
-            const child = spawn(path, [], { stdio: 'inherit' });
+            // texlab for LaTeX, tinymist for Typst: --server, else by the project's first document.
+            let pinned = values.server === 'tinymist' ? TINYMIST : values.server === 'texlab' ? TEXLAB : null;
+            if (pinned === null) {
+                try {
+                    const p = openProject(dir);
+                    // Typst documents are not among the project's TeX documents: any .typ file and no TeX document means Typst.
+                    const typst = p.files.list().some(f => f.endsWith('.typ'));
+                    pinned = p.documents[0] ? serverFor(p.documents[0].root) : typst ? TINYMIST : TEXLAB;
+                } catch {
+                    pinned = TEXLAB;
+                }
+            }
+            const path = await ensureProgram({ cacheDir: cacheDir(), pinned });
+            const child = spawn(path, pinned === TINYMIST ? ['lsp'] : [], { stdio: 'inherit' });
             return new Promise<number>(r => child.on('close', code => r(code ?? 1)));
         }
 
@@ -196,6 +215,8 @@ async function main(argv: string[]): Promise<number> {
             console.log(`sandbox:   ${s.available ? 'yes' : 'NO'}, ${s.detail}`);
             const texlab = join(cacheDir(), 'texlab', TEXLAB.version, process.platform === 'win32' ? 'texlab.exe' : 'texlab');
             console.log(`texlab:    ${existsSync(texlab) ? texlab : `not downloaded yet (${TEXLAB.version}, on first \`papers lsp\`)`}`);
+            const tinymist = join(cacheDir(), 'tinymist', TINYMIST.version, process.platform === 'win32' ? 'tinymist.exe' : 'tinymist');
+            console.log(`tinymist:  ${existsSync(tinymist) ? tinymist : `not downloaded yet (${TINYMIST.version}, on first \`papers lsp\` of a Typst project)`}`);
             if (existsSync(join(dir, 'papers.toml')) || existsSync(dir)) {
                 try {
                     const p = openProject(dir);

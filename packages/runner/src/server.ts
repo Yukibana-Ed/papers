@@ -34,7 +34,7 @@ export interface RunnerOptions {
     readonly workRoot: string;
     readonly build: Builder;
     /** Starts a language server for a connection that asks for one, rooted at its project copy. */
-    readonly languageServer?: (workDir: string) => LanguageServer;
+    readonly languageServer?: (workDir: string, server: 'texlab' | 'tinymist') => LanguageServer;
     /** Shown in `ready`: e.g. `appcontainer`, `TeX Live 2026`. */
     readonly sandbox: string;
     readonly toolchain: string;
@@ -257,7 +257,7 @@ export async function startRunner(o: RunnerOptions): Promise<Runner> {
                 case 'lsp-start':
                     if (!o.languageServer) return fail('no language server on this machine');
                     if (!lsp) {
-                        lsp = o.languageServer(dir);
+                        lsp = o.languageServer(dir, m.server ?? 'texlab');
                         lsp.onMessage(message => send({ type: 'lsp', message }));
                     }
                     return;
