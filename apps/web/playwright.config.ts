@@ -22,7 +22,7 @@ export default defineConfig({
     // A build with the real engine takes seconds alone, and much longer when every worker builds at once.
     timeout: process.env['E2E_ENGINE'] ? 180_000 : 60_000,
     // The engine's first build fetches it and TeX Live; done once, before the tests (e2e/warm-engine.ts).
-    globalSetup: process.env['E2E_ENGINE'] ? './e2e/warm-engine.ts' : undefined,
+    ...(process.env['E2E_ENGINE'] ? { globalSetup: './e2e/warm-engine.ts' } : {}),
     use: { baseURL: BASE ?? APP, trace: 'off', screenshot: 'only-on-failure' },
     projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } }],
     webServer:
