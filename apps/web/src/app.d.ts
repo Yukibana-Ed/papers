@@ -11,6 +11,9 @@ declare global {
                 GITHUB_APP_SLUG?: string;
                 /** 32 random bytes, base64: the key that seals session cookies (a Worker secret). */
                 SESSION_KEY?: string;
+                /** Browser tests only: a stand-in GitHub API on this machine (`http://127.0.0.1:<port>`), asked instead
+                 *  of api.github.com. Any other value is ignored (`githubApi`). */
+                GITHUB_API?: string;
                 /** The rooms (apps/room), one per branch. */
                 ROOM?: RoomNamespace;
             };

@@ -73,6 +73,7 @@
     $effect(() => editor?.show(s.activeFile));
     $effect(() => editor?.setThreads(s.visibleThreads, s.activeThread));
     $effect(() => editor?.setSuggestMode(s.suggestMode));
+    $effect(() => editor?.setReadOnly(s.readOnly));
     $effect(() => editor?.setPresence(s.presence, s.users));
     $effect(() => editor?.setMirror(s.mirror));
     $effect(() => editor?.setProjectPaths([...Object.keys(s.files), ...Object.keys(s.assets)]));
@@ -284,7 +285,7 @@
     // --- commands and shortcuts --------------------------------------------------------------------------------------
 
     const commands = $derived<Command[]>([
-        { id: 'commit', name: 'Commit', kbd: 'Ctrl+S', run: () => (s.popover = 'commit') },
+        { id: 'commit', name: 'Commit', kbd: 'Ctrl+S', run: () => void (s.readOnly || (s.popover = 'commit')) },
         { id: 'close-tab', name: 'Close tab', kbd: 'Ctrl+Alt+W', run: () => s.activeFile && s.closeTab(s.activeFile) },
         { id: 'new', name: 'New paper', run: () => location.assign('/new') },
         { id: 'suggest', name: s.suggestMode ? 'Stop suggesting' : 'Suggest edits', kbd: 'Ctrl+Alt+S', run: () => (s.suggestMode = !s.suggestMode) },
@@ -334,7 +335,7 @@
         if (id === 'palette') s.palette = !s.palette;
         else if (id === 'commit') {
             if (s.popover === 'commit') void s.commit();
-            else if (s.uncommitted) s.popover = 'commit';
+            else if (s.uncommitted && !s.readOnly) s.popover = 'commit';
         } else commands.find((c) => c.id === id)?.run();
     }
 

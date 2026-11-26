@@ -1,6 +1,7 @@
 /** The GitHub calls of the app, with a user's short-lived access token. The page makes them directly against
  *  api.github.com (our servers are not on the data path); the Worker makes only `viewer`, `repoInfo` and `branchHead`,
- *  once, to check who joins which room. Every function takes the token as an argument and keeps nothing. */
+ *  once, to check who joins which room. Every function takes the token as an argument and keeps nothing. Those three
+ *  take the API's address too, for the browser tests' stand-in GitHub (`githubApi` in server/auth.ts). */
 
 const API = 'https://api.github.com';
 const UA = 'yukibana-papers';
@@ -79,8 +80,8 @@ export interface Viewer {
 
 /** The signed-in user of `token`: login, display name (the login when none is set) and avatar URL. Throws a
  *  `GitHubError` for any answer but a success. */
-export async function viewer(token: string): Promise<Viewer> {
-    const u = await json<{ login: string; name: string | null; avatar_url: string }>(await githubFetch(`${API}/user`, { headers: headers(token) }));
+export async function viewer(token: string, api = API): Promise<Viewer> {
+    const u = await json<{ login: string; name: string | null; avatar_url: string }>(await githubFetch(`${api}/user`, { headers: headers(token) }));
     return { login: u.login, name: u.name ?? u.login, avatar: u.avatar_url };
 }
 
@@ -95,9 +96,9 @@ export interface RepoInfo {
 }
 
 /** The repository as the user sees it. The one place access is derived: change it here and nowhere else. */
-export async function repoInfo(token: string, owner: string, repo: string): Promise<RepoInfo> {
+export async function repoInfo(token: string, owner: string, repo: string, api = API): Promise<RepoInfo> {
     const r = await json<{ full_name: string; default_branch: string; private: boolean; permissions?: { push?: boolean; pull?: boolean } }>(
-        await githubFetch(`${API}/repos/${repoPath(owner, repo)}`, { headers: headers(token) }),
+        await githubFetch(`${api}/repos/${repoPath(owner, repo)}`, { headers: headers(token) }),
     );
     if (!r.permissions?.pull) throw new GitHubError(404, 'Not found');
     return { fullName: r.full_name, defaultBranch: r.default_branch, private: r.private, access: r.permissions.push ? 'write' : 'comment' };
@@ -105,9 +106,9 @@ export async function repoInfo(token: string, owner: string, repo: string): Prom
 
 /** The head commit of `branch`. Throws a GitHubError 404 when the repository has no branch of exactly that name (a
  *  branch whose name only starts with it does not count). */
-export async function branchHead(token: string, owner: string, repo: string, branch: string): Promise<string> {
+export async function branchHead(token: string, owner: string, repo: string, branch: string, api = API): Promise<string> {
     const name = branch.split('/').map(encodeURIComponent).join('/');
-    const r = await json<{ ref?: unknown; object?: { sha?: unknown } }>(await fetch(`${API}/repos/${repoPath(owner, repo)}/git/ref/heads/${name}`, { headers: headers(token) }));
+    const r = await json<{ ref?: unknown; object?: { sha?: unknown } }>(await fetch(`${api}/repos/${repoPath(owner, repo)}/git/ref/heads/${name}`, { headers: headers(token) }));
     if (r.ref !== `refs/heads/${branch}` || typeof r.object?.sha !== 'string') throw new GitHubError(404, 'No such branch');
     return r.object.sha;
 }

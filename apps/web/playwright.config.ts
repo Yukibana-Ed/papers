@@ -1,5 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
-import { E2E_CLIENT_SECRET, E2E_SESSION_KEY } from './e2e/test-env.ts';
+import { E2E_CLIENT_SECRET, E2E_GITHUB, E2E_SESSION_KEY } from './e2e/test-env.ts';
 
 /** Browser tests against the BUILT app: both Workers run under `wrangler dev` (workerd, as in production), each told
  *  the other's local origin, so the page's CSP, cross-origin isolation and the frame handshake are the real ones.
@@ -31,8 +31,16 @@ export default defineConfig({
             ? []
             : [
                   {
-                      // Test values for sign-in (e2e/test-env.ts): the app runs signed in when a test seals a session cookie.
-                      command: `pnpm exec wrangler dev --port 4173 --ip 127.0.0.1 --local --var CONTENT_ORIGIN:${CONTENT} --var GITHUB_CLIENT_SECRET:${E2E_CLIENT_SECRET} --var SESSION_KEY:${E2E_SESSION_KEY}`,
+                      // The stand-in GitHub that the app Worker and the signed-in pages of e2e/project.spec.ts ask.
+                      command: `node e2e/fake-github.ts ${new URL(E2E_GITHUB).port}`,
+                      url: `${E2E_GITHUB}/`,
+                      reuseExistingServer: !process.env['CI'],
+                  },
+                  {
+                      // The app with the rooms' Worker beside it (its Durable Objects), in one workerd. Test values for
+                      // sign-in (e2e/test-env.ts): the app runs signed in when a test seals a session cookie. The Worker
+                      // sees its real local origin, as the page does, not the deployed route's.
+                      command: `pnpm exec wrangler dev -c wrangler.jsonc -c ../room/wrangler.jsonc --port 4173 --ip 127.0.0.1 --local --infer-origin-from-routes=false --var CONTENT_ORIGIN:${CONTENT} --var GITHUB_CLIENT_SECRET:${E2E_CLIENT_SECRET} --var SESSION_KEY:${E2E_SESSION_KEY} --var GITHUB_API:${E2E_GITHUB}`,
                       url: `${APP}/`,
                       reuseExistingServer: !process.env['CI'],
                       timeout: 120_000,

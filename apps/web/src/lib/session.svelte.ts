@@ -20,6 +20,8 @@ export interface SessionSeed {
     readonly presence: readonly Presence[];
     /** Build inputs that are not text (images, fonts), for the compiler only. */
     readonly assets?: Readonly<Record<string, Uint8Array>>;
+    /** What the user may do in the repository (write when absent): with `comment`, the source cannot be edited. */
+    readonly access?: 'write' | 'comment';
 }
 
 /** What a repository's session does that the demo does not. */
@@ -149,7 +151,11 @@ export class Session {
     /** The file whose root was last compiled, kept when the active file belongs to no document. */
     private lastRoot = $state('');
 
+    /** Whether the user may only read and comment: no edits, suggestions or commits. */
+    readonly readOnly: boolean;
+
     constructor(private readonly seed: SessionSeed) {
+        this.readOnly = seed.access === 'comment';
         this.files = { ...seed.files };
         this.base = { ...seed.base };
         this.branches = { ...seed.branches };
@@ -322,7 +328,7 @@ export class Session {
     /** Commits every uncommitted change with the message typed, or the default one: through `backend` when the
      *  session is a repository's, else locally (the demo). A refused commit leaves everything uncommitted. */
     async commit(): Promise<void> {
-        if (!this.uncommitted || this.committing) return;
+        if (!this.uncommitted || this.committing || this.readOnly) return;
         const msg = this.commitMessage.trim() || this.defaultCommitMessage;
         const changes = this.changes.map(c => ({ path: c.file, text: this.files[c.file] ?? null }));
         this.committing = true;
@@ -340,6 +346,14 @@ export class Session {
         } finally {
             this.committing = false;
         }
+    }
+
+    /** Someone else in the room committed: `hash` is the branch's head now and `files` (path → text) are committed.
+     *  Does nothing when `hash` is already the head (the room tells the one who committed too). */
+    committedElsewhere(hash: string, files: Readonly<Record<string, string>>): void {
+        if (this.commits[0]?.hash === hash.slice(0, 7)) return;
+        this.commits.unshift({ hash: hash.slice(0, 7), author: '', when: 'just now', msg: '' });
+        this.base = { ...this.base, ...files };
     }
 
     private justCommittedTimer: ReturnType<typeof setTimeout> | undefined;

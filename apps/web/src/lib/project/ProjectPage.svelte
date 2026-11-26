@@ -38,6 +38,9 @@
     function start(p: LoadedProject, me: Viewer, r: RoomClient, base: string | null, baseFiles: readonly BaseFile[]): void {
         const files: Record<string, string> = {};
         for (const [path, text] of r.files) files[path] = text.toJSON();
+        // With read access the room's files cannot be made from here: until someone who can write opens the branch,
+        // the committed files are shown as they are.
+        if (p.access !== 'write') for (const [path, v] of p.texts) files[path] ??= v.text;
         const committed: Record<string, string> = Object.fromEntries([...p.texts].map(([path, v]) => [path, v.text]));
         for (const f of baseFiles) committed[f.path] = f.text;
         const users: Record<string, User> = { [me.login]: userOf(me.login, me.name) };
@@ -54,8 +57,9 @@
             threads: [],
             presence: [],
             assets: Object.fromEntries(p.assets),
+            access: p.access,
         });
-        let head = base ?? p.commit;
+        head = base ?? p.commit;
         s.backend = {
             async commit(message, changes) {
                 let oid: string;
@@ -105,7 +109,11 @@
                     welcome: (_you, base, files) => {
                         welcome = { base, files };
                     },
-                    base: () => {},
+                    base: (base, files) => {
+                        // Someone committed: later commits from here go on top of theirs.
+                        head = base;
+                        session?.committedElsewhere(base, Object.fromEntries(files.map((f) => [f.path, f.text])));
+                    },
                     sync: m => {
                         mode = m.mode;
                         if (!session) return;
@@ -168,6 +176,8 @@
         };
     });
 
+    /** The branch's head as this page knows it: what the next commit must go on top of. */
+    let head = '';
     /** The room's sync mode as it last said. */
     let mode: 'live' | 'batched' | 'paused' = 'live';
     let welcome: { base: string | null; files: readonly BaseFile[] } | null = null;
