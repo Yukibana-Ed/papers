@@ -141,7 +141,10 @@ test.describe('words picked in the preview', () => {
         await page.keyboard.type('Which ones?');
         await page.keyboard.press('Control+Enter');
         await expect(page.locator('.cm-card', { hasText: 'Which ones?' })).toBeVisible();
-        // The new mark: the one over these words. It spans them within a few pixels, and is far narrower than the line.
+        // The new mark: the one over these words, where they are now (opening the thread scrolls the preview to it). It
+        // spans them within a few pixels, and is far narrower than the line.
+        await page.waitForTimeout(1000);
+        words = await textBox(page, frame, 'where most of them', 'most of');
         const iframe = await page.locator('iframe.pv-frame').boundingBox();
         const x = words.x - (iframe?.x ?? 0);
         const y = words.y - (iframe?.y ?? 0);
