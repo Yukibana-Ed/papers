@@ -141,10 +141,12 @@ function isRecord(x: unknown): x is Record<string, unknown> {
     return typeof x === 'object' && x !== null;
 }
 
+/** Whether `x` is the app's hello (any version: the frame answers only its own). */
 export function isHello(x: unknown): x is Hello {
     return isRecord(x) && x['kind'] === HELLO && typeof x['version'] === 'number';
 }
 
+/** Whether `x` is the frame's welcome, which carries the port. */
 export function isWelcome(x: unknown): x is Welcome {
     return isRecord(x) && x['kind'] === WELCOME && typeof x['version'] === 'number';
 }
@@ -159,6 +161,7 @@ export interface Ready {
     readonly version: number;
 }
 
+/** Whether `x` is the frame saying it is ready to be greeted. */
 export function isReady(x: unknown): x is Ready {
     return isRecord(x) && x['kind'] === READY && typeof x['version'] === 'number';
 }

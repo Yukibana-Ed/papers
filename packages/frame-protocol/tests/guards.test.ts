@@ -17,6 +17,8 @@ describe('guards', () => {
         expect(isFrameMessage({ type: 'built', ok: true, pages: 2, ms: 10, diagnostics: [{ file: 'a.tex', line: 3, severity: 'error', message: 'x' }] })).toBe(true);
         expect(isFrameMessage({ type: 'jump', at: { file: 'a.tex', line: 1 }, word: null })).toBe(true);
         expect(isFrameMessage({ type: 'selection', lines: null, text: '' })).toBe(true);
+        expect(isAppMessage({ type: 'lsp-start', server: 'tinymist' })).toBe(true);
+        expect(isAppMessage({ type: 'lsp-stop', server: 'tinymist' })).toBe(true);
     });
 
     it('reject shapes that only have the right type', () => {
@@ -29,6 +31,7 @@ describe('guards', () => {
         expect(isFrameMessage({ type: 'key', key: 'k', code: 'KeyK', ctrl: 'yes', shift: false, alt: false })).toBe(false);
         expect(isFrameMessage({ type: 'lsp-status', server: 'texlab', status: 'ready' })).toBe(false);
         expect(isAppMessage({ type: 'built' })).toBe(false);
+        expect(isAppMessage({ type: 'lsp-stop', server: 'texlab' })).toBe(false);
         expect(isAppMessage({ type: 'root', root: 'a.tex', engine: 'troff' })).toBe(false);
         expect(isAppMessage({ type: 'files', changes: [{ path: 'a', contents: 3 }] })).toBe(false);
         expect(isFrameMessage(null)).toBe(false);

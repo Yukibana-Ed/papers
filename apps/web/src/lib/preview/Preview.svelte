@@ -1,6 +1,7 @@
 <script lang="ts">
     import type { FrameMessage, LanguageServer, PreviewMark, SelectionAction, SourceLines, SourcePoint } from '@yukibana/papers-frame-protocol';
     import type { Session } from '#lib/session.svelte.ts';
+    import { onDestroy } from 'svelte';
     import { RunnerClient } from '#lib/runner/client.ts';
     import { FrameClient } from './frame-client.ts';
 
@@ -30,6 +31,10 @@
         // fontspec and friends need a Unicode engine; everything else builds fastest with pdfTeX.
         return /\\usepackage(\[[^\]]*\])?\{(fontspec|unicode-math|polyglossia)\}/.test(session.files[root] ?? '') ? 'xelatex' : 'pdflatex';
     }
+
+    // The engine reads the root file, so it is recomputed on every edit of it, but it changes (and with it the effect
+    // that sends `root`) only when the root file's packages do.
+    const engine = $derived(engineOf(session.root));
 
     function handle(m: FrameMessage): void {
         switch (m.type) {
@@ -73,13 +78,15 @@
         }
     }
 
-    function sendAll(): void {
+    /** The whole state, to a frame that has just connected; a reloaded one has lost its language servers too. */
+    function sendAll(reconnected: boolean): void {
         if (!client) return;
         sent = { ...session.files };
-        client.send({ type: 'project', files: { ...session.assets, ...sent }, root: session.root, engine: engineOf(session.root) });
+        client.send({ type: 'project', files: { ...session.assets, ...sent }, root: session.root, engine });
         client.send({ type: 'theme', dark: session.dark });
         client.send({ type: 'zoom', zoom: session.zoom });
         client.send({ type: 'builder', builder: session.builder === 'computer' ? 'external' : 'browser' });
+        if (reconnected) for (const lost of lspLostListeners.values()) lost();
     }
 
     $effect(() => {
@@ -105,7 +112,8 @@
 
     $effect(() => {
         const root = session.root;
-        if (root) client?.send({ type: 'root', root, engine: engineOf(root) });
+        const e = engine;
+        if (root) client?.send({ type: 'root', root, engine: e });
     });
 
     // The preview follows the cursor, gliding only when the spot is off-screen.
@@ -149,11 +157,16 @@
 
     let runner: RunnerClient | null = null;
     let runnerTimer = 0;
+    onDestroy(() => {
+        clearTimeout(runnerTimer);
+        runner?.close();
+        runner = null;
+    });
 
     /** Connects to `papers serve` with a paired token; the builder menu calls it. */
     export function connectComputer(token: string): void {
         runner?.close();
-        runner = new RunnerClient(token, {
+        const r = new RunnerClient(token, {
             ready: (info) => {
                 session.computer = info;
                 session.builder = 'computer';
@@ -163,12 +176,14 @@
                 client?.send({ type: 'output', ok: b.ok, pdf: b.pdf, synctex: b.synctex, ms: b.ms, diagnostics: b.diagnostics.map((d) => ({ file: d.file ?? session.root, line: d.line ?? 1, severity: d.severity === 'error' ? 'error' : 'warning', message: d.message })) });
             },
             closed: (reason) => {
+                if (runner !== r) return;
                 runner = null;
                 session.computer = null;
                 session.builder = 'browser';
                 session.flash(reason);
             },
         });
+        runner = r;
     }
 
     $effect(() => {
@@ -207,6 +222,7 @@
         });
     }
 
+    /** Moves the keyboard focus into the preview frame. */
     export function focus(): void {
         frame?.focus();
     }
@@ -215,11 +231,19 @@
 
     const lspListeners = new Map<LanguageServer, (message: unknown) => void>();
     const lspStatusListeners = new Map<LanguageServer, (status: 'starting' | 'ready' | 'failed', detail: string) => void>();
+    const lspLostListeners = new Map<LanguageServer, () => void>();
 
-    /** Starts `server` in the frame; its messages go to `listener`, what the frame says of it to `onStatus`. */
-    export function startServer(server: LanguageServer, listener: (message: unknown) => void, onStatus: (status: 'starting' | 'ready' | 'failed', detail: string) => void): void {
+    /** Starts `server` in the frame; its messages go to `listener`, what the frame says of it to `onStatus`, and
+     *  `onLost` is called when the frame reloaded and the server is gone (the caller starts it again, client and all). */
+    export function startServer(
+        server: LanguageServer,
+        listener: (message: unknown) => void,
+        onStatus: (status: 'starting' | 'ready' | 'failed', detail: string) => void,
+        onLost: () => void,
+    ): void {
         lspListeners.set(server, listener);
         lspStatusListeners.set(server, onStatus);
+        lspLostListeners.set(server, onLost);
         client?.send({ type: 'lsp-start', server });
     }
 
@@ -227,9 +251,11 @@
     export function stopServer(server: LanguageServer): void {
         lspListeners.delete(server);
         lspStatusListeners.delete(server);
+        lspLostListeners.delete(server);
         client?.send({ type: 'lsp-stop', server });
     }
 
+    /** Sends `message` to `server` in the frame, queued until the frame has connected. */
     export function lspSend(server: LanguageServer, message: unknown): void {
         client?.send({ type: 'lsp', server, message });
     }
