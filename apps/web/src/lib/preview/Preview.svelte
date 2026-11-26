@@ -156,9 +156,17 @@
         for (const t of session.visibleThreads) {
             const a = session.anchors[t.id];
             if (!a || t.root.resolved) continue;
-            marks.push({ id: t.id, file: t.file, startLine: a.startLine, endLine: a.endLine, kind: t.id === session.activeThread ? 'active' : 'comment' });
+            // With columns: the preview marks the commented words, not their lines, where it can place them.
+            const kind = t.id === session.activeThread ? 'active' : 'comment';
+            marks.push({ id: t.id, file: t.file, startLine: a.startLine, endLine: a.endLine, startColumn: a.startColumn, endColumn: a.endColumn, kind });
         }
-        for (const s of session.suggestions) marks.push({ id: s.id, file: s.file, startLine: s.line, endLine: s.line, kind: s.id === session.activeThread ? 'active' : 'suggestion' });
+        for (const s of session.suggestions) {
+            const kind = s.id === session.activeThread ? 'active' : 'suggestion';
+            // The struck text, when it is on one line (an insertion marks the word it is in).
+            const oneLine = !s.oldText.includes('\n');
+            const columns = oneLine ? { startColumn: s.col, endColumn: s.col + Math.max(1, s.oldText.length) } : {};
+            marks.push({ id: s.id, file: s.file, startLine: s.line, endLine: s.line, ...columns, kind });
+        }
         client?.send({ type: 'marks', marks });
     });
 
