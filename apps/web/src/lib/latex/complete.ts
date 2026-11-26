@@ -1,4 +1,4 @@
-import { CLASSES, COMMANDS, ENVIRONMENTS, environmentSnippet, PACKAGES } from './catalog.ts';
+import { CLASSES, COMMANDS, ENVIRONMENTS, environmentSnippet, PACKAGES, withLoaded } from './catalog.ts';
 
 /** LaTeX completion without a language server: what a project's files define (labels, bibliography entries, commands,
  *  environments) kept per file and parsed again only when that file changes, and what to offer at a position. */
@@ -16,9 +16,11 @@ interface FileFacts {
     readonly bib: readonly BibEntry[];
     readonly commands: readonly { name: string; args: number }[];
     readonly environments: readonly string[];
+    /** The packages and the class it loads by name (\usepackage, \RequirePackage, \documentclass). */
+    readonly packages: readonly string[];
 }
 
-const NO_FACTS: FileFacts = { labels: [], bib: [], commands: [], environments: [] };
+const NO_FACTS: FileFacts = { labels: [], bib: [], commands: [], environments: [], packages: [] };
 
 /** A .bib field's value: braces and quotes stripped, white space collapsed. */
 function field(entry: string, name: string): string {
@@ -48,7 +50,13 @@ export function factsOf(path: string, text: string): FileFacts {
         args: Number(m[2] ?? 0),
     }));
     const environments = [...code.matchAll(/\\(?:newenvironment|renewenvironment|newtheorem)\*?\s*\{([^}]+)\}/g)].map(m => m[1] ?? '');
-    return { labels, bib: [], commands, environments };
+    const packages = [...code.matchAll(/\\(?:usepackage|RequirePackage|documentclass)\s*(?:\[[^\]]*\])?\s*\{([^}]+)\}/g)].flatMap(m =>
+        (m[1] ?? '')
+            .split(',')
+            .map(p => p.trim())
+            .filter(Boolean),
+    );
+    return { labels, bib: [], commands, environments, packages };
 }
 
 /** The project's facts, file by file; `update` parses only what changed. */
@@ -95,6 +103,11 @@ export class LatexIndex {
     environments(): string[] {
         return [...this.#all()].flatMap(f => f.environments);
     }
+
+    /** The packages and classes the project loads, with those they load themselves. */
+    loaded(): Set<string> {
+        return withLoaded([...this.#all()].flatMap(f => f.packages));
+    }
 }
 
 /** One thing to offer. `insert` is a Monaco snippet. */
@@ -105,9 +118,27 @@ export interface Offer {
     readonly detail: string;
 }
 
+/** `items` with the kernel's first, then those of the packages in `loaded`, then the others: each group in its order. */
+function ranked<T extends { readonly from: string }>(items: readonly T[], loaded: ReadonlySet<string>): T[] {
+    const rank = (i: T): number => (i.from === '' ? 0 : loaded.has(i.from) ? 1 : 2);
+    return [0, 1, 2].flatMap(r => items.filter(i => rank(i) === r));
+}
+
+/** The environments to offer, the project's own first, each name once with the package it comes from. */
+function environmentsOf(index: LatexIndex, first: readonly string[] = []): { name: string; from: string }[] {
+    const seen = new Set<string>();
+    const all = [...[...first, ...index.environments()].map(name => ({ name, from: '' })), ...ranked(ENVIRONMENTS, index.loaded())];
+    return all.filter(e => {
+        if (seen.has(e.name)) return false;
+        seen.add(e.name);
+        return true;
+    });
+}
+
 /** What to offer where the cursor is, `before` being its line up to the cursor and `after` the rest of the line;
  *  `start` is the column (0-based) from which the offers replace. After a backslash the offers are the commands and
- *  then whole environments (`\begin{itemize}` with its `\item` and `\end`). Null when nothing applies (the editor then shows
+ *  then whole environments (`\begin{itemize}` with its `\item` and `\end`); those of the kernel and of the packages the
+ *  project loads come before those of other packages, which carry their package's name as `detail`. Null when nothing applies (the editor then shows
  *  nothing, rather than words of the file). `file` is the file being edited, for paths relative to its folder. */
 export function complete(before: string, after: string, index: LatexIndex, file: string): { start: number; offers: Offer[] } | null {
     const arg = /\\([A-Za-z]+\*?)(?:\[[^\]]*\])?\{([^{}]*)$/.exec(before);
@@ -119,22 +150,21 @@ export function complete(before: string, after: string, index: LatexIndex, file:
         const start = before.length - item.length;
         const closes = after.startsWith('}');
         if (cmd === 'begin') {
-            const names = [...new Set([...index.environments(), ...ENVIRONMENTS])];
             return {
                 start,
-                offers: names.map(n => ({
-                    label: n,
+                offers: environmentsOf(index).map(e => ({
+                    label: e.name,
                     // The whole environment, unless the brace is closed already (editing an existing \begin).
-                    insert: closes ? n : environmentSnippet(n),
+                    insert: closes ? e.name : environmentSnippet(e.name),
                     kind: 'environment',
-                    detail: '',
+                    detail: e.from,
                 })),
             };
         }
         if (cmd === 'end') {
             const open = openEnvironment(before);
-            const names = [...new Set([...(open ? [open] : []), ...index.environments(), ...ENVIRONMENTS])];
-            return { start, offers: names.map(n => ({ label: n, insert: closes ? n : `${n}}`, kind: 'environment', detail: '' })) };
+            const names = environmentsOf(index, open === null ? [] : [open]);
+            return { start, offers: names.map(e => ({ label: e.name, insert: closes ? e.name : `${e.name}}`, kind: 'environment', detail: e.from })) };
         }
         if (/^(ref|eqref|pageref|autoref|cref|Cref|nameref|vref)$/.test(cmd)) {
             return { start, offers: index.labels().map(l => ({ label: l, insert: l, kind: 'label', detail: '' })) };
@@ -169,14 +199,13 @@ export function complete(before: string, after: string, index: LatexIndex, file:
         const own = index.commands().map(c => ({ name: c.name, args: Array.from({ length: c.args }, (_, i) => `{$${i + 1}}`).join(''), from: 'project' }));
         const seen = new Set<string>();
         const offers: Offer[] = [];
-        for (const c of [...own, ...COMMANDS]) {
+        for (const c of [...own, ...ranked(COMMANDS, index.loaded())]) {
             if (seen.has(c.name)) continue;
             seen.add(c.name);
             offers.push({ label: `\\${c.name}`, insert: `${c.name}${c.args}`, kind: 'command', detail: c.from });
         }
         // Whole environments, found by `\beg…` and by their own name (`\item…` finds itemize): after the commands.
-        for (const n of new Set([...index.environments(), ...ENVIRONMENTS]))
-            offers.push({ label: `\\begin{${n}}`, insert: `begin{${environmentSnippet(n)}`, kind: 'snippet', detail: '' });
+        for (const e of environmentsOf(index)) offers.push({ label: `\\begin{${e.name}}`, insert: `begin{${environmentSnippet(e.name)}`, kind: 'snippet', detail: e.from });
         return { start, offers };
     }
     return null;

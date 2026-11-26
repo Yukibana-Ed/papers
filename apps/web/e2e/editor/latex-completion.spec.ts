@@ -59,6 +59,19 @@ test.describe('LaTeX completion', () => {
         expect(all.labels).toContain('\\begin{figure}');
     });
 
+    test('commands of the packages the project loads come before those of other packages', async ({ page }) => {
+        await openDemo(page);
+        const before = await suggest(page, '\\citet');
+        expect(before.labels.indexOf('\\citetalias')).toBeLessThan(before.labels.indexOf('\\citetitle'));
+        await page.keyboard.press('Escape');
+        await caretAt(page, 'sections/method.tex', 1, 1);
+        await page.keyboard.type('\\usepackage{biblatex}');
+        await page.keyboard.press('Escape');
+        const after = await suggest(page, '\\citet');
+        expect(after.labels.indexOf('\\citetitle')).toBeLessThan(after.labels.indexOf('\\citetalias'));
+        expect(after.labels.indexOf('\\citetitle')).toBeGreaterThan(-1);
+    });
+
     test('citations from the project’s bibliography', async ({ page }) => {
         await openDemo(page);
         const r = await suggest(page, '\\cite{');

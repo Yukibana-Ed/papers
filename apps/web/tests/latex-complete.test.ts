@@ -72,6 +72,28 @@ describe('complete', () => {
         expect(figure.endsWith(String.raw`\end{figure}`)).toBe(true);
     });
 
+    it('puts the commands and environments of loaded packages before those of the others', () => {
+        const i = index();
+        i.update(
+            'pre.tex',
+            String.raw`\usepackage[capitalise]{cleveref}
+\usepackage{mathtools, pgfplots} % \usepackage{natbib}`,
+        );
+        expect([...i.loaded()].toSorted()).toEqual(['amsmath', 'article', 'cleveref', 'graphicx', 'mathtools', 'pgfplots', 'tikz', 'xcolor']);
+        const r = complete(String.raw`\c`, '', i, 'main.tex');
+        const at = (label: string): number => labels(r).indexOf(label);
+        // Kernel, then loaded (mathtools loads amsmath), then the rest, which say where they come from.
+        expect(at(String.raw`\cite`)).toBeLessThan(at(String.raw`\cref`));
+        expect(at(String.raw`\cref`)).toBeLessThan(at(String.raw`\citep`));
+        expect(at(String.raw`\cfrac`)).toBeLessThan(at(String.raw`\citep`));
+        expect(r?.offers.find(o => o.label === String.raw`\citep`)?.detail).toBe('natbib');
+        expect(at(String.raw`\begin{axis}`)).toBeLessThan(at(String.raw`\begin{frame}`));
+        const b = complete(String.raw`\begin{`, '', i, 'main.tex');
+        expect(labels(b).indexOf('align')).toBeLessThan(labels(b).indexOf('lstlisting'));
+        expect(b?.offers.find(o => o.label === 'lstlisting')?.detail).toBe('listings');
+        expect(new Set(labels(r)).size).toBe(labels(r).length);
+    });
+
     it('offers environments after \\begin{, with their \\end, and the open one after \\end{', () => {
         const begin = complete(String.raw`\begin{it`, '', index(), 'main.tex');
         expect(labels(begin)).toContain('itemize');
