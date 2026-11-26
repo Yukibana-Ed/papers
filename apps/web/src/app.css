@@ -804,6 +804,10 @@ button {
 .presence-caret {
     position: relative;
 }
+.presence-selection {
+    background: color-mix(in oklab, var(--pc) 24%, transparent);
+    border-radius: 2px;
+}
 .presence-caret::before {
     content: '';
     position: absolute;

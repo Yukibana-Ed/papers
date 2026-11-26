@@ -79,9 +79,6 @@ export class Session {
     get me(): string {
         return this.seed.me;
     }
-    get users(): Readonly<Record<string, User>> {
-        return this.seed.users;
-    }
     /** The project's files in the order the file list shows them. */
     get order(): readonly string[] {
         return this.seed.order;
@@ -97,6 +94,11 @@ export class Session {
     commits = $state<Commit[]>([]);
     threads = $state<Thread[]>([]);
     presence = $state<Presence[]>([]);
+    /** Everyone the session has met, by id: the seed's users, and whoever joined since (`meet`). */
+    users = $state<Record<string, User>>({});
+    /** Who is here now, once each, in the order they came: the others, and the user too while they have this branch
+     *  open in another window. */
+    present = $derived([...new Set(this.presence.map(p => p.user))]);
 
     tabs = $state<string[]>([]);
     activeFile = $state('');
@@ -167,6 +169,7 @@ export class Session {
         this.commits = [...seed.commits];
         this.threads = [...seed.threads];
         this.presence = [...seed.presence];
+        this.users = { ...seed.users };
         const roots = findRoots(seed.files, seed.order);
         const first = roots[0] ?? seed.order[0] ?? '';
         const second = includedFiles(first, seed.files)[1] ?? first;
@@ -357,6 +360,11 @@ export class Session {
         if (this.commits[0]?.hash === hash.slice(0, 7)) return;
         this.commits.unshift({ hash: hash.slice(0, 7), author: '', when: 'just now', msg: '' });
         this.base = { ...this.base, ...files };
+    }
+
+    /** Makes `user` known to the session, unless someone with their id already is. */
+    meet(user: User): void {
+        if (!(user.id in this.users)) this.users[user.id] = user;
     }
 
     private justCommittedTimer: ReturnType<typeof setTimeout> | undefined;

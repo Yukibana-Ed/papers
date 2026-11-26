@@ -6,6 +6,8 @@ export interface User {
     readonly initials: string;
     /** The hue of the user's avatar, 0 to 360. */
     readonly hue: number;
+    /** Their picture's URL, when they have one: shown in place of the initials. */
+    readonly picture?: string;
 }
 
 /** A 1-based range in a file, as Monaco counts. */
@@ -85,11 +87,15 @@ export interface Commit {
     readonly msg: string;
 }
 
-/** Someone's cursor. */
+/** Someone's cursor in one window: another person's, or the user's own in another window. */
 export interface Presence {
     readonly user: string;
     readonly file: string;
     readonly line: number;
+    /** The cursor's column, 1-based; where it is not known the cursor is shown at the end of its line. */
+    readonly column?: number;
+    /** What they have selected in `file`, if anything. */
+    readonly selection?: TextRange;
 }
 
 /** A thread's anchor where it currently is. */
