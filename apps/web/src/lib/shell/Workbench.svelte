@@ -33,6 +33,53 @@
     let editor = $state<SourceEditor | null>(null);
     let preview = $state<ReturnType<typeof Preview> | null>(null);
     let selButton = $state<number | null>(null);
+
+    /** The side panel's width in pixels, as the user dragged it; kept across visits. */
+    const PANEL = { key: 'papers.panel', initial: 300, min: 200, max: 640, step: 16 };
+    let panelWidth = $state(PANEL.initial);
+    onMount(() => {
+        try {
+            const kept = Number(localStorage.getItem(PANEL.key));
+            if (Number.isFinite(kept) && kept >= PANEL.min) panelWidth = Math.min(kept, PANEL.max);
+        } catch {
+            // Storage is off: the panel keeps its first width.
+        }
+    });
+
+    /** Sets the panel's width, within its limits and never more than 60% of the window, and remembers it. */
+    function setPanelWidth(w: number): void {
+        panelWidth = Math.round(Math.max(PANEL.min, Math.min(w, PANEL.max, window.innerWidth * 0.6)));
+        try {
+            localStorage.setItem(PANEL.key, String(panelWidth));
+        } catch {
+            // Storage is off: the width lasts for this visit.
+        }
+    }
+
+    /** Dragging the panel's edge: the edge moves as far as the pointer does. The handle captures the pointer, so the
+     *  drag goes on over the preview's frame. */
+    function onPanelDrag(e: PointerEvent & { currentTarget: HTMLElement }): void {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        const handle = e.currentTarget;
+        const from = { x: e.clientX, width: panelWidth };
+        handle.setPointerCapture(e.pointerId);
+        const move = (m: PointerEvent): void => setPanelWidth(from.width + m.clientX - from.x);
+        const end = (): void => {
+            handle.removeEventListener('pointermove', move);
+            handle.removeEventListener('pointerup', end);
+            handle.removeEventListener('pointercancel', end);
+        };
+        handle.addEventListener('pointermove', move);
+        handle.addEventListener('pointerup', end);
+        handle.addEventListener('pointercancel', end);
+    }
+
+    function onPanelKey(e: KeyboardEvent): void {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Home') return;
+        e.preventDefault();
+        setPanelWidth(e.key === 'Home' ? PANEL.initial : panelWidth + (e.key === 'ArrowRight' ? PANEL.step : -PANEL.step));
+    }
     const short = (f: string): string => f.split('/').pop() ?? f;
     const narrow = (): boolean => matchMedia('(max-width: 900px)').matches;
 
@@ -570,7 +617,7 @@
 
 <svelte:window onkeydowncapture={onKeydown} onmousedown={onMousedown} onkeydown={onEscape} />
 
-<div class="app narrow-{s.narrowPane}" class:rail-open={s.panel !== null}>
+<div class="app narrow-{s.narrowPane}" class:rail-open={s.panel !== null} style:--panel-w="{panelWidth}px">
     <Header
         session={s}
         onOpenFile={(f) => openFile(f)}
@@ -646,6 +693,20 @@
                     <CommentsPanel {ops} />
                 {/await}
             {/if}
+            <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+            <div
+                class="panel-resize"
+                role="separator"
+                aria-orientation="vertical"
+                aria-valuenow={panelWidth}
+                aria-valuemin={PANEL.min}
+                aria-valuemax={PANEL.max}
+                tabindex="0"
+                onpointerdown={onPanelDrag}
+                ondblclick={() => setPanelWidth(PANEL.initial)}
+                onkeydown={onPanelKey}
+                {...tip('Resize', null, 'drag, or double-click to reset', 'right')}
+            ></div>
         </aside>
     {/if}
 
