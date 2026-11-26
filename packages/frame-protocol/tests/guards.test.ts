@@ -4,6 +4,7 @@ import { HELLO, isAppMessage, isFrameMessage, isHello } from '../src/index.ts';
 describe('guards', () => {
     it('accept well-formed messages', () => {
         expect(isAppMessage({ type: 'zoom', zoom: 1 })).toBe(true);
+        expect(isAppMessage({ type: 'print' })).toBe(true);
         expect(
             isAppMessage({
                 type: 'files',

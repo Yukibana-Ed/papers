@@ -110,6 +110,7 @@ export class Viewer {
     #renderTimer = 0;
     #selFrame = 0;
     #pointerDown: { x: number; y: number } | null = null;
+    #printing = false;
 
     constructor(scroller: HTMLElement, events: ViewerEvents) {
         this.#scroller = scroller;
@@ -246,6 +247,58 @@ export class Viewer {
         // Not awaited: PDF.js draws in animation frames, which a hidden page does not get, and the build's result must
         // not wait for the page to be seen. The old document goes once the new pages are drawn.
         void this.#renderVisible().then(() => old?.destroy());
+    }
+
+    /** Prints the shown build through the browser's print dialog: every page drawn afresh as an image at print
+     *  resolution (300 dpi up to 25 pages, 200 up to 60, 150 beyond, to bound memory), each on a sheet of the first
+     *  page's size with no margins. Does nothing when no build is shown or a print is already being prepared. Resolves
+     *  once the dialog has been asked for, or when a newer build replaced the pages meanwhile (then nothing prints). */
+    async print(): Promise<void> {
+        const pages = this.#pages.map(p => ({ proxy: p.proxy, width: p.width, height: p.height }));
+        const first = pages[0];
+        if (first === undefined || this.#printing) return;
+        this.#printing = true;
+        const scale = (pages.length <= 25 ? 300 : pages.length <= 60 ? 200 : 150) / 72;
+        const sheets = document.createElement('div');
+        sheets.className = 'pv-print';
+        const style = document.createElement('style');
+        style.textContent = `@page { size: ${first.width}pt ${first.height}pt; margin: 0; }`;
+        const urls: string[] = [];
+        const done = (): void => {
+            sheets.remove();
+            style.remove();
+            for (const u of urls) URL.revokeObjectURL(u);
+            this.#printing = false;
+        };
+        try {
+            for (const p of pages) {
+                const vp = p.proxy.getViewport({ scale });
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.floor(vp.width);
+                canvas.height = Math.floor(vp.height);
+                await p.proxy.render({ canvas, viewport: vp, intent: 'print' }).promise;
+                const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+                // The canvas's memory goes now, not when the collector gets to it.
+                canvas.width = 0;
+                if (blob === null) throw new Error('page image');
+                const img = new Image();
+                const url = URL.createObjectURL(blob);
+                urls.push(url);
+                img.src = url;
+                img.style.width = `${p.width}pt`;
+                img.style.height = `${p.height}pt`;
+                await img.decode();
+                sheets.append(img);
+            }
+        } catch {
+            // A newer build took the document away: its pages are not these.
+            done();
+            return;
+        }
+        document.head.append(style);
+        document.body.append(sheets);
+        window.addEventListener('afterprint', done, { once: true });
+        window.print();
     }
 
     #createPage(proxy: PDFPageProxy, width: number, height: number, n: number): PageView {

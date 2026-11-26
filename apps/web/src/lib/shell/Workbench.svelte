@@ -5,6 +5,9 @@
     import { chooseTheme, readTheme } from '@yukibana/design/theme';
     import type { FrameMessage, SelectionAction, SourceLines, SourcePoint } from '@yukibana/papers-frame-protocol';
     import { onDestroy, onMount, untrack } from 'svelte';
+    import { SvelteSet } from 'svelte/reactivity';
+    import { allFolders, foldersOf, treeRows } from '#lib/model/filetree.ts';
+    import { sortPaths } from '#lib/project/load.ts';
     import type { CommentOps } from '#lib/comments/ops.ts';
     import type { SourceEditor } from '#lib/editor/source-editor.ts';
     import BuilderMenu from '#lib/preview/BuilderMenu.svelte';
@@ -33,6 +36,53 @@
     let editor = $state<SourceEditor | null>(null);
     let preview = $state<ReturnType<typeof Preview> | null>(null);
     let selButton = $state<number | null>(null);
+
+    /** The side panel's width in pixels, as the user dragged it; kept across visits. */
+    const PANEL = { key: 'papers.panel', initial: 300, min: 200, max: 640, step: 16 };
+    let panelWidth = $state(PANEL.initial);
+    onMount(() => {
+        try {
+            const kept = Number(localStorage.getItem(PANEL.key));
+            if (Number.isFinite(kept) && kept >= PANEL.min) panelWidth = Math.min(kept, PANEL.max);
+        } catch {
+            // Storage is off: the panel keeps its first width.
+        }
+    });
+
+    /** Sets the panel's width, within its limits and never more than 60% of the window, and remembers it. */
+    function setPanelWidth(w: number): void {
+        panelWidth = Math.round(Math.max(PANEL.min, Math.min(w, PANEL.max, window.innerWidth * 0.6)));
+        try {
+            localStorage.setItem(PANEL.key, String(panelWidth));
+        } catch {
+            // Storage is off: the width lasts for this visit.
+        }
+    }
+
+    /** Dragging the panel's edge: the edge moves as far as the pointer does. The handle captures the pointer, so the
+     *  drag goes on over the preview's frame. */
+    function onPanelDrag(e: PointerEvent & { currentTarget: HTMLElement }): void {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        const handle = e.currentTarget;
+        const from = { x: e.clientX, width: panelWidth };
+        handle.setPointerCapture(e.pointerId);
+        const move = (m: PointerEvent): void => setPanelWidth(from.width + m.clientX - from.x);
+        const end = (): void => {
+            handle.removeEventListener('pointermove', move);
+            handle.removeEventListener('pointerup', end);
+            handle.removeEventListener('pointercancel', end);
+        };
+        handle.addEventListener('pointermove', move);
+        handle.addEventListener('pointerup', end);
+        handle.addEventListener('pointercancel', end);
+    }
+
+    function onPanelKey(e: KeyboardEvent): void {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Home') return;
+        e.preventDefault();
+        setPanelWidth(e.key === 'Home' ? PANEL.initial : panelWidth + (e.key === 'ArrowRight' ? PANEL.step : -PANEL.step));
+    }
     const short = (f: string): string => f.split('/').pop() ?? f;
     const narrow = (): boolean => matchMedia('(max-width: 900px)').matches;
 
@@ -344,6 +394,7 @@
         ...s.branchNames.filter((b) => b !== s.branch).map((b) => ({ id: `br-${b}`, name: `Switch to ${b}`, run: () => s.switchBranch(b) })),
         { id: 'newbranch', name: 'New branch', run: () => (s.popover = 'branch') },
         ...s.order.map((f) => ({ id: `f-${f}`, name: f, kind: 'file' as const, run: () => openFile(f) })),
+        { id: 'print', name: 'Print', kbd: 'Ctrl+P', run: () => preview?.print() },
         { id: 'zoomin', name: 'Zoom in', kbd: 'Ctrl+=', run: () => s.zoomBy(0.1) },
         { id: 'zoomout', name: 'Zoom out', kbd: 'Ctrl+-', run: () => s.zoomBy(-0.1) },
         { id: 'theme-light', name: 'Light theme', run: () => setTheme('light') },
@@ -374,8 +425,8 @@
     }
 
     /** The shortcuts the content frame may forward: the frame runs untrusted content, so a forwarded key can only open
-     *  or move things, never commit, accept, delete or change the document. */
-    const FRAME_SAFE: ReadonlySet<string> = new Set(['palette', 'jump', 'outline', 'files', 'comments', 'zoomin', 'zoomout']);
+     *  or move things (or ask the frame to print what it shows), never commit, accept, delete or change the document. */
+    const FRAME_SAFE: ReadonlySet<string> = new Set(['palette', 'jump', 'outline', 'files', 'comments', 'zoomin', 'zoomout', 'print']);
 
     function onFrameKey(m: Extract<FrameMessage, { type: 'key' }>): void {
         const id = commandFor({ ...m, mac: MAC });
@@ -413,6 +464,58 @@
     function showLog(): void {
         s.showLog = true;
         s.panel = 'problems';
+    }
+
+    // --- the file list: folders open and close ------------------------------------------------------------------------
+    /** Every file the list shows: all of the repository's, those the editor does not open too. */
+    const listed = $derived([...new Set([...s.order, ...Object.keys(s.unread), ...s.otherFiles])].toSorted(sortPaths));
+    /** The closed folders, kept per project in this browser. Until one is toggled, a large project has its folders
+     *  closed and a small one has them open. */
+    const foldersKey = untrack(() => `papers.folders.${s.repo.owner}/${s.repo.name}`);
+    function keptFolders(): string[] | null {
+        try {
+            const kept: unknown = JSON.parse(localStorage.getItem(foldersKey) ?? 'null');
+            return Array.isArray(kept) ? kept.filter((k): k is string => typeof k === 'string') : null;
+        } catch {
+            return null;
+        }
+    }
+    const closedFolders = new SvelteSet<string>(untrack(() => keptFolders() ?? (listed.length > 40 ? allFolders(listed) : [])));
+    const fileRows = $derived(treeRows(listed, closedFolders));
+    // The folders of the file in the editor are open: the list always shows where one is.
+    $effect(() => {
+        for (const folder of foldersOf(s.activeFile)) closedFolders.delete(folder);
+    });
+    function setFolder(path: string, open: boolean): void {
+        if (open) closedFolders.delete(path);
+        else closedFolders.add(path);
+        try {
+            localStorage.setItem(foldersKey, JSON.stringify([...closedFolders]));
+        } catch {
+            // Without storage the folders are as they are until the page is left.
+        }
+    }
+    /** The list by the keyboard, as a tree: Up and Down move between rows, Left closes a folder and Right opens it. */
+    function onFilesKey(e: KeyboardEvent): void {
+        const row = e.target instanceof HTMLElement ? e.target.closest<HTMLElement>('.row-btn') : null;
+        const list = row?.closest('.filelist');
+        if (row === null || list == null || e.ctrlKey || e.metaKey || e.altKey) return;
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            const rows = [...list.querySelectorAll<HTMLElement>('button.row-btn')];
+            rows[rows.indexOf(row) + (e.key === 'ArrowDown' ? 1 : -1)]?.focus();
+        } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && row.dataset['folder'] !== undefined) setFolder(row.dataset['folder'], e.key === 'ArrowRight');
+        else return;
+        e.preventDefault();
+    }
+    /** The worst problem in the files of `folder`, which a closed folder shows for them. */
+    function folderProblem(folder: string): 'error' | 'warning' | undefined {
+        let worst: 'error' | 'warning' | undefined;
+        for (const [file, severity] of problemFiles) {
+            if (!file.startsWith(`${folder}/`)) continue;
+            if (severity === 'error') return 'error';
+            if (severity === 'warning') worst = 'warning';
+        }
+        return worst;
     }
 
     /** Problems by file, for the file list's marks. */
@@ -494,6 +597,7 @@
             <button type="button" class="yk-icon-btn icon-xs" onclick={() => s.zoomBy(-0.1)} {...tip('Zoom out', 'Ctrl+-')}><Icon name="minus" size={14} /></button>
             <span class="muted zoom-n">{Math.round(s.scale * 100)}%</span>
             <button type="button" class="yk-icon-btn icon-xs" onclick={() => s.zoomBy(0.1)} {...tip('Zoom in', 'Ctrl+=')}><Icon name="plus" size={14} /></button>
+            <button type="button" class="yk-icon-btn icon-xs" disabled={s.build.pages === 0} onclick={() => preview?.print()} {...tip('Print', 'Ctrl+P', 'the PDF')}><Icon name="printer" size={14} /></button>
             <button
                 type="button"
                 class="backend"
@@ -570,7 +674,7 @@
 
 <svelte:window onkeydowncapture={onKeydown} onmousedown={onMousedown} onkeydown={onEscape} />
 
-<div class="app narrow-{s.narrowPane}" class:rail-open={s.panel !== null}>
+<div class="app narrow-{s.narrowPane}" class:rail-open={s.panel !== null} style:--panel-w="{panelWidth}px">
     <Header
         session={s}
         onOpenFile={(f) => openFile(f)}
@@ -617,26 +721,58 @@
                 </ul>
             {:else if s.panel === 'files'}
                 <div class="panel-head"><span>Files</span></div>
-                <ul class="filelist">
-                    {#each s.order as f (f)}
-                        {@const isRoot = s.roots.includes(f)}
-                        <li>
-                            <button
-                                type="button"
-                                class="row-btn"
-                                class:is-current={f === s.activeFile}
-                                style:padding-left="{10 + (f.split('/').length - 1) * 14}px"
-                                onclick={() => openFile(f)}
-                                {...isRoot ? tip(short(f), null, 'compiles by itself') : {}}
-                            >
-                                <Icon name={isRoot ? 'doc' : 'files'} size={14} />
-                                <span class:strong={!f.includes('/')}>{short(f)}</span>
-                                <span class="grow"></span>
-                                {#if problemFiles.get(f) === 'error'}<span class="file-problem sev-error" {...tip('Errors')}><Icon name="alert" size={12} /></span>
-                                {:else if problemFiles.get(f) === 'warning'}<span class="file-problem sev-warning" {...tip('Warnings')}><Icon name="warning" size={12} /></span>{/if}
-                                {#if s.changes.some((c) => c.file === f)}<span class="mod" role="img" aria-label="uncommitted">M</span>{/if}
-                            </button>
-                        </li>
+                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                <ul class="filelist" onkeydown={onFilesKey}>
+                    {#each fileRows as row (`${row.kind}:${row.path}`)}
+                        {#if row.kind === 'folder'}
+                            {@const worst = row.open ? undefined : folderProblem(row.path)}
+                            <li>
+                                <button
+                                    type="button"
+                                    class="row-btn folder"
+                                    class:is-closed={!row.open}
+                                    aria-expanded={row.open}
+                                    style:padding-left="{10 + row.depth * 14}px"
+                                    data-folder={row.path}
+                                    onclick={() => setFolder(row.path, !row.open)}
+                                    {...tip(row.path)}
+                                >
+                                    <Icon name="chevron" size={14} />
+                                    <span>{row.name}</span>
+                                    <span class="grow"></span>
+                                    {#if worst === 'error'}<span class="file-problem sev-error" {...tip('Errors')}><Icon name="alert" size={12} /></span>
+                                    {:else if worst === 'warning'}<span class="file-problem sev-warning" {...tip('Warnings')}><Icon name="warning" size={12} /></span>{/if}
+                                </button>
+                            </li>
+                        {:else if s.files[row.path] === undefined}
+                            {@const why = s.unread[row.path]}
+                            <li>
+                                <span class="row-btn is-unread" style:padding-left="{10 + row.depth * 14}px" {...tip(row.path, null, why === undefined ? 'not text' : `not loaded: ${why}`)}>
+                                    <Icon name="files" size={14} />
+                                    <span>{row.name}</span>
+                                </span>
+                            </li>
+                        {:else}
+                            {@const f = row.path}
+                            {@const isRoot = s.roots.includes(f)}
+                            <li>
+                                <button
+                                    type="button"
+                                    class="row-btn"
+                                    class:is-current={f === s.activeFile}
+                                    style:padding-left="{10 + row.depth * 14}px"
+                                    onclick={() => openFile(f)}
+                                    {...isRoot ? tip(f, null, 'compiles by itself') : tip(f)}
+                                >
+                                    <Icon name={isRoot ? 'doc' : 'files'} size={14} />
+                                    <span class:strong={row.depth === 0}>{row.name}</span>
+                                    <span class="grow"></span>
+                                    {#if problemFiles.get(f) === 'error'}<span class="file-problem sev-error" {...tip('Errors')}><Icon name="alert" size={12} /></span>
+                                    {:else if problemFiles.get(f) === 'warning'}<span class="file-problem sev-warning" {...tip('Warnings')}><Icon name="warning" size={12} /></span>{/if}
+                                    {#if s.changes.some((c) => c.file === f)}<span class="mod" role="img" aria-label="uncommitted">M</span>{/if}
+                                </button>
+                            </li>
+                        {/if}
                     {/each}
                 </ul>
             {:else if s.panel === 'problems'}
@@ -646,6 +782,20 @@
                     <CommentsPanel {ops} />
                 {/await}
             {/if}
+            <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+            <div
+                class="panel-resize"
+                role="separator"
+                aria-orientation="vertical"
+                aria-valuenow={panelWidth}
+                aria-valuemin={PANEL.min}
+                aria-valuemax={PANEL.max}
+                tabindex="0"
+                onpointerdown={onPanelDrag}
+                ondblclick={() => setPanelWidth(PANEL.initial)}
+                onkeydown={onPanelKey}
+                {...tip('Resize', null, 'drag, or double-click to reset', 'right')}
+            ></div>
         </aside>
     {/if}
 
