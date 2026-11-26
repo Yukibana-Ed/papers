@@ -70,7 +70,9 @@
 
     <div class="yk-segmented seg-xs narrow-only" role="group" aria-label="Pane">
         <button type="button" aria-pressed={s.narrowPane === 'source'} onclick={() => (s.narrowPane = 'source')} {...tip('Source', 'Ctrl+J')}>Source</button>
-        <button type="button" aria-pressed={s.narrowPane === 'preview'} onclick={() => (s.narrowPane = 'preview')} {...tip('Preview', 'Ctrl+J')}>Preview</button>
+        <button type="button" aria-pressed={s.narrowPane === 'preview'} onclick={() => (s.narrowPane = 'preview')} {...tip('Preview', 'Ctrl+J')}
+            >Preview{#if s.buildErrors.length}<span class="seg-error" aria-label="{s.buildErrors.length} errors"></span>{/if}</button
+        >
     </div>
 
     <button type="button" class="yk-btn yk-btn--ghost btn-sm" aria-pressed={s.suggestMode} onclick={() => (s.suggestMode = !s.suggestMode)} {...tip(s.suggestMode ? 'Suggesting' : 'Suggest', 'Ctrl+Alt+S', 'edits become suggestions')}>

@@ -39,13 +39,25 @@
     function handle(m: FrameMessage): void {
         switch (m.type) {
             case 'built':
-                session.build = {
+                session.acceptBuild({
                     status: 'idle',
                     ok: m.ok,
                     pages: m.pages,
                     ms: m.ms,
-                    errors: m.diagnostics.filter((d) => d.severity === 'error').map((d) => ({ file: String(d.file), line: Number(d.line), message: String(d.message) })),
-                };
+                    // From user content: only ever shown as text and used as positions.
+                    diagnostics: m.diagnostics.map((d) => ({
+                        file: String(d.file),
+                        line: Number(d.line) || 1,
+                        severity: d.severity === 'warning' ? 'warning' : d.severity === 'info' ? 'info' : 'error',
+                        message: String(d.message),
+                        ...(d.endLine === undefined ? {} : { endLine: Number(d.endLine) }),
+                        ...(d.excerpt === undefined ? {} : { excerpt: String(d.excerpt) }),
+                    })),
+                    log: typeof m.log === 'string' ? m.log : '',
+                });
+                break;
+            case 'service':
+                session.service = m.failure === null ? null : { what: m.failure.what, detail: String(m.failure.detail) };
                 break;
             case 'status':
                 session.build = { ...session.build, status: m.status };
@@ -89,9 +101,19 @@
         if (reconnected) for (const lost of lspLostListeners.values()) lost();
     }
 
+    /** For browser tests only: with `?test-frame` in the page's address, the build results come from
+     *  `window.papersTestFrame(message)` instead of the frame, so tests can show each preview state without a TeX engine.
+     *  Harmless otherwise: it only feeds this page what its own script could set anyway. */
+    const testFrame = typeof location !== 'undefined' && new URLSearchParams(location.search).has('test-frame');
+    const fromFrame = (m: FrameMessage): void => {
+        if (testFrame && (m.type === 'built' || m.type === 'service' || m.type === 'status')) return;
+        handle(m);
+    };
+    if (testFrame) Object.assign(window, { papersTestFrame: handle });
+
     $effect(() => {
         if (!frame) return;
-        const c = new FrameClient(frame, contentOrigin, handle, sendAll);
+        const c = new FrameClient(frame, contentOrigin, fromFrame, sendAll);
         client = c;
         return () => {
             c.dispose();
@@ -173,7 +195,7 @@
             },
             status: () => (session.build = { ...session.build, status: 'compiling' }),
             built: (b) => {
-                client?.send({ type: 'output', ok: b.ok, pdf: b.pdf, synctex: b.synctex, ms: b.ms, diagnostics: b.diagnostics.map((d) => ({ file: d.file ?? session.root, line: d.line ?? 1, severity: d.severity === 'error' ? 'error' : 'warning', message: d.message })) });
+                client?.send({ type: 'output', ok: b.ok, pdf: b.pdf, synctex: b.synctex, ms: b.ms, diagnostics: b.diagnostics.map((d) => ({ file: d.file ?? session.root, line: d.line ?? 1, severity: d.severity, message: d.message })) });
             },
             closed: (reason) => {
                 if (runner !== r) return;
@@ -202,6 +224,12 @@
             runner.build(files, root);
         }, 400);
     });
+
+    /** Asks the frame to start whatever failed to load again, and build. */
+    export function retry(): void {
+        session.service = null;
+        client?.send({ type: 'retry' });
+    }
 
     /** Shows `at`, always, with a flash. */
     export function show(at: SourcePoint): void {

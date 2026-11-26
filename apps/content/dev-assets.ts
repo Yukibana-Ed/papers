@@ -2,6 +2,7 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
+import { stripAssetPrefix } from './src/lib/asset-path.ts';
 import { engineType } from './src/lib/engine-files.ts';
 import { TYPST_FONTS_VERSION, packageArchive, typstAssetKey, upstreamPackageUrl } from './src/lib/typst-assets.ts';
 
@@ -54,7 +55,8 @@ export function devAssets(): Plugin {
         apply: 'serve',
         configureServer(server) {
             server.middlewares.use((req, res, next) => {
-                const url = req.url ?? '';
+                // Asset URLs carry the revision prefix (src/lib/asset-path.ts); the files on disk do not.
+                const url = stripAssetPrefix(req.url ?? '');
                 const typst = /^\/engine\/(typst|tinymist|typst-fonts)\/([A-Za-z0-9._-]+)$/.exec(url.split('?')[0] ?? '');
                 if (typst !== null) {
                     const [, kind = '', name = ''] = typst;
