@@ -574,7 +574,8 @@ button {
 .cm-card:not(.is-active) .cm-actions {
     visibility: hidden;
 }
-.cm-card:not(.is-active):hover .cm-actions {
+.cm-card:not(.is-active):hover .cm-actions,
+.cm-card:not(.is-active):focus-within .cm-actions {
     visibility: visible;
 }
 .cm-sugg {

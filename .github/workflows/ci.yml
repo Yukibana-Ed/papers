@@ -126,12 +126,52 @@ jobs:
           pnpm --filter @yukibana/papers-cli run build
           node packages/cli/lib/index.js doctor .
 
+  # The core flows in Chromium against the built app and content Workers (wrangler dev, workerd): typing in the
+  # editor, a comment typed and sent, the theme switch, tooltips at every edge, the new-paper dialog.
+  e2e:
+    name: Browser tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm and Node.js
+        uses: ./.github/actions/setup
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --fetch-timeout 100000
+
+      - name: Build
+        run: pnpm --filter @yukibana/papers-web --filter @yukibana/papers-content run build
+
+      - name: Install Chromium
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Browser tests
+        working-directory: apps/web
+        run: pnpm exec playwright test --trace off
+
+      - name: Upload the report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-report
+          path: |
+            apps/web/playwright-report/
+            apps/web/test-results/
+          if-no-files-found: ignore
+          retention-days: 5
+
   # The one required check. A job that was not needed is skipped, which passes; one that failed or was cancelled fails
   # this.
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [check, toolchain]
+    needs: [check, toolchain, e2e]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
