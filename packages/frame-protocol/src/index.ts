@@ -82,6 +82,8 @@ export type AppMessage =
       }
     /** Starts `server` in the frame (once; later starts are ignored). Its messages then flow as `lsp`. */
     | { readonly type: 'lsp-start'; readonly server: LanguageServer }
+    /** Stops `server` (its worker ends); a later `lsp-start` starts a fresh one. */
+    | { readonly type: 'lsp-stop'; readonly server: LanguageServer }
     /** A JSON-RPC message for `server`: a request, a notification, or the response to one of the server's requests. */
     | { readonly type: 'lsp'; readonly server: LanguageServer; readonly message: unknown };
 
@@ -175,6 +177,7 @@ const APP_TYPES: ReadonlySet<string> = new Set([
     'builder',
     'output',
     'lsp-start',
+    'lsp-stop',
     'lsp',
 ]);
 const FRAME_TYPES: ReadonlySet<string> = new Set(['built', 'status', 'jump', 'selection', 'action', 'centre', 'scale', 'key', 'lsp', 'lsp-status']);
