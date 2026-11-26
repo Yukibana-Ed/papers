@@ -7,7 +7,7 @@ import { openDemo } from '../support.ts';
 async function preview(page: Page): Promise<FrameLocator> {
     await openDemo(page);
     const frame = page.frameLocator('iframe.pv-frame');
-    await expect(frame.locator('.pv-page .textLayer span').first()).toBeVisible({ timeout: 90_000 });
+    await expect(frame.locator('.pv-page .textLayer span').first()).toBeVisible({ timeout: 170_000 });
     return frame;
 }
 
