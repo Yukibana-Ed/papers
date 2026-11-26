@@ -1,7 +1,8 @@
-import type { editor as Editor, IDisposable, IPosition, IRange } from 'monaco-editor/editor/editor.api';
+import type { editor as Editor, IDisposable, IPosition } from 'monaco-editor/editor/editor.api';
 import type { Anchor, Cursor, Lines, PlacedSuggestion, Presence, Suggestion, TextRange, Thread, User } from '#lib/model/types.ts';
 import type * as Y from 'yjs';
-import { applyTheme, languageOf, modelUri, monaco, remeasureWhenFontsLoad } from './monaco.ts';
+import { applyTheme, followPageTheme, languageOf, modelUri, monaco, remeasureWhenFontsLoad } from './monaco.ts';
+import { FileSuggestions } from './suggestions.ts';
 import { TextBinding } from './y-binding.ts';
 
 type Model = Editor.ITextModel;
@@ -31,17 +32,8 @@ export interface Diagnostic {
     readonly message: string;
 }
 
-interface SuggestionState {
-    id: string;
-    author: string;
-    when: string;
-    file: string;
-    text: string;
-}
-
 interface FileDecorations {
     threads: string[];
-    sugg: Record<string, string>;
     presence: string[];
     mirror: string[];
 }
@@ -49,23 +41,23 @@ interface FileDecorations {
 /** The source editor: one Monaco editor over a model per project file, with the decorations of comments,
  *  suggestions, others' cursors and the preview's selection, and suggestion mode.
  *
- *  Suggestion mode intercepts input before Monaco sees it (capture-phase keydown for the editing keys, `beforeinput`
- *  for typed text, `paste`): letting Monaco type and then reverting garbles its hidden textarea. What still reaches
- *  the model (cut, drag and drop) is put back as it was and recorded as a suggestion. */
+ *  Suggestions are text in the models (see `FileSuggestions`): a model shows its file with every suggestion, suggested
+ *  text marked, struck text kept and struck through; the session and the room get the file's committed text. While
+ *  suggesting, Monaco applies every edit as usual and each change is then turned into suggestions; undo and redo step
+ *  through them. No control character but tab and line feed gets into a model, and every model's line breaks are LF. */
 export class SourceEditor {
     private readonly ed: Editor.IStandaloneCodeEditor;
     private readonly models = new Map<string, Model>();
-    private readonly shadow = new Map<string, string>();
     private readonly deco = new Map<string, FileDecorations>();
     private readonly threadDeco = new Map<string, { file: string; id: string }>();
-    private readonly sugg = new Map<string, SuggestionState>();
+    private readonly suggs = new Map<string, FileSuggestions>();
     private readonly bindings = new Map<string, TextBinding>();
     private readonly disposables: IDisposable[] = [];
     private readonly stopRemeasure: () => void;
+    private readonly stopTheme: () => void;
     private presenceStyle: HTMLStyleElement | null = null;
     private internal = false;
-    private settling = false;
-    private lastKey = '';
+    private readonly suggesting: Editor.IContextKey<boolean>;
     private threads: readonly Thread[] = [];
     private activeThread: string | null = null;
     private suggestMode = false;
@@ -129,31 +121,35 @@ export class SourceEditor {
                 this.placeSelectionButton();
             }),
             e.onDidScrollChange(() => this.placeSelectionButton()),
-            e.onKeyDown(k => {
-                this.lastKey = k.code;
-            }),
             e.onMouseDown(ev => {
                 if (ev.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return;
                 const f = this.fileOf(e.getModel());
                 const line = ev.target.position?.lineNumber;
                 if (f === null || line === undefined) return;
                 const hit = this.threads.find(t => t.file === f && !t.root.resolved && this.anchorOf(t.id)?.startLineNumber === line);
-                const s = [...this.sugg.values()].find(x => x.file === f && this.rangeOfSugg(x.id)?.startLineNumber === line);
+                const s = this.suggs
+                    .get(f)
+                    ?.list()
+                    .find(x => x.line === line);
                 if (hit) this.on.openThread(hit.id, { open: true });
                 else if (s) this.on.openThread(s.id, { open: true });
             }),
         );
-        host.addEventListener('keydown', this.suggestKey, true);
-        host.addEventListener('beforeinput', this.suggestInput, true);
-        host.addEventListener('paste', this.suggestPaste, true);
+        // Undo and redo step through suggestions while suggesting; Monaco's own stack holds only real edits.
+        this.suggesting = e.createContextKey('ykSuggesting', false);
+        const K = monaco.KeyMod;
+        const C = monaco.KeyCode;
+        const shown = (): FileSuggestions | undefined => this.suggs.get(this.fileOf(e.getModel()) ?? '');
+        e.addCommand(K.CtrlCmd | C.KeyZ, () => shown()?.undo(), 'ykSuggesting');
+        e.addCommand(K.CtrlCmd | C.KeyY, () => shown()?.redo(), 'ykSuggesting');
+        e.addCommand(K.CtrlCmd | K.Shift | C.KeyZ, () => shown()?.redo(), 'ykSuggesting');
         this.stopRemeasure = remeasureWhenFontsLoad();
+        this.stopTheme = followPageTheme();
     }
 
     dispose(): void {
-        this.host.removeEventListener('keydown', this.suggestKey, true);
-        this.host.removeEventListener('beforeinput', this.suggestInput, true);
-        this.host.removeEventListener('paste', this.suggestPaste, true);
         this.stopRemeasure();
+        this.stopTheme();
         for (const b of this.bindings.values()) b.dispose();
         for (const d of this.disposables) d.dispose();
         this.ed.dispose();
@@ -163,16 +159,32 @@ export class SourceEditor {
 
     private addModel(f: string, text: string): void {
         const m = monaco.editor.createModel(text, languageOf(f), modelUri(f));
+        m.setEOL(monaco.editor.EndOfLineSequence.LF);
         this.models.set(f, m);
-        this.shadow.set(f, text);
-        this.disposables.push(m.onDidChangeContent(e => this.onModelChange(f, m, e)));
+        const s = new FileSuggestions(m, f, this.me, {
+            suggesting: () => this.suggestMode,
+            editor: () => this.ed,
+            changed: () => this.finishChange(f, m),
+            name: u => this.users[u]?.name ?? u,
+        });
+        this.suggs.set(f, s);
+        this.disposables.push(m.onDidChangeContent(ev => s.onChange(ev, this.internal || (this.bindings.get(f)?.remote ?? false))));
+        // Every editing command applies its edits here: what it inserts loses control characters (a pasted carriage
+        // return or form feed would show as a glyph and end up in the file).
+        const apply = m.pushEditOperations.bind(m);
+        m.pushEditOperations = (before, ops, computer, ...rest) => apply(before, ops.map(cleanOp), computer, ...rest);
     }
 
-    /** Keeps `file` the same text as `text`, a file of the room, both ways; adds the file if it is new. */
+    /** Keeps `file`'s committed text the same text as `text`, a file of the room, both ways; adds the file if it is new.
+     *  When they differ, the room's text wins and the file's suggestions go. */
     bind(file: string, text: Y.Text): void {
         if (!this.models.has(file)) this.addModel(file, text.toJSON());
+        const s = this.suggs.get(file);
+        if (!s) return;
+        if (s.committed() !== text.toJSON()) s.reset(text.toJSON());
         this.bindings.get(file)?.dispose();
-        this.bindings.set(file, new TextBinding(this.model(file), text));
+        this.bindings.set(file, new TextBinding(this.model(file), text, s));
+        this.finishChange(file, this.model(file));
     }
 
     private fileOf(m: Model | null): string | null {
@@ -190,7 +202,7 @@ export class SourceEditor {
     private D(f: string): FileDecorations {
         let d = this.deco.get(f);
         if (!d) {
-            d = { threads: [], sugg: {}, presence: [], mirror: [] };
+            d = { threads: [], presence: [], mirror: [] };
             this.deco.set(f, d);
         }
         return d;
@@ -264,232 +276,53 @@ export class SourceEditor {
 
     // --- suggestions ---------------------------------------------------------------------------------------------------
 
-    /** Adds suggestions from elsewhere (seed data, the room) at their quotes. Ones already shown are left alone. */
+    /** Adds suggestions from elsewhere (seed data, the room) at their quotes: their text is put after the quote, marked
+     *  as suggested. Ones already shown are left alone. */
     addSuggestions(list: readonly Suggestion[], users: Readonly<Record<string, User>>): void {
         this.users = users;
-        for (const s of list) {
-            if (this.sugg.has(s.id)) continue;
-            const m = this.models.get(s.file);
-            const r = m && s.quote !== undefined ? findRange(m, s.quote) : null;
-            if (!m || !r) continue;
-            const st: SuggestionState = { id: s.id, author: s.author, when: s.when, file: s.file, text: s.text };
-            this.sugg.set(s.id, st);
-            const [id] = m.deltaDecorations([], [this.suggDeco(r, st)]);
-            if (id !== undefined) this.D(s.file).sugg[s.id] = id;
-        }
+        for (const s of list) if (s.quote !== undefined) this.suggs.get(s.file)?.add(s.id, s.author, s.when, s.quote, s.text);
         this.reportSuggestions();
     }
 
     private users: Readonly<Record<string, User>> = {};
 
-    private suggDeco(r: IRange, s: SuggestionState): Editor.IModelDeltaDecoration {
-        const empty = r.startLineNumber === r.endLineNumber && r.startColumn === r.endColumn;
-        const options: Editor.IModelDecorationOptions = {
-            stickiness: NEVER,
-            showIfCollapsed: true,
-            hoverMessage: { value: `Suggestion by ${this.users[s.author]?.name ?? s.author}` },
-            glyphMarginClassName: 'glyph-sugg',
-            ...(empty ? {} : { inlineClassName: 'sg-del' }),
-            ...(s.text ? { after: { content: s.text, inlineClassName: 'sg-ins', cursorStops: monaco.editor.InjectedTextCursorStops.None } } : {}),
-        };
-        return { range: r, options };
-    }
-
-    private rangeOfSugg(id: string): Range | null {
-        const s = this.sugg.get(id);
-        if (!s) return null;
-        const d = this.D(s.file).sugg[id];
-        return d === undefined ? null : (this.models.get(s.file)?.getDecorationRange(d) ?? null);
-    }
-
-    private redrawSugg(id: string, range?: IRange): void {
-        const s = this.sugg.get(id);
-        const r = range ?? this.rangeOfSugg(id);
-        if (!s || !r) return;
-        const m = this.model(s.file);
-        const old = this.D(s.file).sugg[id];
-        const [n] = m.deltaDecorations(old === undefined ? [] : [old], [this.suggDeco(r, s)]);
-        if (n !== undefined) this.D(s.file).sugg[id] = n;
-    }
-
-    private dropSugg(id: string): void {
-        const s = this.sugg.get(id);
-        if (!s) return;
-        const old = this.D(s.file).sugg[id];
-        if (old !== undefined) this.model(s.file).deltaDecorations([old], []);
-        delete this.D(s.file).sugg[id];
-        this.sugg.delete(id);
+    /** Where a suggestion is now, with the text a comment on it quotes: its struck text, or its suggested text when it
+     *  strikes nothing; null when it is gone. */
+    suggestionPlace(id: string): { file: string; range: TextRange; quote: string } | null {
+        const s = this.suggestionsWith(id);
+        return s ? s.place(id) : null;
     }
 
     private reportSuggestions(): void {
-        const list: PlacedSuggestion[] = [];
-        for (const s of this.sugg.values()) {
-            const r = this.rangeOfSugg(s.id);
-            if (!r) continue;
-            list.push({ ...s, oldText: this.model(s.file).getValueInRange(r), line: r.startLineNumber, col: r.startColumn });
-        }
-        this.on.suggestions(list);
+        this.on.suggestions([...this.suggs.values()].flatMap(s => s.list()));
     }
 
+    /** Turns suggestion mode on or off: while on, the user's edits become suggestions. */
     setSuggestMode(on: boolean): void {
         this.suggestMode = on;
-    }
-
-    private onModelChange(f: string, m: Model, e: Editor.IModelContentChangedEvent): void {
-        const before = this.shadow.get(f) ?? '';
-        this.shadow.set(f, m.getValue());
-        const c = e.changes[0];
-        if (this.bindings.get(f)?.remote) return this.finishChange(f, m);
-        if (this.internal || !this.suggestMode || e.isUndoing || e.isRedoing || e.changes.length !== 1 || !c) return this.finishChange(f, m);
-        // Suggesting: put the text back as it was and record the change as a suggestion instead.
-        const removed = before.substr(c.rangeOffset, c.rangeLength);
-        const start = m.getPositionAt(c.rangeOffset);
-        const insEnd = m.getPositionAt(c.rangeOffset + c.text.length);
-        this.internal = true;
-        m.applyEdits([{ range: monaco.Range.fromPositions(start, insEnd), text: removed }]);
-        this.internal = false;
-        this.shadow.set(f, m.getValue());
-        const delRange = monaco.Range.fromPositions(start, m.getPositionAt(c.rangeOffset + removed.length));
-        this.recordSuggestion(f, m, delRange, removed, c.text, true);
-    }
-
-    private readonly suggestKey = (ev: KeyboardEvent): void => {
-        if (!this.suggestMode || ev.isComposing) return;
-        const plain = !ev.ctrlKey && !ev.metaKey && !ev.altKey;
-        let text: string;
-        if (plain && ev.key === 'Enter') text = '\n';
-        else if (plain && ev.key === 'Tab') text = '  ';
-        else if (ev.key === 'Backspace' || ev.key === 'Delete') text = '';
-        else return;
-        ev.preventDefault();
-        ev.stopPropagation();
-        this.lastKey = ev.code;
-        this.suggestAtSelection(text, ev.key);
-    };
-
-    private readonly suggestInput = (ev: InputEvent): void => {
-        if (!this.suggestMode) return;
-        if (ev.inputType === 'insertText' || ev.inputType === 'insertReplacementText') {
-            ev.preventDefault();
-            if (ev.data) this.suggestAtSelection(ev.data);
-        }
-    };
-
-    private readonly suggestPaste = (ev: ClipboardEvent): void => {
-        if (!this.suggestMode) return;
-        ev.preventDefault();
-        ev.stopPropagation();
-        const t = ev.clipboardData?.getData('text/plain');
-        if (t) this.suggestAtSelection(t);
-    };
-
-    private suggestAtSelection(text: string, key?: string): void {
-        const m = this.ed.getModel();
-        const sel = this.ed.getSelection();
-        const f = this.fileOf(m);
-        if (!m || !sel || f === null) return;
-        let r: Range = sel;
-        if (r.isEmpty() && text === '') {
-            const p = r.getStartPosition();
-            const off = m.getOffsetAt(p);
-            if (key === 'Backspace') {
-                if (off === 0) return;
-                r = monaco.Range.fromPositions(m.getPositionAt(off - 1), p);
-            } else {
-                if (off >= m.getValueLength()) return;
-                r = monaco.Range.fromPositions(p, m.getPositionAt(off + 1));
-            }
-        }
-        if (text) this.lastKey = '';
-        this.recordSuggestion(f, m, monaco.Range.lift(r), m.getValueInRange(r), text, false);
-    }
-
-    /** Records an edit as a suggestion, continuing one of my own when the edit touches it: a word typed is one
-     *  suggestion, not one per key. */
-    private recordSuggestion(f: string, m: Model, delRange: Range, removed: string, insert: string, deferCursor: boolean): void {
-        const mine = [...this.sugg.values()]
-            .filter(x => x.file === f && x.author === this.me)
-            .map(x => ({ x, r: this.rangeOfSugg(x.id) }))
-            .filter((o): o is { x: SuggestionState; r: Range } => o.r !== null);
-        const ds = delRange.getStartPosition();
-        const de = delRange.getEndPosition();
-        const isDel = removed !== '' && insert === '';
-        const typing = removed === '' && insert !== '';
-        const pick =
-            (typing && mine.find(o => ds.equals(o.r.getEndPosition()))) ||
-            (typing && mine.find(o => !o.x.text && !o.r.isEmpty() && ds.equals(o.r.getStartPosition()))) ||
-            (isDel && mine.find(o => o.x.text && de.equals(o.r.getEndPosition()))) ||
-            (isDel && mine.find(o => !o.x.text && de.equals(o.r.getStartPosition()))) ||
-            (isDel && mine.find(o => ds.equals(o.r.getEndPosition()))) ||
-            null;
-        let id: string;
-        let trimmed = false;
-        if (pick && typing) {
-            pick.x.text += insert; // typing on, or typing over what was just struck
-            id = pick.x.id;
-            this.redrawSugg(id);
-        } else if (pick && isDel && de.equals(pick.r.getEndPosition()) && pick.x.text) {
-            pick.x.text = pick.x.text.slice(0, Math.max(0, pick.x.text.length - removed.length)); // backspace through the suggested text
-            id = pick.x.id;
-            trimmed = true;
-            if (!pick.x.text && pick.r.isEmpty()) {
-                this.dropSugg(id);
-                this.reportSuggestions();
-                return;
-            }
-            this.redrawSugg(id);
-        } else if (pick && isDel && de.equals(pick.r.getStartPosition()) && !pick.x.text) {
-            id = pick.x.id; // backspace before a deletion: strike one more
-            this.redrawSugg(id, monaco.Range.fromPositions(ds, pick.r.getEndPosition()));
-        } else if (pick && isDel && ds.equals(pick.r.getEndPosition())) {
-            id = pick.x.id; // forward delete after a deletion
-            this.redrawSugg(id, monaco.Range.fromPositions(pick.r.getStartPosition(), de));
-        } else {
-            id = `s${Math.random().toString(36).slice(2, 9)}`;
-            const st: SuggestionState = { id, author: this.me, when: 'now', file: f, text: insert };
-            this.sugg.set(id, st);
-            const [d] = m.deltaDecorations([], [this.suggDeco(delRange, st)]);
-            if (d !== undefined) this.D(f).sugg[id] = d;
-        }
-        const r = this.rangeOfSugg(id);
-        if (!r) return;
-        // Typing, or backspacing through suggested text, leaves the cursor after the suggestion. Backspace over the
-        // document's own text leaves it before what is struck; Delete leaves it after, so the next Delete strikes on.
-        const pos = isDel && !trimmed && this.lastKey !== 'Delete' ? ds : r.getEndPosition();
-        if (deferCursor) {
-            // After Monaco has placed the cursor for the edit it thinks happened.
-            this.settling = true;
-            setTimeout(() => {
-                this.ed.setPosition(pos, 'api');
-                this.settling = false;
-            }, 0);
-        } else this.ed.setPosition(pos, 'api');
-        this.reportSuggestions();
-    }
-
-    /** Whether a cursor move is still settling after a suggestion; for callers that react to cursor moves. */
-    get isSettling(): boolean {
-        return this.settling;
+        this.suggesting.set(on);
     }
 
     private finishChange(f: string, m: Model): void {
-        this.on.change(f, m.getValue());
+        this.bindings.get(f)?.push();
+        this.on.change(f, this.suggs.get(f)?.committed() ?? m.getValue());
         this.reportAnchors();
         this.reportSuggestions();
     }
 
-    acceptSuggestion(id: string): void {
-        const s = this.sugg.get(id);
-        const r = this.rangeOfSugg(id);
-        if (!s || !r) return;
-        const m = this.model(s.file);
-        this.dropSugg(id);
-        this.applyInternal(s.file, m, r, s.text);
+    private suggestionsWith(id: string): FileSuggestions | null {
+        for (const s of this.suggs.values()) if (s.has(id)) return s;
+        return null;
     }
 
+    /** Accepts suggestion `id`: its suggested text becomes the file's, its struck text goes. */
+    acceptSuggestion(id: string): void {
+        this.suggestionsWith(id)?.accept(id);
+    }
+
+    /** Rejects suggestion `id`: its suggested text goes, the file stays as it was. */
     rejectSuggestion(id: string): void {
-        this.dropSugg(id);
-        this.reportSuggestions();
+        this.suggestionsWith(id)?.reject(id);
     }
 
     /** Replaces a thread's anchored text with `text`, as an ordinary edit (a replacement offered in a comment). */
@@ -512,11 +345,13 @@ export class SourceEditor {
         return r.startLineNumber;
     }
 
-    private applyInternal(file: string, m: Model, r: IRange, text: string): void {
+    private applyInternal(_file: string, m: Model, r: TextRange, text: string): void {
         this.internal = true;
-        m.pushEditOperations([], [{ range: r, text }], () => null);
-        this.internal = false;
-        this.finishChange(file, m);
+        try {
+            m.pushEditOperations([], [{ range: r, text }], () => null);
+        } finally {
+            this.internal = false;
+        }
     }
 
     // --- presence, mirror, diagnostics, theme ---------------------------------------------------------------------------
@@ -625,9 +460,9 @@ export class SourceEditor {
         const t = this.threads.find(x => x.id === id);
         const r = this.anchorOf(id);
         if (t && r) return this.reveal(t.file, r.startLineNumber, r.startColumn, { focus: false });
-        const sr = this.rangeOfSugg(id);
-        const s = this.sugg.get(id);
-        if (sr && s) this.reveal(s.file, sr.startLineNumber, sr.startColumn, { focus: false });
+        const s = this.suggestionsWith(id);
+        const sr = s?.extent(id);
+        if (s && sr) this.reveal(s.file, sr.startLineNumber, sr.startColumn, { focus: false });
     }
 
     /** The selection with its text, or null when it is empty. */
@@ -667,9 +502,52 @@ export class SourceEditor {
         this.ed.focus();
     }
 
+    /** For browser tests: the shown file's committed text (`text`), the model's text with suggestions (`shown`), its line
+     *  count, the caret, the selection and the suggestions. */
+    testState(): {
+        text: string;
+        shown: string;
+        lines: number;
+        caret: { line: number; column: number } | null;
+        selection: string;
+        suggestions: { id: string; text: string; oldText: string; line: number; col: number }[];
+    } {
+        const m = this.ed.getModel();
+        const p = this.ed.getPosition();
+        const sel = this.ed.getSelection();
+        const f = this.fileOf(m);
+        const s = f === null ? undefined : this.suggs.get(f);
+        return {
+            text: s?.committed() ?? m?.getValue() ?? '',
+            shown: m?.getValue() ?? '',
+            lines: m?.getLineCount() ?? 0,
+            caret: p ? { line: p.lineNumber, column: p.column } : null,
+            selection: sel && m ? m.getValueInRange(sel) : '',
+            suggestions: (s?.list() ?? []).map(x => ({ id: x.id, text: x.text, oldText: x.oldText, line: x.line, col: x.col })),
+        };
+    }
+
+    /** Monaco's theme as applied, for browser tests. */
+    get themeIsDark(): boolean {
+        return this.host.querySelector('.monaco-editor')?.classList.contains('vs-dark') ?? false;
+    }
+
     get currentThread(): string | null {
         return this.activeThread;
     }
+}
+
+/** `op` without control characters (but tab and line feed) in its text; a CR LF becomes LF. */
+function cleanOp(op: Editor.IIdentifiedSingleEditOperation): Editor.IIdentifiedSingleEditOperation {
+    const text = op.text;
+    if (!text) return op;
+    const clean = Array.from(text)
+        .filter(ch => {
+            const c = ch.charCodeAt(0);
+            return c === 9 || c === 10 || (c >= 32 && c !== 127);
+        })
+        .join('');
+    return clean === text ? op : { ...op, text: clean };
 }
 
 /** The first match of `quote` in `m`, or null. */

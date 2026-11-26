@@ -80,7 +80,7 @@
                 lspListeners.get(m.server)?.(m.message);
                 break;
             case 'lsp-status':
-                session.languageServer = { status: m.status, detail: m.detail ?? '' };
+                lspStatusListeners.get(m.server)?.(m.status, m.detail ?? '');
                 break;
         }
     }
@@ -242,11 +242,20 @@
     // --- language servers, which run in the frame ------------------------------------------------------------------------
 
     const lspListeners = new Map<LanguageServer, (message: unknown) => void>();
+    const lspStatusListeners = new Map<LanguageServer, (status: 'starting' | 'ready' | 'failed', detail: string) => void>();
 
-    /** Starts `server` in the frame; its messages go to `listener`. */
-    export function startServer(server: LanguageServer, listener: (message: unknown) => void): void {
+    /** Starts `server` in the frame; its messages go to `listener`, what the frame says of it to `onStatus`. */
+    export function startServer(server: LanguageServer, listener: (message: unknown) => void, onStatus: (status: 'starting' | 'ready' | 'failed', detail: string) => void): void {
         lspListeners.set(server, listener);
+        lspStatusListeners.set(server, onStatus);
         client?.send({ type: 'lsp-start', server });
+    }
+
+    /** Stops `server` in the frame, for a retry. */
+    export function stopServer(server: LanguageServer): void {
+        lspListeners.delete(server);
+        lspStatusListeners.delete(server);
+        client?.send({ type: 'lsp-stop', server });
     }
 
     export function lspSend(server: LanguageServer, message: unknown): void {

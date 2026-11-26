@@ -373,6 +373,22 @@ export class Session {
         this.panel = 'comments';
     }
 
+    /** Adds a posted team thread on `quote` in `file` with `body` as its first comment, and makes it current. */
+    comment(file: string, quote: string, range: Thread['range'], body: string): void {
+        const id = `n${hex7()}`;
+        const q = quote.length > 80 ? `${quote.slice(0, 80)}…` : quote;
+        this.threads.push({
+            id,
+            source: 'team',
+            branch: this.branch,
+            file,
+            quote: q,
+            ...(range ? { range } : {}),
+            root: { id: `${id}r`, author: this.me, when: 'now', resolved: false, body, replies: [] },
+        });
+        this.activeThread = id;
+    }
+
     private updateThread(id: string, fn: (t: Thread) => Thread): void {
         const i = this.threads.findIndex(t => t.id === id);
         const t = this.threads[i];

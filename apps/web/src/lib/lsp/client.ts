@@ -141,10 +141,19 @@ export interface ServerProfile {
     readonly ignoreDiagnostic?: (message: string) => boolean;
 }
 
+/** How long the server may take to answer `initialize`, and any other request. */
+export const INITIALIZE_TIMEOUT_MS = 20_000;
+export const REQUEST_TIMEOUT_MS = 10_000;
+
+/** Where a language server stands, as the editor shows it: starting, ready, or unavailable with why. */
+export type ServerStatus = { readonly status: 'starting' } | { readonly status: 'ready' } | { readonly status: 'unavailable'; readonly detail: string };
+
 /** A language server in the content frame, from the editor's side: JSON-RPC over `send`/`receive`, the project's models
  *  of `languageId` kept open on the server (incremental changes), its diagnostics as markers, and completion, hover,
  *  go to definition and document symbols in Monaco.
  *
+ *  It never leaves the editor waiting: `initialize` and every request time out, and while the server is not ready (still
+ *  starting, or unavailable) completion, hover and the rest answer at once with nothing, so Monaco shows no "Loading...".
  *  The server reads only what the editor opens on it: the frame gives it no other access to the project. */
 export class LanguageClient {
     private seq = 0;
@@ -152,17 +161,44 @@ export class LanguageClient {
     private readonly disposables: IDisposable[] = [];
     private readonly versions = new Map<string, number>();
     private ready: Promise<void>;
+    private state: ServerStatus = { status: 'starting' };
 
-    /** Precondition: `send` delivers to the server, and the server's messages are passed to `receive`. */
+    /** Precondition: `send` delivers to the server, and the server's messages are passed to `receive`. `onStatus` hears
+     *  every change of the server's status. */
     constructor(
         private readonly languageId: string,
         private readonly owner: string,
         private readonly send: (message: Rpc) => void,
         private readonly profile: ServerProfile = {},
+        private readonly onStatus: (s: ServerStatus) => void = () => {},
         /** Receives each file's diagnostics as well, for the Problems panel: (project path, its problems). */
         private readonly onDiagnostics?: (file: string, items: readonly Reported[]) => void,
     ) {
-        this.ready = this.initialize();
+        this.ready = this.initialize().then(
+            () => this.setStatus({ status: 'ready' }),
+            (e: unknown) => this.fail(e instanceof Error ? e.message : String(e)),
+        );
+    }
+
+    /** The server's status now. */
+    get status(): ServerStatus {
+        return this.state;
+    }
+
+    private setStatus(s: ServerStatus): void {
+        if (this.state.status === 'unavailable') return;
+        this.state = s;
+        this.onStatus(s);
+    }
+
+    /** Marks the server unavailable (it crashed, its files are missing, the frame cannot be reached): every pending and
+     *  later request answers at once. */
+    fail(detail: string): void {
+        if (this.state.status === 'unavailable') return;
+        this.state = { status: 'unavailable', detail };
+        this.onStatus(this.state);
+        for (const w of this.waiting.values()) w.reject(new Error(detail));
+        this.waiting.clear();
     }
 
     /** Handles one message from the server. */
@@ -181,15 +217,40 @@ export class LanguageClient {
      *  result. */
     async request<T>(method: string, params: unknown): Promise<T> {
         if (method !== 'initialize') await this.ready;
-        return this.send1<T>(method, params);
+        if (this.state.status === 'unavailable') throw new Error(this.state.detail);
+        return this.send1<T>(method, params, method === 'initialize' ? INITIALIZE_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
     }
 
-    private send1<T>(method: string, params: unknown): Promise<T> {
+    private send1<T>(method: string, params: unknown, timeoutMs: number): Promise<T> {
         const id = `c${++this.seq}`;
         return new Promise<T>((resolve, reject) => {
-            this.waiting.set(id, { resolve: (r: unknown) => resolve(r as T), reject });
+            const timer = setTimeout(() => {
+                this.waiting.delete(id);
+                reject(new Error(`no answer to ${method} in ${Math.round(timeoutMs / 1000)} s`));
+            }, timeoutMs);
+            const done = (): void => clearTimeout(timer);
+            this.waiting.set(id, {
+                resolve: (r: unknown) => {
+                    done();
+                    resolve(r as T);
+                },
+                reject: (e: Error) => {
+                    done();
+                    reject(e);
+                },
+            });
             this.send({ jsonrpc: '2.0', id, method, params });
         });
+    }
+
+    /** `ask()`'s answer when the server is ready and answers in time; `none` at once otherwise. */
+    private async answer<T>(none: T, ask: () => Promise<T>): Promise<T> {
+        if (this.state.status !== 'ready') return none;
+        try {
+            return await ask();
+        } catch {
+            return none;
+        }
     }
 
     notify(method: string, params: unknown): void {
@@ -302,70 +363,74 @@ export class LanguageClient {
         this.disposables.push(
             monaco.languages.registerCompletionItemProvider(id, {
                 triggerCharacters: ['#', '.', '@', '(', '"', '/', '<', '$'],
-                provideCompletionItems: async (model, position): Promise<languages.CompletionList> => {
-                    const r = await this.request<LspCompletionItem[] | { items: LspCompletionItem[] } | null>('textDocument/completion', {
-                        textDocument: doc(model),
-                        position: toLsp(position),
-                    });
-                    const items = Array.isArray(r) ? r : (r?.items ?? []);
-                    const word = model.getWordUntilPosition(position);
-                    const fallback = { startLineNumber: position.lineNumber, startColumn: word.startColumn, endLineNumber: position.lineNumber, endColumn: word.endColumn };
-                    return {
-                        suggestions: items.map(i => {
-                            const edit = i.textEdit;
-                            const range = edit?.range ?? edit?.insert;
-                            const suggestion: languages.CompletionItem = {
-                                label: typeof i.label === 'string' ? i.label : i.label.label,
-                                kind: completionKind(i.kind),
-                                insertText: edit?.newText ?? i.insertText ?? (typeof i.label === 'string' ? i.label : i.label.label),
-                                range: range ? toRange(range) : fallback,
-                            };
-                            if (i.detail !== undefined) suggestion.detail = i.detail;
-                            if (i.documentation !== undefined) suggestion.documentation = { value: text(i.documentation) };
-                            if (i.insertTextFormat === 2) suggestion.insertTextRules = monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet;
-                            if (i.sortText !== undefined) suggestion.sortText = i.sortText;
-                            if (i.filterText !== undefined) suggestion.filterText = i.filterText;
-                            return suggestion;
-                        }),
-                    };
-                },
+                provideCompletionItems: (model, position): Promise<languages.CompletionList> =>
+                    this.answer({ suggestions: [] }, async (): Promise<languages.CompletionList> => {
+                        const r = await this.request<LspCompletionItem[] | { items: LspCompletionItem[] } | null>('textDocument/completion', {
+                            textDocument: doc(model),
+                            position: toLsp(position),
+                        });
+                        const items = Array.isArray(r) ? r : (r?.items ?? []);
+                        const word = model.getWordUntilPosition(position);
+                        const fallback = { startLineNumber: position.lineNumber, startColumn: word.startColumn, endLineNumber: position.lineNumber, endColumn: word.endColumn };
+                        return {
+                            suggestions: items.map(i => {
+                                const edit = i.textEdit;
+                                const range = edit?.range ?? edit?.insert;
+                                const suggestion: languages.CompletionItem = {
+                                    label: typeof i.label === 'string' ? i.label : i.label.label,
+                                    kind: completionKind(i.kind),
+                                    insertText: edit?.newText ?? i.insertText ?? (typeof i.label === 'string' ? i.label : i.label.label),
+                                    range: range ? toRange(range) : fallback,
+                                };
+                                if (i.detail !== undefined) suggestion.detail = i.detail;
+                                if (i.documentation !== undefined) suggestion.documentation = { value: text(i.documentation) };
+                                if (i.insertTextFormat === 2) suggestion.insertTextRules = monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet;
+                                if (i.sortText !== undefined) suggestion.sortText = i.sortText;
+                                if (i.filterText !== undefined) suggestion.filterText = i.filterText;
+                                return suggestion;
+                            }),
+                        };
+                    }),
             }),
             monaco.languages.registerHoverProvider(id, {
-                provideHover: async (model, position): Promise<languages.Hover | null> => {
-                    const h = await this.request<LspHover | null>('textDocument/hover', { textDocument: doc(model), position: toLsp(position) });
-                    if (!h) return null;
-                    const parts = Array.isArray(h.contents) ? h.contents : [h.contents];
-                    return { contents: parts.map(p => ({ value: text(p) })), ...(h.range ? { range: toRange(h.range) } : {}) };
-                },
+                provideHover: (model, position): Promise<languages.Hover | null> =>
+                    this.answer(null, async (): Promise<languages.Hover | null> => {
+                        const h = await this.request<LspHover | null>('textDocument/hover', { textDocument: doc(model), position: toLsp(position) });
+                        if (!h) return null;
+                        const parts = Array.isArray(h.contents) ? h.contents : [h.contents];
+                        return { contents: parts.map(p => ({ value: text(p) })), ...(h.range ? { range: toRange(h.range) } : {}) };
+                    }),
             }),
             monaco.languages.registerDefinitionProvider(id, {
-                provideDefinition: async (model, position): Promise<languages.Location[]> => {
-                    const r = await this.request<LspLocation | LspLocation[] | null>('textDocument/definition', { textDocument: doc(model), position: toLsp(position) });
-                    const list = r === null ? [] : Array.isArray(r) ? r : [r];
-                    return list.flatMap(l => {
-                        const uri = l.targetUri ?? l.uri;
-                        const range = l.targetSelectionRange ?? l.range;
-                        return uri && range ? [{ uri: monaco.Uri.parse(uri), range: toRange(range) }] : [];
-                    });
-                },
+                provideDefinition: (model, position): Promise<languages.Location[]> =>
+                    this.answer([], async (): Promise<languages.Location[]> => {
+                        const r = await this.request<LspLocation | LspLocation[] | null>('textDocument/definition', { textDocument: doc(model), position: toLsp(position) });
+                        const list = r === null ? [] : Array.isArray(r) ? r : [r];
+                        return list.flatMap(l => {
+                            const uri = l.targetUri ?? l.uri;
+                            const range = l.targetSelectionRange ?? l.range;
+                            return uri && range ? [{ uri: monaco.Uri.parse(uri), range: toRange(range) }] : [];
+                        });
+                    }),
             }),
             monaco.languages.registerDocumentSymbolProvider(id, {
-                provideDocumentSymbols: async (model): Promise<languages.DocumentSymbol[]> => {
-                    const r = await this.request<LspSymbol[] | null>('textDocument/documentSymbol', { textDocument: doc(model) });
-                    const map = (s: LspSymbol): languages.DocumentSymbol => {
-                        const range = s.range ?? s.location?.range ?? { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } };
-                        return {
-                            name: s.name,
-                            detail: '',
-                            kind: symbolKind(s.kind),
-                            tags: [],
-                            range: toRange(range),
-                            selectionRange: toRange(s.selectionRange ?? range),
-                            children: (s.children ?? []).map(map),
+                provideDocumentSymbols: (model): Promise<languages.DocumentSymbol[]> =>
+                    this.answer([], async (): Promise<languages.DocumentSymbol[]> => {
+                        const r = await this.request<LspSymbol[] | null>('textDocument/documentSymbol', { textDocument: doc(model) });
+                        const map = (s: LspSymbol): languages.DocumentSymbol => {
+                            const range = s.range ?? s.location?.range ?? { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } };
+                            return {
+                                name: s.name,
+                                detail: '',
+                                kind: symbolKind(s.kind),
+                                tags: [],
+                                range: toRange(range),
+                                selectionRange: toRange(s.selectionRange ?? range),
+                                children: (s.children ?? []).map(map),
+                            };
                         };
-                    };
-                    return (r ?? []).map(map);
-                },
+                        return (r ?? []).map(map);
+                    }),
             }),
         );
     }

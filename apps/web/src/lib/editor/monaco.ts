@@ -100,6 +100,35 @@ function tokenHex(name: string): string {
     return `#${[r, gr, b].map(x => x.toString(16).padStart(2, '0')).join('')}`;
 }
 
+/** Whether the page shows its dark scheme now: the single source of truth is the page itself, `data-theme` on `<html>`
+ *  (set by the design package's theme boot script and by `chooseTheme`), or, when it is absent ("system"), the
+ *  system's preference. */
+export function pageIsDark(root: HTMLElement = document.documentElement, systemDark = matchMedia('(prefers-color-scheme: dark)').matches): boolean {
+    const shown = root.getAttribute('data-theme');
+    return shown === 'dark' || (shown !== 'light' && systemDark);
+}
+
+/** Keeps Monaco's `yk` theme the page's from now on: applied at once, then on every change of `data-theme` and of the
+ *  system's scheme (which matters while the choice is "system"). Returns the function that stops following. */
+export function followPageTheme(): () => void {
+    const media = matchMedia('(prefers-color-scheme: dark)');
+    let shown: boolean | null = null;
+    const sync = (): void => {
+        const dark = pageIsDark(document.documentElement, media.matches);
+        if (dark === shown) return;
+        shown = dark;
+        applyTheme(dark);
+    };
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    media.addEventListener('change', sync);
+    return () => {
+        observer.disconnect();
+        media.removeEventListener('change', sync);
+    };
+}
+
 /** Defines and applies the `yk` theme from the design tokens as they resolve now. Call after the page's theme
  *  (`data-theme` on `<html>`) changes. */
 export function applyTheme(dark: boolean): void {

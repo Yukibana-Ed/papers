@@ -2,7 +2,7 @@
     import { keepInView } from '#lib/ui/place.ts';
     import { chooseTheme, readTheme } from '@yukibana/design/theme';
     import type { FrameMessage, SelectionAction, SourceLines, SourcePoint } from '@yukibana/papers-frame-protocol';
-    import { onMount } from 'svelte';
+    import { onDestroy, onMount } from 'svelte';
     import type { CommentOps } from '#lib/comments/ops.ts';
     import type { SourceEditor } from '#lib/editor/source-editor.ts';
     import BuilderMenu from '#lib/preview/BuilderMenu.svelte';
@@ -39,6 +39,10 @@
         };
         onMedia();
         media.addEventListener('change', onMedia);
+        // The page's theme is the one source of truth (the editor follows it by itself); the session mirrors it for the
+        // chrome and the preview, whoever changes it.
+        const themeObserver = new MutationObserver(() => (s.theme = readTheme()));
+        themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
         let disposed = false;
         let ed: SourceEditor | null = null;
         void import('#lib/editor/source-editor.ts').then(({ SourceEditor }) => {
@@ -53,10 +57,13 @@
                 selectionButton: (top) => (selButton = top),
             });
             editor = ed;
+            // Browser tests read the editor's state through this; nothing else does.
+            if (navigator.webdriver) Reflect.set(window, '__papersTest', { editor: ed, session: s });
         });
         return () => {
             disposed = true;
             media.removeEventListener('change', onMedia);
+            themeObserver.disconnect();
             ed?.dispose();
         };
     });
@@ -73,12 +80,6 @@
             s.problems.filter((p) => p.sources.includes('build') && (p.severity !== 'info' || s.showNotes)).map((p) => ({ file: p.file, line: p.line, severity: p.severity, message: p.message })),
         ),
     );
-    $effect(() => {
-        const dark = s.dark;
-        // After data-theme has changed on <html>, which the token colours resolve against.
-        const id = requestAnimationFrame(() => editor?.setTheme(dark));
-        return () => cancelAnimationFrame(id);
-    });
     let seeded = false;
     $effect(() => {
         if (editor && !seeded && !room) {
@@ -90,19 +91,50 @@
     // Typst projects get tinymist, which runs in the content frame: started once the editor's models exist, so they open
     // on it at once.
     let languageClient: { dispose(): void } | null = null;
-    $effect(() => {
-        const p = preview;
-        if (!editor || !p || languageClient || !Object.keys(s.files).some((f) => f.endsWith('.typ'))) return;
+    let lspStarts = $state(0);
+
+    /** Starts tinymist in the frame and its client here. The status shown is the client's, told by the frame when the
+     *  server fails (missing files, a crash), and "the preview frame cannot be reached" when the frame never said a word. */
+    function startTypstServer(p: NonNullable<typeof preview>): void {
         languageClient = { dispose: () => {} };
+        s.languageServer = { status: 'starting', detail: '' };
         void Promise.all([import('#lib/lsp/client.ts'), import('#lib/lsp/tinymist.ts')]).then(([{ LanguageClient }, { tinymistProfile }]) => {
-            // The server first, then the client, whose first message (initialize) must find it.
             let c: InstanceType<typeof LanguageClient> | null = null;
-            p.startServer('tinymist', (m) => c?.receive(m as Parameters<InstanceType<typeof LanguageClient>['receive']>[0]));
-            c = new LanguageClient('typst', 'tinymist', (m) => p.lspSend('tinymist', m), tinymistProfile(), (file, items) => s.setLanguageProblems('tinymist', file, items));
+            let heard = false;
+            // The server first, then the client, whose first message (initialize) must find it.
+            p.startServer(
+                'tinymist',
+                (m) => c?.receive(m as Parameters<InstanceType<typeof LanguageClient>['receive']>[0]),
+                (status, detail) => {
+                    heard = true;
+                    if (status === 'failed') c?.fail(detail);
+                },
+            );
+            c = new LanguageClient('typst', 'tinymist', (m) => p.lspSend('tinymist', m), tinymistProfile(), (st) => {
+                if (st.status === 'unavailable') s.languageServer = { status: 'failed', detail: heard ? st.detail : 'the preview frame cannot be reached' };
+                else s.languageServer = { status: st.status, detail: '' };
+            }, (file, items) => s.setLanguageProblems('tinymist', file, items));
             languageClient = c;
         });
-        return () => languageClient?.dispose();
+    }
+
+    /** Stops the Typst language server and starts it again. */
+    function retryLanguageServer(): void {
+        const p = preview;
+        if (!p) return;
+        languageClient?.dispose();
+        languageClient = null;
+        p.stopServer('tinymist');
+        lspStarts++;
+    }
+
+    $effect(() => {
+        void lspStarts;
+        const p = preview;
+        if (!editor || !p || languageClient || !Object.keys(s.files).some((f) => f.endsWith('.typ'))) return;
+        startTypstServer(p);
     });
+    onDestroy(() => languageClient?.dispose());
 
     // A repository's session: every file of the room bound to its model, and files others open bound as they come.
     $effect(() => {
@@ -161,6 +193,10 @@
         },
         acceptSuggestion: (id) => editor?.acceptSuggestion(id),
         rejectSuggestion: (id) => editor?.rejectSuggestion(id),
+        discussSuggestion(id, body) {
+            const place = editor?.suggestionPlace(id);
+            if (place) s.comment(place.file, place.quote, place.range, body);
+        },
     };
 
     async function jumpOther(): Promise<void> {
@@ -428,6 +464,13 @@
                 </button>
             {/each}
             <div class="yk-dock-actions">
+                {#if s.languageServer && s.languageServer.status === 'starting'}
+                    <span class="lsp-state" role="status" data-lsp="starting" {...tip('Typst language server', null, 'starting')}><span class="yk-spinner lsp-spin"></span></span>
+                {:else if s.languageServer && s.languageServer.status === 'failed'}
+                    <button type="button" class="lsp-state is-failed" data-lsp="failed" onclick={retryLanguageServer} {...tip('Typst language server', null, `${s.languageServer.detail} · retry`)}>
+                        <Icon name="alert" size={13} />
+                    </button>
+                {/if}
                 {#if s.suggestMode}
                     <span class="yk-chip yk-chip--violet" {...tip('Suggesting', 'Ctrl+Alt+S', 'your edits wait for review')}><Icon name="suggest" />Suggesting</span>
                 {/if}
