@@ -1,3 +1,5 @@
+import { GitHubError, blob, repoInfo, tree } from '#lib/github/api.ts';
+import { SignInNeeded, dropToken, githubToken } from '#lib/github/token.ts';
 import { findRoots, includedFiles } from '#lib/model/tex.ts';
 
 /** A repository's branch, read for editing: the files the editor and the compiler need, and nothing else. */
@@ -23,14 +25,6 @@ const MAX_TEXT = 2 * 1024 * 1024;
 const MAX_ASSET = 10 * 1024 * 1024;
 const MAX_TOTAL = 64 * 1024 * 1024;
 
-async function getJSON<T>(url: string): Promise<T> {
-    const r = await fetch(url);
-    if (r.status === 401) throw new LoadError('signin', 'Sign in');
-    if (r.status === 404) throw new LoadError('missing', 'Not found');
-    if (!r.ok) throw new LoadError('failed', `GitHub answered ${r.status}`);
-    return (await r.json()) as T;
-}
-
 export class LoadError extends Error {
     readonly kind: 'signin' | 'missing' | 'failed';
     constructor(kind: 'signin' | 'missing' | 'failed', message: string) {
@@ -55,14 +49,28 @@ async function pool<T, R>(items: readonly T[], n: number, f: (t: T) => Promise<R
     return out;
 }
 
-/** Reads `branch` (or the default branch) of `owner/repo` through the app's /api routes: one tree listing, then the
+/** A GitHub call with the page's token, its failures as `LoadError`s. */
+async function gh<T>(f: (token: string) => Promise<T>): Promise<T> {
+    try {
+        return await f(await githubToken());
+    } catch (e) {
+        if (e instanceof SignInNeeded) throw new LoadError('signin', 'Sign in');
+        if (e instanceof GitHubError && e.status === 401) {
+            dropToken();
+            throw new LoadError('signin', 'Sign in');
+        }
+        if (e instanceof GitHubError && e.status === 404) throw new LoadError('missing', 'Not found');
+        throw new LoadError('failed', e instanceof Error ? e.message : 'GitHub did not answer');
+    }
+}
+
+/** Reads `branch` (or the default branch) of `owner/repo` from GitHub, from this page: one tree listing, then the
  *  text files and the build inputs, 24 at a time. Large repositories keep to the documents' folders: a file outside
  *  every document's folder is listed but not read. */
 export async function loadProject(owner: string, repo: string, branch: string | null, onProgress: (done: number, total: number) => void): Promise<LoadedProject> {
-    const base = `/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
-    const info = await getJSON<{ defaultBranch: string; access: 'write' | 'comment' }>(base);
+    const info = await gh(token => repoInfo(token, owner, repo));
     const b = branch ?? info.defaultBranch;
-    const t = await getJSON<{ commit: string; files: { path: string; sha: string; size: number }[]; truncated: boolean }>(`${base}/tree?branch=${encodeURIComponent(b)}`);
+    const t = await gh(token => tree(token, owner, repo, b));
     const candidates = t.files.filter(f => (TEXT.test(f.path) && f.size <= MAX_TEXT) || (ASSET.test(f.path) && f.size <= MAX_ASSET));
     // Which folders hold documents: a `.tex` at the top of a folder with \documentclass is found after reading, so take
     // the folders of every .tex file first, and read everything under the shallowest of them.
@@ -78,8 +86,7 @@ export async function loadProject(owner: string, repo: string, branch: string | 
     let done = 0;
     onProgress(0, wanted.length);
     const fetched = await pool(wanted, 24, async f => {
-        const r = await fetch(`${base}/blob/${f.sha}`);
-        if (!r.ok) throw new LoadError('failed', `Could not read ${f.path}`);
+        const r = await gh(token => blob(token, owner, repo, f.sha));
         const bytes = new Uint8Array(await r.arrayBuffer());
         onProgress(++done, wanted.length);
         return { f, bytes };

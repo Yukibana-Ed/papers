@@ -52,6 +52,11 @@
     {#if s.uncommitted > 0}
         <span class="yk-chip yk-chip--yellow pending" {...tip(`${s.uncommitted} uncommitted`, null, 'session edits your clone cannot see')}>+{s.uncommitted}</span>
     {/if}
+    {#if s.sync === 'paused'}
+        <span class="yk-chip yk-chip--yellow" {...tip('Live sync paused', null, 'edits sync again tomorrow')}><Icon name="alert" />Paused</span>
+    {:else if s.sync === 'offline'}
+        <span class="yk-chip" {...tip('Offline', null, 'edits are kept and sent on reconnect')}><Icon name="alert" />Offline</span>
+    {/if}
     {#if s.incoming > 0}
         <span class="yk-chip yk-chip--blue incoming" {...tip(`${s.incoming} incoming`, null, 'pushed outside the session, merged')}>
             <Icon name="down" />
