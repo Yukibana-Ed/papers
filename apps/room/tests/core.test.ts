@@ -89,18 +89,18 @@ class Client {
 describe('room', () => {
     it('shares an opened file and edits to it', () => {
         const room = new RoomCore(new RoomStore(memorySql()));
-        const a = new Client(room, 'ambrus', 'write');
+        const a = new Client(room, 'ada', 'write');
         const b = new Client(room, 'lena', 'write');
         a.open('paper.tex', 'Hello world');
         expect(b.file('paper.tex')).toBe('Hello world');
         b.text.getMap<Y.Text>('files').get('paper.tex')?.insert(5, ',');
         expect(a.file('paper.tex')).toBe('Hello, world');
-        expect(a.control[0]).toMatchObject({ type: 'welcome', you: { login: 'ambrus', access: 'write' } });
+        expect(a.control[0]).toMatchObject({ type: 'welcome', you: { login: 'ada', access: 'write' } });
     });
 
     it('creates a file once, however many open it', () => {
         const room = new RoomCore(new RoomStore(memorySql()));
-        const a = new Client(room, 'ambrus', 'write');
+        const a = new Client(room, 'ada', 'write');
         const b = new Client(room, 'lena', 'write');
         a.open('x.tex', 'abc');
         b.open('x.tex', 'abc');
@@ -109,7 +109,7 @@ describe('room', () => {
 
     it('lets commenters comment but not edit', () => {
         const room = new RoomCore(new RoomStore(memorySql()));
-        const w = new Client(room, 'ambrus', 'write');
+        const w = new Client(room, 'ada', 'write');
         const c = new Client(room, 'weber', 'comment');
         w.open('paper.tex', 'Text');
         c.text.getMap<Y.Text>('files').get('paper.tex')?.insert(0, 'X');
@@ -124,7 +124,7 @@ describe('room', () => {
     it('keeps everything across a restart', () => {
         const db = new DatabaseSync(':memory:');
         const room = new RoomCore(new RoomStore(memorySql(db)));
-        const a = new Client(room, 'ambrus', 'write');
+        const a = new Client(room, 'ada', 'write');
         a.open('paper.tex', 'one');
         a.text.getMap<Y.Text>('files').get('paper.tex')?.insert(3, ' two');
         const again = new RoomCore(new RoomStore(memorySql(db)));
@@ -135,7 +135,7 @@ describe('room', () => {
 
     it('refuses a file from another commit than the base', () => {
         const room = new RoomCore(new RoomStore(memorySql()));
-        const a = new Client(room, 'ambrus', 'write');
+        const a = new Client(room, 'ada', 'write');
         a.open('a.tex', 'a', 'c1');
         a.open('b.tex', 'b', 'c2');
         expect(a.file('b.tex')).toBeUndefined();
@@ -143,7 +143,7 @@ describe('room', () => {
 
     it('moves the base on commit and tells everyone', () => {
         const room = new RoomCore(new RoomStore(memorySql()));
-        const a = new Client(room, 'ambrus', 'write');
+        const a = new Client(room, 'ada', 'write');
         const b = new Client(room, 'lena', 'write');
         a.open('a.tex', 'a');
         room.receive(a.peer, JSON.stringify({ type: 'committed', commit: 'c2', files: [{ path: 'a.tex', blob: 'b2', text: 'a!' }] }));
@@ -152,7 +152,7 @@ describe('room', () => {
 
     it('relays presence and drops it when the connection goes', () => {
         const room = new RoomCore(new RoomStore(memorySql()));
-        const a = new Client(room, 'ambrus', 'write');
+        const a = new Client(room, 'ada', 'write');
         const remote = new Awareness(new Y.Doc());
         remote.setLocalState({ user: 'lena', file: 'a.tex', line: 3 });
         const lena: Peer = { identity: { login: 'lena', name: 'Lena', access: 'comment' }, awarenessIds: new Set(), send: () => {} };
@@ -172,7 +172,7 @@ describe('room', () => {
         let now = Date.UTC(2026, 10, 26, 12);
         const limits = { ...DEFAULT_LIMITS, burstBytes: 1000, bytesPerSecond: 100, bytesPerDay: 5000 };
         const room = new RoomCore(new RoomStore(memorySql()), () => now, limits);
-        const a = new Client(room, 'ambrus', 'write');
+        const a = new Client(room, 'ada', 'write');
         a.open('a.tex', '');
         const t = a.text.getMap<Y.Text>('files').get('a.tex');
         t?.insert(0, 'x'.repeat(1200));
@@ -186,7 +186,7 @@ describe('room', () => {
 
     it('asks a writer for a WIP backup after changes', () => {
         const room = new RoomCore(new RoomStore(memorySql()));
-        const a = new Client(room, 'ambrus', 'write');
+        const a = new Client(room, 'ada', 'write');
         a.open('a.tex', 'a');
         expect(room.tick()).toBe(true);
         expect(a.control.at(-1)).toEqual({ type: 'backup-due' });

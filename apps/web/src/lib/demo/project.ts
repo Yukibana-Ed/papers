@@ -4,12 +4,12 @@ import type { Branch, Commit, Presence, Suggestion, Thread, User } from '#lib/mo
  *  for a GitHub repository and its room until the user opens one of their own. */
 
 export const USERS: Readonly<Record<string, User>> = {
-    ambrus: { id: 'ambrus', name: 'Ambrus Tóth', initials: 'AT', hue: 178 },
+    ada: { id: 'ada', name: 'Ada Varga', initials: 'AV', hue: 178 },
     lena: { id: 'lena', name: 'Lena Kraus', initials: 'LK', hue: 300 },
     marco: { id: 'marco', name: 'Marco Rossi', initials: 'MR', hue: 355 },
     weber: { id: 'weber', name: 'Prof. Weber', initials: 'PW', hue: 80 },
 };
-export const ME = 'ambrus';
+export const ME = 'ada';
 
 export const REPO = { owner: 'yukibana-demo', name: 'feedback-paper' } as const;
 
@@ -22,7 +22,7 @@ export const FILES: Readonly<Record<string, string>> = {
 \usepackage[margin=1in]{geometry}
 
 \title{Instant Feedback in Introductory Programming}
-\author{Ambrus Tóth \and Lena Kraus \and Marco Rossi}
+\author{Ada Varga \and Lena Kraus \and Marco Rossi}
 
 \begin{document}
 \maketitle
@@ -101,7 +101,7 @@ were the same, but the teaching assistants were not.
 `,
     'slides.tex': String.raw`\documentclass{beamer}
 \title{Instant Feedback}
-\author{Ambrus Tóth}
+\author{Ada Varga}
 
 \begin{document}
 \maketitle
@@ -153,15 +153,15 @@ export const BASE: Readonly<Record<string, string>> = {
 };
 
 export const BRANCHES: Readonly<Record<string, Branch>> = {
-    main: { name: 'main', users: ['ambrus', 'lena'], pr: null },
+    main: { name: 'main', users: ['ada', 'lena'], pr: null },
     'related-work': { name: 'related-work', users: ['marco'], pr: { number: 14, title: 'Add related work section', checks: 'passing' } },
 };
 
 export const COMMITS: readonly Commit[] = [
     { hash: 'a1b2c3d', author: 'lena', when: '2 h ago', msg: 'Tighten the abstract' },
-    { hash: '9f3e2aa', author: 'ambrus', when: 'yesterday', msg: 'Add mixed model to method' },
+    { hash: '9f3e2aa', author: 'ada', when: 'yesterday', msg: 'Add mixed model to method' },
     { hash: '5c01d7e', author: 'marco', when: '2 days ago', msg: 'Results: first draft' },
-    { hash: '0e6b4f1', author: 'ambrus', when: '4 days ago', msg: 'Initial structure' },
+    { hash: '0e6b4f1', author: 'ada', when: '4 days ago', msg: 'Initial structure' },
 ];
 
 export const THREADS: readonly Thread[] = [
@@ -188,7 +188,7 @@ export const THREADS: readonly Thread[] = [
                 },
                 {
                     id: 'c4',
-                    author: 'ambrus',
+                    author: 'ada',
                     when: '2 h ago',
                     resolved: true,
                     body: 'Added `becker2019` to `refs.bib`.',
