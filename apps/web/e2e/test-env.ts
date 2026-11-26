@@ -6,3 +6,6 @@ export const E2E_SESSION_KEY = btoa(String.fromCharCode(...Array.from({ length: 
 
 /** Stands in for the GitHub App's client secret: the tests never reach GitHub's token endpoint. */
 export const E2E_CLIENT_SECRET = 'e2e-not-a-secret';
+
+/** Where the stand-in GitHub listens (e2e/fake-github.ts): the app Worker's `GITHUB_API`. */
+export const E2E_GITHUB = 'http://127.0.0.1:4175';

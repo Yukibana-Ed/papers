@@ -76,7 +76,7 @@
         >
     </div>
 
-    <button type="button" class="yk-btn yk-btn--ghost btn-sm" aria-pressed={s.suggestMode} onclick={() => (s.suggestMode = !s.suggestMode)} {...tip(s.suggestMode ? 'Suggesting' : 'Suggest', 'Ctrl+Alt+S', 'edits become suggestions')}>
+    <button type="button" class="yk-btn yk-btn--ghost btn-sm" aria-pressed={s.suggestMode} disabled={s.readOnly} onclick={() => (s.suggestMode = !s.suggestMode)} {...tip(s.suggestMode ? 'Suggesting' : 'Suggest', 'Ctrl+Alt+S', 'edits become suggestions')}>
         <Icon name="suggest" size={14} />
         <span class="hide-sm">{s.suggestMode ? 'Suggesting' : 'Suggest'}</span>
     </button>
@@ -85,7 +85,7 @@
         class="yk-btn yk-btn--primary btn-sm"
         data-popover-anchor
         data-done={s.justCommitted ? '' : undefined}
-        disabled={!s.uncommitted && !s.justCommitted}
+        disabled={s.readOnly || (!s.uncommitted && !s.justCommitted)}
         onclick={() => s.togglePopover('commit')}
         {...tip('Commit', 'Ctrl+S', `commit the session's changes to ${s.branch}`)}
     >

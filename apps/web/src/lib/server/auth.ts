@@ -38,6 +38,14 @@ export function authEnv(_event?: RequestEvent): AuthEnv | null {
     return { GITHUB_CLIENT_ID: env.GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET: env.GITHUB_CLIENT_SECRET, SESSION_KEY: env.SESSION_KEY };
 }
 
+/** The GitHub API the Worker asks: api.github.com (undefined, the callers' default), unless `GITHUB_API` names a
+ *  stand-in on this machine's loopback address, as the browser tests' Workers have it. A deployed Worker cannot reach
+ *  a loopback address, and no other value is taken, so a token can go nowhere but GitHub. */
+export function githubApi(): string | undefined {
+    const api = workerPlatform().env?.GITHUB_API;
+    return api !== undefined && /^http:\/\/127\.0\.0\.1:\d{1,5}$/.test(api) ? api : undefined;
+}
+
 function isSession(x: unknown): x is Session {
     if (typeof x !== 'object' || x === null) return false;
     const r = x as Record<string, unknown>;

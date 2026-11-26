@@ -153,6 +153,11 @@ export class SourceEditor {
     private readonly latex = new LatexIndex();
     private readonly latexSeen = new Map<string, number>();
 
+    /** Whether typing changes the text: off for someone with read access. Text still changes as others edit it. */
+    setReadOnly(on: boolean): void {
+        this.ed.updateOptions({ readOnly: on });
+    }
+
     /** Every path of the project, binary files included, for the paths that LaTeX completion offers. */
     setProjectPaths(paths: readonly string[]): void {
         this.latex.setPaths(paths);
