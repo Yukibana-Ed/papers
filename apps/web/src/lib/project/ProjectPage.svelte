@@ -57,6 +57,8 @@
             presence: [],
             assets: Object.fromEntries(p.assets),
             access: p.access,
+            unread: Object.fromEntries(p.unread),
+            otherFiles: p.order.filter((path) => !(path in files) && !p.unread.has(path)),
         });
         head = base ?? p.commit;
         s.backend = {

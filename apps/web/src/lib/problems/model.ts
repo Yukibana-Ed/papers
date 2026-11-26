@@ -47,15 +47,21 @@ function lastCommand(excerpt: string | undefined): string | null {
 
 /** A readable sentence for the TeX messages people meet most, and the severity it should have; null for the rest.
  *  Undefined references and citations are warnings: the document builds, with "??" where they go. Over- and underfull
- *  boxes are notes. */
-export function readable(message: string, excerpt?: string): { message: string; severity?: Severity } | null {
+ *  boxes are notes. `unread` names the project's files that were not loaded and why (`SessionSeed.unread`). */
+export function readable(message: string, excerpt?: string, unread: Readonly<Record<string, string>> = {}): { message: string; severity?: Severity } | null {
     const m = message.trim();
     if (/^Undefined control sequence\.?$/.test(m)) {
         const cmd = lastCommand(excerpt);
         return { message: cmd ? `Unknown command ${cmd}` : 'Unknown command' };
     }
     const file = /^(?:LaTeX Error: )?File `([^']+)' not found\.?$/.exec(m);
-    if (file) return { message: `${file[1] ?? 'A file'} is not in TeX Live or the project` };
+    if (file) {
+        const name = file[1] ?? '';
+        // A file of the repository that was not loaded is another matter than one that is nowhere.
+        const kept = Object.keys(unread).find(p => p === name || p.endsWith(`/${name}`) || p.replace(/\.tex$/, '') === name);
+        if (kept !== undefined) return { message: `${kept} was not loaded: ${unread[kept] ?? ''}` };
+        return { message: `${name || 'A file'} is not in TeX Live or the project` };
+    }
     if (/^Missing \$ inserted\.?$/.test(m)) return { message: 'Math outside $…$: a math-only command or ^ or _ in text' };
     if (/^Runaway argument\??$/.test(m) || m.startsWith('File ended while scanning use of') || /^Paragraph ended before .* was complete\.?$/.test(m))
         return { message: 'An argument is not closed: a } is missing' };
@@ -86,11 +92,15 @@ function key(message: string): string {
  *  with both as sources and the more precise range. Two reports also count as the same when they are errors on the same
  *  line and one message contains the other (a language server often words TeX's message slightly differently).
  *  Promises: ordered errors first, then warnings, then notes; within a severity by `order` of files, then line. */
-export function mergeProblems(reports: readonly { readonly source: ProblemSource; readonly items: readonly Reported[] }[], order: readonly string[] = []): Problem[] {
+export function mergeProblems(
+    reports: readonly { readonly source: ProblemSource; readonly items: readonly Reported[] }[],
+    order: readonly string[] = [],
+    unread: Readonly<Record<string, string>> = {},
+): Problem[] {
     const out: Problem[] = [];
     for (const { source, items } of reports) {
         for (const d of items) {
-            const nice = readable(d.message, d.excerpt);
+            const nice = readable(d.message, d.excerpt, unread);
             const severity = nice?.severity ?? d.severity;
             const message = nice?.message ?? d.message;
             const raw = nice && nice.message !== d.message ? d.message : undefined;
@@ -168,4 +178,15 @@ export function nextProblem(list: readonly Problem[], order: readonly string[], 
     const here = rank(file, line);
     if (dir === 1) return items.find(p => rank(p.file, p.line) > here) ?? items[0] ?? null;
     return items.toReversed().find(p => rank(p.file, p.line) < here) ?? items.at(-1) ?? null;
+}
+
+/** A problem as text for the clipboard. Without `location`: its message, then the reporter's own message when that
+ *  differs. With it: `file:line[:column]: severity: message` (a note's severity is "note"), then the reporter's own
+ *  message and the log's excerpt, each on lines of their own. */
+export function problemText(p: Problem, location: boolean): string {
+    const where = `${p.file}:${p.line}${p.column === undefined ? '' : `:${p.column}`}`;
+    const lines = [location ? `${where}: ${p.severity === 'info' ? 'note' : p.severity}: ${p.message}` : p.message];
+    if (p.raw !== undefined && p.raw !== p.message) lines.push(p.raw);
+    if (location && p.excerpt) lines.push(p.excerpt);
+    return lines.join('\n');
 }

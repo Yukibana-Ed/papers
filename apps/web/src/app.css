@@ -236,6 +236,23 @@ button {
     align-items: center;
     gap: 8px;
 }
+.ctx-menu {
+    position: fixed;
+    /* A manual popover in the top layer: undo the UA's centring so left/top place it. */
+    inset: auto;
+    margin: 0;
+    min-width: 200px;
+    padding: 6px;
+    background: var(--yk-surface);
+    color: var(--yk-ink);
+    border: 1px solid var(--yk-line);
+    border-radius: var(--yk-radius-md);
+    box-shadow: 0 16px 40px -20px oklch(0% 0 0 / 0.45);
+    font-size: var(--yk-font-size-sm);
+}
+.ctx-menu .row-btn:focus-visible {
+    background: var(--yk-sunken);
+}
 .pop-sep {
     height: 1px;
     background: var(--yk-line);
@@ -480,6 +497,19 @@ button {
     bottom: 4px;
     width: 2px;
     background: var(--yk-ink);
+}
+.filelist .folder .yk-icon {
+    transition: transform var(--yk-duration-fast, 120ms);
+}
+.filelist .folder.is-closed .yk-icon:first-child {
+    transform: rotate(-90deg);
+}
+.filelist .is-unread {
+    color: var(--yk-soft);
+    cursor: default;
+}
+.filelist .is-unread:hover {
+    background: transparent;
 }
 .filelist .mod {
     font-family: var(--yk-font-family-mono);
