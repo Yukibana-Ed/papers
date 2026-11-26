@@ -1136,7 +1136,8 @@ button {
         padding: 0 6px 0 10px;
     }
     .hide-xs,
-    .bar .avatars {
+    .bar .avatars,
+    .bar .present {
         display: none;
     }
     .bar .chip-btn > span:not(.avatars) {
