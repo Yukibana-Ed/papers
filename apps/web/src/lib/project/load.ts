@@ -25,6 +25,8 @@ const MAX_TEXT = 2 * 1024 * 1024;
 const MAX_ASSET = 10 * 1024 * 1024;
 const MAX_TOTAL = 64 * 1024 * 1024;
 
+/** Why a project did not open: `signin` (the user must sign in again), `missing` (no such repository or branch, or
+ *  no access to it), or `failed` (anything else); the message is fit to show. */
 export class LoadError extends Error {
     readonly kind: 'signin' | 'missing' | 'failed';
     constructor(kind: 'signin' | 'missing' | 'failed', message: string) {
@@ -66,11 +68,13 @@ async function gh<T>(f: (token: string) => Promise<T>): Promise<T> {
 
 /** Reads `branch` (or the default branch) of `owner/repo` from GitHub, from this page: one tree listing, then the
  *  text files and the build inputs, 24 at a time. Large repositories keep to the documents' folders: a file outside
- *  every document's folder is listed but not read. */
+ *  every document's folder is listed but not read. Throws a `LoadError` when GitHub cut the tree listing short. */
 export async function loadProject(owner: string, repo: string, branch: string | null, onProgress: (done: number, total: number) => void): Promise<LoadedProject> {
     const info = await gh(token => repoInfo(token, owner, repo));
     const b = branch ?? info.defaultBranch;
     const t = await gh(token => tree(token, owner, repo, b));
+    // GitHub lists at most 100,000 entries in one tree: a project that opened without the rest would look complete.
+    if (t.truncated) throw new LoadError('failed', 'Too many files to open');
     const candidates = t.files.filter(f => (TEXT.test(f.path) && f.size <= MAX_TEXT) || (ASSET.test(f.path) && f.size <= MAX_ASSET));
     // Which folders hold documents: a `.tex` at the top of a folder with \documentclass is found after reading, so take
     // the folders of every .tex file first, and read everything under the shallowest of them.
