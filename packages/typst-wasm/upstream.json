@@ -1,0 +1,13 @@
+{
+  "repository": "https://github.com/Myriad-Dreamin/typst.ts",
+  "version": "0.8.0-rc4",
+  "commit": "ea3cf3a0de3529fe91cb6b9024ba11593743ac37",
+  "commitTime": 1794223269,
+  "build": 1,
+  "rust": "1.92.0",
+  "wasmBindgen": {
+    "version": "0.2.118",
+    "url": "https://github.com/rustwasm/wasm-bindgen/releases/download/0.2.118/wasm-bindgen-0.2.118-x86_64-unknown-linux-musl.tar.gz",
+    "sha256": "00b519c9fc2d6e087265da1a00f29160bfcc6a823993482bc2e691910287427b"
+  }
+}
