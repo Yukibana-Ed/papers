@@ -108,6 +108,9 @@ export class SourceEditor {
             contextmenu: true,
             guides: { indentation: false },
             stickyScroll: { enabled: false },
+            // Hover, completion and parameter hints float over the page, not inside the editor's box, so they are never
+            // cut off at the pane's edges.
+            fixedOverflowWidgets: true,
         });
         const e = this.ed;
         this.disposables.push(

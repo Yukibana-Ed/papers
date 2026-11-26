@@ -51,4 +51,6 @@ export default {
     ssr: { noExternal: ['@yukibana/design'] },
     server: { fs: { allow: [design] }, headers: isolation },
     preview: { headers: isolation },
+    // Unit tests that mount components (happy-dom) need Svelte's client build, not the server one Node resolves.
+    ...(process.env['VITEST'] ? { resolve: { conditions: ['browser'] } } : {}),
 } satisfies UserConfig;

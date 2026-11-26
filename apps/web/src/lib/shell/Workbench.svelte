@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { keepInView } from '#lib/ui/place.ts';
     import { chooseTheme, readTheme } from '@yukibana/design/theme';
     import type { FrameMessage, SelectionAction, SourceLines, SourcePoint } from '@yukibana/papers-frame-protocol';
     import { onMount } from 'svelte';
@@ -439,7 +440,7 @@
                 <BuilderMenu session={s} onPaired={(token) => preview?.connectComputer(token)} />
             {/if}
             {#if s.popover === 'doc'}
-                <div class="popover pop-doc" role="dialog" aria-label="Document">
+                <div class="popover pop-doc" role="dialog" {@attach keepInView} aria-label="Document">
                     {#each s.roots as r (r)}
                         <button
                             type="button"
