@@ -798,9 +798,6 @@ button {
     text-decoration-color: color-mix(in oklch, var(--yk-chip-violet-fg) 50%, transparent);
     text-underline-offset: 3px;
 }
-.hover-line {
-    background: color-mix(in oklab, var(--yk-chip-blue-bg) 55%, transparent);
-}
 .presence-caret {
     position: relative;
 }

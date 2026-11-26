@@ -95,7 +95,6 @@
         });
     });
     $effect(() => editor?.setProjectPaths([...Object.keys(s.files), ...Object.keys(s.assets)]));
-    $effect(() => editor?.setHover(s.hover));
     // The settled build's problems (language servers mark their own); notes only when the Problems panel shows them.
     $effect(() =>
         editor?.setDiagnostics(
