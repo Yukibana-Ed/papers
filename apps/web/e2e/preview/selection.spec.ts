@@ -215,7 +215,8 @@ for (const colorScheme of ['light', 'dark'] as const) {
     });
 }
 
-/** How a screenshot of the same spot changed. Ink (pixels darker than 80 of 255): how many, and how much lighter the
+/** How a screenshot of the same spot changed. Ink (pixels darker than 140 of 255; thin glyphs at 1x have few dark
+ *  ones): how many, and how much lighter the
  *  lightest of them became, which a highlight washing over the text shows and one under or around it does not. Paper
  *  (near white): the share that changed visibly. */
 async function inkAndPaper(page: Page, before: Buffer, after: Buffer): Promise<{ inkPixels: number; inkLighter: number; paperChanged: number }> {
@@ -240,7 +241,7 @@ async function inkAndPaper(page: Page, before: Buffer, after: Buffer): Promise<{
             for (let i = 0; i < p.length; i += 4) {
                 const was = lum(p, i);
                 const now = lum(q, i);
-                if (was < 80) {
+                if (was < 140) {
                     inkPixels++;
                     inkLighter = Math.max(inkLighter, now - was);
                 } else if (was > 245) {
@@ -278,7 +279,7 @@ for (const deviceScaleFactor of [1, 2]) {
             await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
             await expect(frame.locator('.pv-hover-box').first()).toBeVisible();
             const hovered = await inkAndPaper(page, before, await page.screenshot({ clip }));
-            expect(hovered.inkPixels).toBeGreaterThan(50);
+            expect(hovered.inkPixels).toBeGreaterThan(20);
             expect(hovered.inkLighter).toBeLessThanOrEqual(3);
             expect(hovered.paperChanged).toBeGreaterThan(0.5);
 

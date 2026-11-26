@@ -117,6 +117,7 @@ test.describe('words picked in the preview', () => {
         const frame = await preview(page);
         await openComments(page);
         // The panel narrows the preview, which lays its pages out again at the new scale: measure once that is done.
+        await expect(page.locator('.pv-spin')).toHaveCount(0, { timeout: 60_000 });
         let words = await textBox(page, frame, 'where most of them', 'most of');
         for (let i = 0; i < 20; i++) {
             await page.waitForTimeout(500);
@@ -132,7 +133,8 @@ test.describe('words picked in the preview', () => {
             .evaluate(el => el.getBoundingClientRect().width);
         await page.mouse.move(words.x + 1, words.y + words.height / 2);
         await page.mouse.down();
-        await page.mouse.move(words.x + words.width - 1, words.y + words.height / 2, { steps: 8 });
+        // To the middle of the space after "of": a selection's blank ends are left out of the comment's anchor.
+        await page.mouse.move(words.x + words.width + 2, words.y + words.height / 2, { steps: 8 });
         await page.mouse.up();
         await frame.getByRole('button', { name: 'Comment' }).click();
         await page.locator('.composer .cm-rich').click();
