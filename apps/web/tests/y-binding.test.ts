@@ -111,4 +111,27 @@ describe('TextBinding', () => {
         expect(mb.getValue()).toBe(a.getText('t').toJSON());
         expect(ma.getValue()).toBe(a.getText('t').toJSON());
     });
+
+    it('with a view, keeps text shown only in the model out of the room and maps remote edits around it', () => {
+        const doc = new Y.Doc();
+        const t = doc.getText('t');
+        t.insert(0, 'abc def');
+        // The model shows "NEW " suggested at offset 4, which the file does not have.
+        const m = new FakeModel('abc NEW def');
+        const view = {
+            committed: (): string => m.getValue().slice(0, 4) + m.getValue().slice(8),
+            toModel: (c: number): number => (c > 4 ? c + 4 : c),
+        };
+        const b = new TextBinding(m as never, t, view);
+        m.type(0, 0, 'X');
+        expect(t.toJSON()).toBe('abc def'); // not pushed yet: the owner pushes once the change has settled
+        view.committed = (): string => m.getValue().slice(0, 5) + m.getValue().slice(9);
+        view.toModel = (c: number): number => (c > 5 ? c + 4 : c);
+        b.push();
+        expect(t.toJSON()).toBe('Xabc def');
+        t.insert(8, '!');
+        expect(m.getValue()).toBe('Xabc NEW def!');
+        t.delete(6, 3);
+        expect(m.getValue()).toBe('Xabc NEW d');
+    });
 });

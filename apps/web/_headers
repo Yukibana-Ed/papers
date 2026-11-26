@@ -1,0 +1,8 @@
+# Static files are served by Cloudflare's assets layer, which the Worker's hook never sees. The page is cross-origin
+# isolated (COOP and COEP from src/hooks.server.ts), and an isolated page may start a worker only from a script that is
+# isolated too: without these, Monaco's editor worker was refused (ERR_BLOCKED_BY_RESPONSE).
+/*
+  Cross-Origin-Embedder-Policy: require-corp
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Resource-Policy: same-origin
+  X-Content-Type-Options: nosniff
