@@ -11,6 +11,10 @@ describe('readable', () => {
 
     it('rewords the common TeX errors and leaves others alone', () => {
         expect(readable("LaTeX Error: File `tikzz.sty' not found.")?.message).toBe('tikzz.sty is not in TeX Live or the project');
+        // A file of the repository that was not loaded is named with why, by its path in the project.
+        const unread = { 'paper/generated/numbers.tex': 'larger than 2 MB' };
+        expect(readable("LaTeX Error: File `generated/numbers.tex' not found.", undefined, unread)?.message).toBe('paper/generated/numbers.tex was not loaded: larger than 2 MB');
+        expect(readable("LaTeX Error: File `other.tex' not found.", undefined, unread)?.message).toBe('other.tex is not in TeX Live or the project');
         expect(readable('Missing $ inserted.')?.message).toMatch(/^Math outside/);
         expect(readable('Runaway argument?')?.message).toMatch(/not closed/);
         expect(readable('File ended while scanning use of \\textbf.')?.message).toMatch(/not closed/);
