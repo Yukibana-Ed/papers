@@ -42,7 +42,10 @@ export function tinymistProfile(asset: (path: string) => Uint8Array | undefined 
                     return { uri, content: contents(uri) };
                 });
                 listen(client);
-                if (inserts.length) void client.request('tinymist/fsChange', { inserts, removes: [], isSync: true });
+                // Not as a sync event: the server asks for these while checking the paper and goes on without them;
+                // a sync answer filled its file system but left the paper checked without the files (a stale "failed to
+                // load file" until the next edit). As a change, it checks the paper again with them.
+                if (inserts.length) void client.request('tinymist/fsChange', { inserts, removes: [], isSync: false });
                 return null;
             },
         },
