@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { keepInView } from '#lib/ui/place.ts';
     import { pair } from '#lib/runner/client.ts';
     import type { Session } from '#lib/session.svelte.ts';
     import Icon from '#lib/ui/Icon.svelte';
@@ -25,7 +26,7 @@
     }
 </script>
 
-<div class="popover pop-builder" role="dialog" aria-label="Build">
+<div class="popover pop-builder" role="dialog" {@attach keepInView} aria-label="Build">
     <button
         type="button"
         class="row-btn"

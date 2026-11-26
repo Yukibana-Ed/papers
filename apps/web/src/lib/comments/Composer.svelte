@@ -1,5 +1,6 @@
 <script lang="ts">
     import type { EditorView } from 'prosemirror-view';
+    import { untrack } from 'svelte';
     import Icon from '#lib/ui/Icon.svelte';
     import type { IconName } from '#lib/ui/icons.ts';
     import { tip } from '#lib/ui/tooltip.ts';
@@ -48,7 +49,15 @@
         }
     }
 
+    /** Creates the rich editor once for `host`. The view owns its document and selection: it reports Markdown out
+     *  (`markdown`) and is never rebuilt from it. Everything read here is read untracked, since an attachment re-runs
+     *  when what it reads changes: reading `markdown` made every keystroke rebuild the editor with the caret at the
+     *  start, so typing came out backwards. */
     function mount(host: HTMLElement): () => void {
+        return untrack(() => mountOnce(host));
+    }
+
+    function mountOnce(host: HTMLElement): () => void {
         const v = createRichEditor(host, {
             markdown,
             placeholder,
@@ -73,6 +82,11 @@
             v.destroy();
             view = null;
         };
+    }
+
+    /** The rich editor's view while it is mounted, for tests that type into it as the browser does. */
+    export function editorView(): EditorView | null {
+        return view;
     }
 
     function run(name: CommandName): void {
@@ -129,7 +143,7 @@
         >
             <Icon name="markdown" size={14} />
         </button>
-        <span class="grow"></span>
+        <div class="composer-send">
         {#if allowTarget}
             <div class="yk-segmented seg-xs" role="group" aria-label="Post to">
                 <button type="button" aria-pressed={target === 'team'} onclick={() => (target = 'team')} {...tip('Team note', null, 'stays in Yukibana')}>Team</button>
@@ -140,5 +154,6 @@
             <button type="button" class="yk-btn yk-btn--ghost btn-xs" onclick={() => onCancel?.()} {...tip('Cancel', 'Esc')}>Cancel</button>
         {/if}
         <button type="button" class="yk-btn yk-btn--primary btn-xs" disabled={!markdown.trim()} onclick={send} {...tip('Send', 'Ctrl+Enter')}>Send</button>
+        </div>
     </div>
 </div>

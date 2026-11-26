@@ -269,6 +269,11 @@ button {
 /* --- tooltip: name, shortcut, one short clause ----------------------------------------------------------------------- */
 .tip {
     position: fixed;
+    /* A manual popover in the top layer: undo the UA's centring so left/top place it. */
+    inset: auto;
+    margin: 0;
+    border: 0;
+    overflow: visible;
     z-index: 100;
     max-width: 260px;
     padding: 5px 8px;
@@ -569,7 +574,8 @@ button {
 .cm-card:not(.is-active) .cm-actions {
     visibility: hidden;
 }
-.cm-card:not(.is-active):hover .cm-actions {
+.cm-card:not(.is-active):hover .cm-actions,
+.cm-card:not(.is-active):focus-within .cm-actions {
     visibility: visible;
 }
 .cm-sugg {
@@ -646,8 +652,10 @@ button {
 }
 .composer-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 6px;
+    min-width: 0;
 }
 
 /* --- panes ---------------------------------------------------------------------------------------------------------- */
@@ -946,20 +954,24 @@ button {
     border-left: 2px solid var(--yk-line-strong);
     color: var(--yk-soft);
 }
+/* Code in comments sits on the line colour, one clear step from the card and the composer (surface): light 90% on 100%,
+   dark 29% on 20% lightness. Its text is the code ink, about 11:1 against it in both themes. */
 .cm-body code,
 .cm-rich code {
     font-family: var(--yk-font-family-mono);
     font-size: 0.9em;
-    padding: 0 3px;
-    border-radius: 3px;
-    background: var(--yk-sunken);
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: var(--yk-line);
+    color: var(--yk-code-ink);
 }
 .cm-body pre,
 .cm-rich pre {
     margin: 2px 0 4px;
     padding: 6px 8px;
     border-radius: var(--yk-radius-sm);
-    background: var(--yk-sunken);
+    background: var(--yk-line);
+    color: var(--yk-code-ink);
     overflow: auto;
     font-size: 12px;
 }
@@ -1016,6 +1028,21 @@ button {
     pointer-events: none;
     float: left;
     height: 0;
+}
+.composer-row > * {
+    min-width: 0;
+}
+/* The send group (target, Cancel, Send) stays together and wraps to its own line when the panel is narrow. */
+.composer-send {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-left: auto;
+}
+.composer-row .yk-btn {
+    white-space: nowrap;
 }
 .composer-row .yk-icon-btn[aria-pressed='true'] {
     background: var(--yk-sunken);

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { keepInView } from '#lib/ui/place.ts';
     import type { Session } from '#lib/session.svelte.ts';
     import Avatar from '#lib/ui/Avatar.svelte';
     import Icon from '#lib/ui/Icon.svelte';
@@ -37,7 +38,7 @@
             {s.head.hash}
         </button>
         {#if s.popover === 'log'}
-            <div class="popover pop-log" role="dialog" aria-label="Log">
+            <div class="popover pop-log" role="dialog" {@attach keepInView} aria-label="Log">
                 {#each s.commits.slice(0, 8) as c, i (c.hash + i)}
                     <div class="log-row">
                         <span class="mono hash">{c.hash}</span>
@@ -97,7 +98,7 @@
     </button>
 
     {#if s.popover === 'commit'}
-        <div class="popover pop-commit" role="dialog" aria-label="Commit">
+        <div class="popover pop-commit" role="dialog" {@attach keepInView} aria-label="Commit">
             <!-- svelte-ignore a11y_autofocus -->
             <input autofocus class="yk-input" placeholder={s.defaultCommitMessage} bind:value={s.commitMessage} onkeydown={(e) => e.key === 'Enter' && void s.commit()} aria-label="Message" />
             <ul class="changes">

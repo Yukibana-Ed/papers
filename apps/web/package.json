@@ -14,9 +14,11 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "lint": "svelte-kit sync && oxlint --type-aware --deny-warnings"
+    "lint": "svelte-kit sync && oxlint --type-aware --deny-warnings",
+    "e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "catalog:",
     "@sveltejs/adapter-cloudflare": "catalog:",
     "@sveltejs/kit": "catalog:",
     "@sveltejs/vite-plugin-svelte": "catalog:",

@@ -3,6 +3,7 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { UserConfig } from 'vite';
+import type { InlineConfig } from 'vitest/node';
 
 /** The design package's folder, wherever pnpm installed it: the dev server only serves src, node_modules and its own
  *  files, and the fonts the design CSS names live there. */
@@ -51,4 +52,8 @@ export default {
     ssr: { noExternal: ['@yukibana/design'] },
     server: { fs: { allow: [design] }, headers: isolation },
     preview: { headers: isolation },
-} satisfies UserConfig;
+    // Unit tests that mount components (happy-dom) need Svelte's client build, not the server one Node resolves.
+    ...(process.env['VITEST'] ? { resolve: { conditions: ['browser'] } } : {}),
+    // Unit tests only: the browser tests in e2e/ run under Playwright against the built Workers.
+    test: { include: ['tests/**/*.test.ts'] } satisfies InlineConfig,
+} satisfies UserConfig & { test: InlineConfig };
