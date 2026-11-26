@@ -71,12 +71,62 @@ jobs:
           if-no-files-found: error
           retention-days: 5
 
+  # The local toolchain on each desktop platform: the sandbox must exist and hold (PAPERS_REQUIRE_SANDBOX makes a
+  # missing one fail instead of skip), the Windows launcher must build with the in-box csc, and on Linux a real build
+  # with BibTeX runs through the build loop. The confinement tests get no TeX tree on Linux: there TeX lives in /usr,
+  # which every sandbox may read anyway.
+  toolchain:
+    name: Local toolchain (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm and Node.js
+        uses: ./.github/actions/setup
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --fetch-timeout 100000
+
+      # Ubuntu 24.04 lets AppArmor refuse unprivileged user namespaces, which bubblewrap needs; a desktop that
+      # installs bubblewrap gets a profile for it, a runner does not.
+      - name: Install bubblewrap and TeX (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bubblewrap texlive-latex-base texlive-latex-recommended
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Sandbox
+        env:
+          PAPERS_REQUIRE_SANDBOX: '1'
+        run: pnpm --filter @yukibana/papers-sandbox run test
+
+      - name: Build loop with TeX (Linux)
+        if: runner.os == 'Linux'
+        env:
+          PAPERS_TEST_TEXBIN: /usr/bin
+        run: pnpm --filter @yukibana/papers-compiler run test
+
+      - name: CLI
+        shell: bash
+        run: |
+          pnpm --filter @yukibana/papers-cli run build
+          node packages/cli/lib/index.js doctor .
+
   # The one required check. A job that was not needed is skipped, which passes; one that failed or was cancelled fails
   # this.
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [check]
+    needs: [check, toolchain]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
