@@ -171,16 +171,26 @@ function toBox(r: SyncRecord): PageBox {
 }
 
 /** Backward search for the point (`x`, `y`) in PDF points from the top-left of `page`: on the text line under the point,
- *  the last position record at or left of `x`; else the smallest box that contains the point; else the nearest record.
- *  Returns null only when the page has no records. */
+ *  the last kern or glue record at or left of `x`, else the line's first one to the right of it; else the smallest box
+ *  that contains the point; else the nearest record. Returns null only when the page has no records.
+ *
+ *  Kerns and glue carry the source line they were read on. pdfTeX gives a line's first character record (`x`) and its
+ *  box the line where the paragraph ended instead, so those decide only when a line has nothing else. */
 export function backward(sync: SyncTex, page: number, x: number, y: number): { file: string; line: number } | null {
     const at = (r: SyncRecord): { file: string; line: number } => ({ file: inputPath(sync.inputs.get(r.tag) ?? ''), line: r.line });
-    let pos: SyncRecord | null = null;
-    for (const r of sync.records) {
-        if (r.page !== page || !(r.kind === 'x' || r.kind === 'k' || r.kind === 'g' || r.kind === '$')) continue;
-        if (r.y < y - 1 || r.y > y + 9 || r.x > x + 1) continue;
-        if (pos === null || r.y < pos.y - 0.5 || (Math.abs(r.y - pos.y) <= 0.5 && r.x > pos.x)) pos = r;
-    }
+    const onLine = (r: SyncRecord): boolean => r.page === page && r.y >= y - 1 && r.y <= y + 9;
+    const pick = (kinds: readonly string[]): SyncRecord | null => {
+        let left: SyncRecord | null = null;
+        let right: SyncRecord | null = null;
+        for (const r of sync.records) {
+            if (!kinds.includes(r.kind) || !onLine(r)) continue;
+            if (r.x <= x + 1) {
+                if (left === null || r.y < left.y - 0.5 || (Math.abs(r.y - left.y) <= 0.5 && r.x > left.x)) left = r;
+            } else if (right === null || r.y < right.y - 0.5 || (Math.abs(r.y - right.y) <= 0.5 && r.x < right.x)) right = r;
+        }
+        return left ?? right;
+    };
+    const pos = pick(['k', 'g', '$']) ?? pick(['x']);
     if (pos !== null) return at(pos);
     let best: { area: number; r: SyncRecord } | null = null;
     for (const r of sync.records) {
@@ -214,7 +224,8 @@ export function lineSegments(sync: SyncTex, file: string, line: number, fallback
         if (!kids.some(r => r.tag === tag && r.line === line)) continue;
         const box = sync.records[p];
         if (box === undefined) continue;
-        const sorted = kids.toSorted((a, b) => a.x - b.x);
+        // pdfTeX gives a line's first character record the box's line (where the paragraph ended): not a word of it.
+        const sorted = kids.filter(r => !(r.kind === 'x' && r.line === box.line && box.line !== line)).toSorted((a, b) => a.x - b.x);
         let start: number | null = null;
         const close = (end: number): void => {
             if (start !== null && end > start + 0.5) out.push({ page: box.page, x: start, y: box.y - box.height, width: end - start, height: box.height + box.depth });

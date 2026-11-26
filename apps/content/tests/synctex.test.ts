@@ -64,4 +64,39 @@ describe('synctex', () => {
         expect(backward(sync, 1, 100, 108)).toEqual({ file: 'sections/intro.tex', line: 4 });
         expect(backward(sync, 2, 100, 100)).toBeNull();
     });
+
+    it('takes the source of a typeset line from its kerns and glue, as pdfTeX writes them', () => {
+        // The first line of a paragraph read from lines 2-5 (from a real pdflatex run): the box and the first character
+        // record carry line 6, where the paragraph ended; the kerns carry the lines the words were read on.
+        const para = parseSynctex(
+            [
+                'SyncTeX Version:1',
+                'Input:2:./sections/intro.tex',
+                'Output:pdf',
+                'Unit:1',
+                'X Offset:0',
+                'Y Offset:0',
+                'Content:',
+                '{1',
+                `[1,10:${bp(72)},${bp(720)}:${bp(468)},${bp(648)},0`,
+                `(2,6:${bp(72)},${bp(323)}:${bp(468)},${bp(8)},${bp(2)}`,
+                `x2,6:${bp(114)},${bp(323)}`,
+                `k2,2:${bp(117)},${bp(323)}`,
+                `x2,2:${bp(127)},${bp(323)}`,
+                `k2,2:${bp(396)},${bp(323)}`,
+                `k2,3:${bp(438)},${bp(323)}`,
+                `x2,3:${bp(444)},${bp(323)}`,
+                `k2,3:${bp(540)},${bp(323)}`,
+                ')',
+                ']',
+                '}1',
+            ].join('\n'),
+        );
+        expect(backward(para, 1, 76, 322)).toEqual({ file: 'sections/intro.tex', line: 2 });
+        expect(backward(para, 1, 250, 322)).toEqual({ file: 'sections/intro.tex', line: 2 });
+        expect(backward(para, 1, 500, 322)).toEqual({ file: 'sections/intro.tex', line: 3 });
+        // Line 2's words start the typeset line: its highlight starts at the box's left edge, not at the first kern.
+        expect(lineSegments(para, 'sections/intro.tex', 2)[0]?.x).toBeCloseTo(72, 3);
+        expect(lineSegments(para, 'sections/intro.tex', 3)[0]?.x).toBeCloseTo(438, 3);
+    });
 });
