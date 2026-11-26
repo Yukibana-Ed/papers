@@ -307,9 +307,15 @@
         runKey(id);
     }
 
+    /** The shortcuts the content frame may forward: the frame runs untrusted content, so a forwarded key can only open
+     *  or move things, never commit, accept, delete or change the document. */
+    const FRAME_SAFE: ReadonlySet<string> = new Set(['palette', 'jump', 'outline', 'files', 'comments', 'zoomin', 'zoomout']);
+
     function onFrameKey(m: Extract<FrameMessage, { type: 'key' }>): void {
         const id = commandFor(m);
-        if (id) runKey(id);
+        if (id && FRAME_SAFE.has(id)) runKey(id);
+        // Ctrl+S from the preview opens the commit popover; committing takes a key press in the app itself.
+        else if (id === 'commit' && s.popover !== 'commit' && s.uncommitted) s.popover = 'commit';
     }
 
     function onMousedown(e: MouseEvent): void {

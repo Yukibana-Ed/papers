@@ -89,10 +89,27 @@ export async function freshToken(event: RequestEvent): Promise<AccessToken | nul
     return { token: t.access_token, expires: Date.now() + (t.expires_in ?? 28800) * 1000, login: s.login, name: s.name };
 }
 
+/** `returnTo` as a path on `origin` to send the browser to after signing in, or `/` when it is anything else.
+ *  Parsed as a URL against `origin` and kept only if it stays on `origin`, so `//evil.com`, `/\evil.com` and their
+ *  tab- or percent-encoded variants (which browsers read as other hosts) all become `/`. Backslashes and control
+ *  characters are refused outright. Promises: the result starts with exactly one `/` and has no scheme or host. */
+export function sameOriginPath(returnTo: string, origin: string): string {
+    // eslint-disable-next-line no-control-regex
+    if (!returnTo.startsWith('/') || /[\\\u0000-\u001f\u007f]/.test(returnTo) || /%5c/i.test(returnTo)) return '/';
+    let u: URL;
+    try {
+        u = new URL(returnTo, origin);
+    } catch {
+        return '/';
+    }
+    if (u.origin !== origin || !u.pathname.startsWith('/') || u.pathname.startsWith('//')) return '/';
+    return `${u.pathname}${u.search}${u.hash}`;
+}
+
 /** Where to send the browser to sign in: GitHub's consent page, with a state that the callback checks. */
 export function loginUrl(event: RequestEvent, env: AuthEnv, returnTo: string): string {
     const state = crypto.randomUUID();
-    event.cookies.set(STATE_COOKIE, JSON.stringify({ state, returnTo: returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/' }), {
+    event.cookies.set(STATE_COOKIE, JSON.stringify({ state, returnTo: sameOriginPath(returnTo, event.url.origin) }), {
         path: '/auth',
         httpOnly: true,
         secure: true,
@@ -126,7 +143,8 @@ export async function finishLogin(event: RequestEvent, env: AuthEnv, viewer: (to
     if (!t.access_token || !t.refresh_token) return null;
     const who = await viewer(t.access_token);
     await writeSession(event.cookies, env, { login: who.login, name: who.name, refresh: t.refresh_token });
-    return typeof expected.returnTo === 'string' ? expected.returnTo : '/';
+    // Checked again: the cookie is ours, but the check costs nothing and keeps the redirect safe on its own.
+    return typeof expected.returnTo === 'string' ? sameOriginPath(expected.returnTo, event.url.origin) : '/';
 }
 
 export function logout(cookies: Cookies): void {

@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { dirname, join } from 'node:path';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
@@ -62,6 +62,21 @@ function removeFolder(dir: string): void {
     } catch {
         // Left for the next start of the server; it holds nothing secret beyond the user's own project.
     }
+}
+
+/** Whether some existing part of `dir/rel` is a link (symbolic link or junction): writing through it could land
+ *  outside `dir`. Only this server writes into a connection's folder, so a link there means something is wrong. */
+function linkOnTheWay(dir: string, rel: string): boolean {
+    let at = dir;
+    for (const part of rel.split('/')) {
+        at = join(at, part);
+        try {
+            if (lstatSync(at).isSymbolicLink()) return true;
+        } catch {
+            return false;
+        }
+    }
+    return false;
 }
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -189,6 +204,10 @@ export async function startRunner(o: RunnerOptions): Promise<Runner> {
                 fail(`too large: ${p}`);
                 return false;
             }
+            if (linkOnTheWay(dir, p)) {
+                fail(`not a project path: ${p}`);
+                return false;
+            }
             mkdirSync(dirname(full), { recursive: true });
             writeFileSync(full, bytes);
             sizes.set(p, bytes.length);
@@ -243,6 +262,8 @@ export async function startRunner(o: RunnerOptions): Promise<Runner> {
                                 ['synctex', r.synctex],
                             ] as const) {
                                 if (!path) continue;
+                                // Only a regular file, never through a link: the build's folder is not trusted.
+                                if (!lstatSync(path).isFile()) continue;
                                 const bytes = readFileSync(path);
                                 send({ type: 'artifact', id: m.id, name, bytes: bytes.length });
                                 ws.send(bytes, { binary: true });

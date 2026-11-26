@@ -3,7 +3,7 @@ import * as encoding from 'lib0/encoding';
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness';
 import { messageYjsSyncStep1, messageYjsSyncStep2, messageYjsUpdate, writeSyncStep1, writeSyncStep2 } from 'y-protocols/sync';
 import * as Y from 'yjs';
-import { DEFAULT_LIMITS, UsageMeter, dayOf, type Limits } from './limits.ts';
+import { DEFAULT_LIMITS, PersonMeter, UsageMeter, dayOf, type Limits } from './limits.ts';
 import { DOC_REVIEW, DOC_TEXT, MSG_AWARENESS, MSG_SYNC, parseClientMessage, type DocId, type Identity, type ServerMessage, type SyncMode } from './protocol.ts';
 import type { RoomStore } from './store.ts';
 
@@ -18,6 +18,19 @@ export interface Peer {
 /** Compact a document's update log once it is this long. */
 const COMPACT_AFTER = 200;
 
+/** Whether `data` is a Yjs message that would change the text document (a sync step 2 or an update to it); false for
+ *  anything else, malformed messages included (those are refused later, as invalid). */
+function changesText(data: Uint8Array): boolean {
+    try {
+        const dec = decoding.createDecoder(data);
+        if (decoding.readUint8(dec) !== DOC_TEXT || decoding.readVarUint(dec) !== MSG_SYNC) return false;
+        const sync = decoding.readVarUint(dec);
+        return sync === messageYjsSyncStep2 || sync === messageYjsUpdate;
+    } catch {
+        return false;
+    }
+}
+
 /** A room: the two Yjs documents of one branch's session, kept in memory and in the room's SQL storage, and the
  *  connections to it. It is the Durable Object's logic without the Durable Object, so tests drive it directly.
  *
@@ -30,12 +43,16 @@ export class RoomCore {
     readonly awareness = new Awareness(this.review);
     private readonly peers = new Set<Peer>();
     private readonly meter: UsageMeter;
+    /** Each person's own budget, by login, across their connections. */
+    private readonly people = new Map<string, PersonMeter>();
+    /** The connection each awareness client id belongs to: the first to announce it, until it disconnects. */
+    private readonly awarenessOwners = new Map<number, Peer>();
     private lastMode: SyncMode = { mode: 'live' };
 
     constructor(
         private readonly store: RoomStore,
         private readonly now: () => number = Date.now,
-        limits: Limits = DEFAULT_LIMITS,
+        private readonly limits: Limits = DEFAULT_LIMITS,
     ) {
         // The server holds no presence of its own.
         this.awareness.setLocalState(null);
@@ -108,15 +125,27 @@ export class RoomCore {
     disconnect(p: Peer): void {
         this.peers.delete(p);
         if (p.awarenessIds.size) removeAwarenessStates(this.awareness, [...p.awarenessIds], p);
+        for (const id of p.awarenessIds) if (this.awarenessOwners.get(id) === p) this.awarenessOwners.delete(id);
     }
 
     get connections(): number {
         return this.peers.size;
     }
 
-    /** Handles one message from `p`. Malformed messages are refused, never thrown. */
+    /** Handles one message from `p`. Malformed messages are refused, never thrown. Messages `p` may not send at all
+     *  (changes to the text, or control messages, from `comment` access) are refused before they count against any
+     *  budget; the rest count against `p`'s person's own budget, then the room's. */
     receive(p: Peer, data: string | Uint8Array): void {
         const size = typeof data === 'string' ? data.length * 2 : data.byteLength;
+        if (p.identity.access !== 'write' && (typeof data === 'string' || changesText(data))) return this.sendControl(p, { type: 'refused', reason: 'access' });
+        if (size > this.limits.maxMessageBytes) return this.sendControl(p, { type: 'refused', reason: 'too-large' });
+        let person = this.people.get(p.identity.login);
+        if (!person) {
+            person = new PersonMeter(this.limits, this.now());
+            this.people.set(p.identity.login, person);
+        }
+        const own = person.take(size, this.now());
+        if (own !== 'ok') return this.sendControl(p, { type: 'refused', reason: own });
         const verdict = this.meter.take(size, this.now());
         this.store.setUsage(this.meter.counter.day, 'bytes', this.meter.counter.bytes);
         this.announceMode();
@@ -144,13 +173,21 @@ export class RoomCore {
         if (kind === MSG_AWARENESS) {
             if (id !== DOC_REVIEW) throw new Error('awareness is on the review document');
             const update = decoding.readVarUint8Array(dec);
-            // Remember which awareness clients this connection speaks for.
+            // The awareness clients this update speaks for: each must be new, or this connection's already.
             const d = decoding.createDecoder(update);
             const n = decoding.readVarUint(d);
+            const ids: number[] = [];
             for (let i = 0; i < n; i++) {
-                p.awarenessIds.add(decoding.readVarUint(d));
+                const client = decoding.readVarUint(d);
+                const owner = this.awarenessOwners.get(client);
+                if (client === this.awareness.clientID || (owner !== undefined && owner !== p)) throw new Error('another connection’s presence');
+                ids.push(client);
                 decoding.readVarUint(d);
                 decoding.readVarString(d);
+            }
+            for (const client of ids) {
+                p.awarenessIds.add(client);
+                this.awarenessOwners.set(client, p);
             }
             applyAwarenessUpdate(this.awareness, update, p);
             return;

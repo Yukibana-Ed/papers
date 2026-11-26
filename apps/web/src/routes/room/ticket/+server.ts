@@ -1,5 +1,5 @@
 import { error, json } from '@sveltejs/kit';
-import { GitHubError, repoInfo, viewer } from '#lib/github/api.ts';
+import { GitHubError, branchHead, repoInfo, viewer } from '#lib/github/api.ts';
 import { authEnv } from '#lib/server/auth.ts';
 import { TICKET_TTL_MS, mintTicket, roomName } from '#lib/server/room-ticket.ts';
 import type { RequestHandler } from './$types';
@@ -18,7 +18,8 @@ export const POST: RequestHandler = async event => {
     const branch: unknown = body && typeof body === 'object' ? Reflect.get(body, 'branch') : null;
     if (typeof owner !== 'string' || typeof repo !== 'string' || typeof branch !== 'string' || !branch) error(400, 'Which room?');
     try {
-        const [who, info] = await Promise.all([viewer(token), repoInfo(token, owner, repo)]);
+        // The branch must exist: rooms are only for real branches, not for any name someone with read access makes up.
+        const [who, info] = await Promise.all([viewer(token), repoInfo(token, owner, repo), branchHead(token, owner, repo, branch)]);
         const ticket = await mintTicket(env.SESSION_KEY, {
             login: who.login,
             name: who.name,

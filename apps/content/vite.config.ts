@@ -26,7 +26,32 @@ const cssTarget = ['chrome123', 'edge123', 'firefox120', 'safari17.5'];
  *  ever sees a token. */
 export default {
     build: { cssTarget },
-    plugins: [devAssets(), sveltekit({ adapter: adapter({ platformProxy: { configPath: './wrangler.jsonc', persist: true } }) })],
+    plugins: [
+        devAssets(),
+        sveltekit({
+            adapter: adapter({ platformProxy: { configPath: './wrangler.jsonc', persist: true } }),
+            // The frame runs untrusted documents' output through pdf.js, the TeX engine and the Typst compiler: scripts
+            // only from here (SvelteKit hashes its own inline ones), WebAssembly allowed, workers from here or blobs,
+            // connections only to here (the engine, TeX Live and Typst packages are all served by this origin), no
+            // plugins, no <base>. frame-ancestors is added by the hook, as it names the app's origin.
+            csp: {
+                mode: 'hash',
+                directives: {
+                    'default-src': ['self'],
+                    // No 'unsafe-eval': nothing here builds code from text (see addFonts in typst-engine.ts).
+                    'script-src': ['self', 'wasm-unsafe-eval', 'blob:'],
+                    'worker-src': ['self', 'blob:'],
+                    'connect-src': ['self', 'blob:', 'data:'],
+                    'img-src': ['self', 'data:', 'blob:'],
+                    'font-src': ['self', 'data:', 'blob:'],
+                    'style-src': ['self', 'unsafe-inline'],
+                    'object-src': ['none'],
+                    'base-uri': ['none'],
+                    'form-action': ['none'],
+                },
+            },
+        }),
+    ],
     // The engine is loaded by the page at run time, from /engine, never bundled.
     optimizeDeps: { exclude: ['texlyre-busytex'] },
     server: { fs: { allow: [design] }, headers: isolation },
