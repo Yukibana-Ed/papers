@@ -5,6 +5,7 @@
     import { tip } from '#lib/ui/tooltip.ts';
     import CommentNode from './CommentNode.svelte';
     import Composer from './Composer.svelte';
+    import ReplyField from './ReplyField.svelte';
     import { plainText } from './markdown.ts';
     import type { CommentOps } from './ops.ts';
 
@@ -57,8 +58,6 @@
             <span>{t.quote}</span>
         </div>
         <CommentNode c={t.root} depth={0} thread={t} {ops} {flat} />
-        {#if flat && active}
-            <Composer placeholder="Reply on GitHub" onSend={(text) => session.reply(t.id, t.root.id, text)} />
-        {/if}
+        <ReplyField placeholder={flat ? 'Reply on GitHub' : 'Reply'} onSend={(text) => session.reply(t.id, t.root.id, text)} />
     </div>
 {/if}

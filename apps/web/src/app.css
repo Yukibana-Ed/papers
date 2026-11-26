@@ -571,13 +571,6 @@ button {
     color: var(--yk-ink);
     text-decoration: underline;
 }
-.cm-card:not(.is-active) .cm-actions {
-    visibility: hidden;
-}
-.cm-card:not(.is-active):hover .cm-actions,
-.cm-card:not(.is-active):focus-within .cm-actions {
-    visibility: visible;
-}
 .cm-sugg {
     display: flex;
     flex-wrap: wrap;
@@ -1119,4 +1112,23 @@ button {
 .pop-failure {
     padding: 4px 6px 2px;
     color: var(--yk-danger);
+}
+
+/* The reply field at the bottom of an open thread or suggestion: a quiet one-line field until it is used. */
+.cm-reply-field {
+    display: block;
+    width: calc(100% - 26px);
+    margin: 6px 0 0 26px;
+    padding: 5px 9px;
+    border: 1px solid var(--yk-line);
+    border-radius: var(--yk-radius-sm);
+    background: var(--yk-surface);
+    color: var(--yk-soft);
+    font: inherit;
+    font-size: var(--yk-font-size-sm);
+    text-align: left;
+    cursor: text;
+}
+.cm-reply-field:hover {
+    border-color: var(--yk-line-strong);
 }

@@ -25,9 +25,8 @@ export function inside(r: { x: number; y: number; width: number; height: number 
     return r.x >= 0 && r.y >= 0 && r.x + r.width <= size.width && r.y + r.height <= size.height;
 }
 
-/** Opens a reply composer on the first open thread: its card is made current (its actions show), then Reply. */
+/** Opens the reply composer at the bottom of the first open thread (always visible: no hover or selection needed). */
 export async function startReply(page: Page): Promise<void> {
     const card = page.locator('.cm-card:not(.is-resolved):not(.sg-card)').first();
-    await card.locator('.cm-head').first().click();
-    await card.locator('button.cm-link', { hasText: 'Reply' }).first().click();
+    await card.locator('button.cm-reply-field').click();
 }

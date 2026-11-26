@@ -295,6 +295,15 @@ export class SourceEditor {
         return { range: r, options };
     }
 
+    /** Where a suggestion is now, with the text it would replace; null when it is gone. */
+    suggestionPlace(id: string): { file: string; range: TextRange; quote: string } | null {
+        const s = this.sugg.get(id);
+        const r = this.rangeOfSugg(id);
+        if (!s || !r) return null;
+        const range = { startLineNumber: r.startLineNumber, startColumn: r.startColumn, endLineNumber: r.endLineNumber, endColumn: r.endColumn };
+        return { file: s.file, range, quote: this.model(s.file).getValueInRange(r) || s.text };
+    }
+
     private rangeOfSugg(id: string): Range | null {
         const s = this.sugg.get(id);
         if (!s) return null;

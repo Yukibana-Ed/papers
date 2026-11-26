@@ -4,6 +4,7 @@
     import Icon from '#lib/ui/Icon.svelte';
     import { tip } from '#lib/ui/tooltip.ts';
     import { displayName, type CommentOps } from './ops.ts';
+    import ReplyField from './ReplyField.svelte';
 
     let { s, ops }: { s: PlacedSuggestion; ops: CommentOps } = $props();
 
@@ -49,4 +50,5 @@
         {#if s.oldText}<span class="sg-del-t">{s.oldText}</span>{/if}
         {#if s.text}<span class="sg-ins-t">{s.text}</span>{/if}
     </div>
+    <ReplyField placeholder="Discuss" onSend={(text) => ops.discussSuggestion(s.id, text)} />
 </div>
