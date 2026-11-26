@@ -6,7 +6,7 @@ import { Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness';
 import { readSyncMessage, writeSyncStep1, writeUpdate } from 'y-protocols/sync';
 import * as Y from 'yjs';
 import { RoomCore, type Peer } from '../src/core.ts';
-import { DEFAULT_LIMITS } from '../src/limits.ts';
+import { DEFAULT_LIMITS, MAX_CONNECTION_MS, connectionExpired } from '../src/limits.ts';
 import { DOC_REVIEW, DOC_TEXT, MSG_AWARENESS, MSG_SYNC, type Access, type ServerMessage } from '@yukibana/papers-room-protocol';
 import { RoomStore, type Sql, type SqlValue } from '../src/store.ts';
 
@@ -182,6 +182,88 @@ describe('room', () => {
         t?.insert(0, 'z');
         expect(a.control.some(m => m.type === 'refused' && m.reason === 'paused')).toBe(true);
         expect(a.control.some(m => m.type === 'sync' && m.sync.mode === 'paused')).toBe(true);
+    });
+
+    it('does not count a commenter’s edits to the text against the room', () => {
+        const limits = { ...DEFAULT_LIMITS, bytesPerDay: 2000, personBytesPerDay: 100_000 };
+        const room = new RoomCore(new RoomStore(memorySql()), Date.now, limits);
+        const w = new Client(room, 'ada', 'write');
+        const c = new Client(room, 'weber', 'comment');
+        w.open('a.tex', '');
+        const t = c.text.getMap<Y.Text>('files').get('a.tex');
+        for (let i = 0; i < 10; i++) t?.insert(0, 'x'.repeat(500));
+        expect(c.control.filter(m => m.type === 'refused').every(m => m.type === 'refused' && m.reason === 'access')).toBe(true);
+        w.text.getMap<Y.Text>('files').get('a.tex')?.insert(0, 'ok');
+        expect(w.control.some(m => m.type === 'refused')).toBe(false);
+        expect(w.file('a.tex')).toBe('ok');
+    });
+
+    it('gives each person their own budget', () => {
+        let now = Date.UTC(2026, 10, 26, 12);
+        const limits = { ...DEFAULT_LIMITS, personBurstBytes: 3000, personBytesPerSecond: 10, personBytesPerDay: 20_000 };
+        const room = new RoomCore(new RoomStore(memorySql()), () => now, limits);
+        const a = new Client(room, 'ada', 'write');
+        const b = new Client(room, 'lena', 'write');
+        a.open('a.tex', '');
+        const t = a.text.getMap<Y.Text>('files').get('a.tex');
+        t?.insert(0, 'x'.repeat(2000));
+        t?.insert(0, 'y'.repeat(2000));
+        expect(a.control.some(m => m.type === 'refused' && m.reason === 'too-fast')).toBe(true);
+        // Ada's burst is spent; Lena's is her own.
+        b.text.getMap<Y.Text>('files').get('a.tex')?.insert(0, 'z'.repeat(2000));
+        expect(b.control.some(m => m.type === 'refused')).toBe(false);
+        // And a second connection of Ada's shares Ada's.
+        const a2 = new Client(room, 'ada', 'write');
+        a2.text.getMap<Y.Text>('files').get('a.tex')?.insert(0, 'w'.repeat(2000));
+        expect(a2.control.some(m => m.type === 'refused' && m.reason === 'too-fast')).toBe(true);
+        // A day's share is a ceiling however slowly it is spent.
+        for (let i = 0; i < 12; i++) {
+            now += 300_000;
+            b.text.getMap<Y.Text>('files').get('a.tex')?.insert(0, 'v'.repeat(2000));
+        }
+        expect(b.control.some(m => m.type === 'refused' && m.reason === 'paused')).toBe(true);
+    });
+
+    it('keeps each presence with the connection that announced it', () => {
+        const room = new RoomCore(new RoomStore(memorySql()));
+        const awarenessOf = (login: string): Peer => ({ identity: { login, name: login, access: 'comment' }, awarenessIds: new Set(), send: () => {} });
+        const announce = (p: Peer, a: Awareness): void => {
+            const e = encoding.createEncoder();
+            encoding.writeUint8(e, DOC_REVIEW);
+            encoding.writeVarUint(e, MSG_AWARENESS);
+            encoding.writeVarUint8Array(e, encodeAwarenessUpdate(a, [a.clientID]));
+            room.receive(p, encoding.toUint8Array(e));
+        };
+        const lena = awarenessOf('lena');
+        const eve = awarenessOf('eve');
+        room.connect(lena);
+        room.connect(eve);
+        const real = new Awareness(new Y.Doc());
+        real.setLocalState({ user: 'lena', line: 3 });
+        announce(lena, real);
+        // Eve claims Lena's client id.
+        const forged = new Y.Doc();
+        forged.clientID = real.clientID;
+        const fake = new Awareness(forged);
+        // A newer clock than Lena's, so that without the binding the room would take it.
+        for (let i = 0; i < 3; i++) fake.setLocalState({ user: 'lena', line: 99 });
+        announce(eve, fake);
+        expect(room.awareness.getStates().get(real.clientID)).toEqual({ user: 'lena', line: 3 });
+        expect(eve.awarenessIds.size).toBe(0);
+        // Once Lena's connection goes, the id is free again.
+        room.disconnect(lena);
+        for (let i = 0; i < 3; i++) fake.setLocalState({ user: 'lena', line: 99 }); // newer than the removal
+        announce(eve, fake);
+        expect(room.awareness.getStates().get(real.clientID)).toEqual({ user: 'lena', line: 99 });
+    });
+
+    it('ends connections after an hour', () => {
+        const since = Date.UTC(2026, 10, 26, 12);
+        const attachment = JSON.stringify({ login: 'ada', name: 'Ada', access: 'write', since });
+        expect(connectionExpired(attachment, since + MAX_CONNECTION_MS - 1)).toBe(false);
+        expect(connectionExpired(attachment, since + MAX_CONNECTION_MS)).toBe(true);
+        expect(connectionExpired(JSON.stringify({ login: 'ada', name: 'Ada', access: 'write' }), since)).toBe(true);
+        expect(connectionExpired(null, since)).toBe(true);
     });
 
     it('asks a writer for a WIP backup after changes', () => {

@@ -81,3 +81,5 @@ catalogs:
     typescript: 6.0.3
 catalogMode: strict
 catalogPrune: true
+patchedDependencies:
+  '@myriaddreamin/typst-ts-web-compiler@0.8.0-rc4': patches/@myriaddreamin__typst-ts-web-compiler@0.8.0-rc4.patch

@@ -133,6 +133,8 @@ export type FrameMessage =
     | { readonly type: 'jump'; readonly at: SourcePoint; readonly word: string | null }
     /** The user selected text in the preview, or chose an action of the selection's toolbar. */
     | { readonly type: 'selection'; readonly lines: SourceLines | null; readonly text: string }
+    /** The pointer is over the typeset text of these source lines in the preview, or (null) over none. */
+    | { readonly type: 'hover'; readonly lines: SourceLines | null }
     | { readonly type: 'action'; readonly action: SelectionAction; readonly lines: SourceLines; readonly text: string }
     | { readonly type: 'centre'; readonly at: SourcePoint | null }
     /** The effective scale of the pages (fit times zoom), for the zoom readout. */
@@ -307,6 +309,8 @@ function frameFieldsMatch(x: Record<string, unknown>): boolean {
             return isPoint(x['at']) && (x['word'] === null || isString(x['word']));
         case 'selection':
             return (x['lines'] === null || isLines(x['lines'])) && isString(x['text']);
+        case 'hover':
+            return x['lines'] === null || isLines(x['lines']);
         case 'action':
             return oneOf(x['action'], 'comment', 'suggest', 'source') && isLines(x['lines']) && isString(x['text']);
         case 'centre':

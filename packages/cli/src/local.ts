@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { copyFileSync, mkdirSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
-import { buildDocument, syncInto, type BuildResult } from '@yukibana/papers-compiler';
+import { buildDocument, realFileInside, syncInto, type BuildResult } from '@yukibana/papers-compiler';
 import type { ProjectDocument, ProjectFiles } from '@yukibana/papers-project';
 import { cacheDir, sandboxRunner, type SandboxChoice } from '@yukibana/papers-sandbox';
 import type { Toolchain } from './toolchain.ts';
@@ -21,7 +21,8 @@ export interface LocalBuild {
 
 /** Builds `doc` of the project in `projectDir`: copies its files into the project's build folder, builds there with
  *  `toolchain` under `sandbox`, and copies the PDF (and SyncTeX) into `<project>/.papers/out/`. The build never
- *  writes into the project otherwise. */
+ *  writes into the project otherwise. `allowShellEscape` lets documents that ask for it run shell commands (in the
+ *  sandbox): only on the person's explicit `--shell-escape`. */
 export async function buildLocal(
     projectDir: string,
     files: ProjectFiles,
@@ -29,19 +30,24 @@ export async function buildLocal(
     toolchain: Toolchain,
     sandbox: SandboxChoice,
     onStep?: (program: string) => void,
+    allowShellEscape = false,
 ): Promise<LocalBuild> {
     const workDir = workDirOf(projectDir);
     mkdirSync(workDir, { recursive: true });
     syncInto(projectDir, files, workDir);
     const runner = await sandboxRunner(sandbox, { texRoot: toolchain.root, texBin: toolchain.bin, workDir });
-    const result = await buildDocument({ workDir, document: doc, runner, ...(onStep ? { onStep } : {}) });
+    const result = await buildDocument({ workDir, document: doc, runner, allowShellEscape, ...(onStep ? { onStep } : {}) });
     let output: string | null = null;
     if (result.pdf) {
         const out = join(projectDir, '.papers', 'out');
         mkdirSync(out, { recursive: true });
         output = join(out, basename(result.pdf));
-        copyFileSync(result.pdf, output);
-        if (result.synctex) copyFileSync(result.synctex, join(out, basename(result.synctex)));
+        // Read only as regular files inside the work folder (the build cannot redirect the copy through a link).
+        const pdf = realFileInside(workDir, result.pdf);
+        if (pdf) copyFileSync(pdf, output);
+        else output = null;
+        const synctex = result.synctex ? realFileInside(workDir, result.synctex) : null;
+        if (synctex && result.synctex) copyFileSync(synctex, join(out, basename(result.synctex)));
     }
     return { result, workDir, output };
 }

@@ -10,17 +10,18 @@ export interface Rect {
  *  rectangle on that line, all the same height on one line.
  *
  *  PDF.js's text layer gives one span per text run, of uneven heights and with gaps between runs, so the browser's own
- *  selection looks ragged. Two rectangles are on the same line when their vertical centres are within half the smaller
- *  height of each other. Empty rectangles (zero width or height) are dropped. `pad` widens each result on every side.
+ *  selection looks ragged. Two rectangles are on the same line when they overlap vertically by at least half the smaller
+ *  one's height, so a subscript or superscript joins its line. Empty rectangles (zero width or height) are dropped. `lead` grows each line above and below by
+ *  that fraction of its height, as an editor's line height exceeds its font size, and `pad` widens each result on every
+ *  side.
  *
  *  Promises: the result is sorted top to bottom, and no two results overlap vertically by more than `pad * 2`. */
-export function mergeLineRects(rects: Iterable<Rect>, pad = 0): Rect[] {
+export function mergeLineRects(rects: Iterable<Rect>, pad = 0, lead = 0): Rect[] {
     const sorted = [...rects].filter(r => r.width > 0.5 && r.height > 0.5).toSorted((a, b) => a.y + a.height / 2 - (b.y + b.height / 2));
-    const lines: { top: number; bottom: number; left: number; right: number; centre: number; h: number }[] = [];
+    const lines: { top: number; bottom: number; left: number; right: number; h: number }[] = [];
     for (const r of sorted) {
-        const centre = r.y + r.height / 2;
         const last = lines.at(-1);
-        if (last !== undefined && Math.abs(centre - last.centre) <= Math.min(last.h, r.height) / 2) {
+        if (last !== undefined && Math.min(last.bottom, r.y + r.height) - Math.max(last.top, r.y) >= Math.min(last.h, r.height) / 2) {
             last.top = Math.min(last.top, r.y);
             last.bottom = Math.max(last.bottom, r.y + r.height);
             last.left = Math.min(last.left, r.x);
@@ -28,7 +29,12 @@ export function mergeLineRects(rects: Iterable<Rect>, pad = 0): Rect[] {
             last.h = last.bottom - last.top;
             continue;
         }
-        lines.push({ top: r.y, bottom: r.y + r.height, left: r.x, right: r.x + r.width, centre, h: r.height });
+        lines.push({ top: r.y, bottom: r.y + r.height, left: r.x, right: r.x + r.width, h: r.height });
+    }
+    for (const l of lines) {
+        const grow = (l.bottom - l.top) * lead;
+        l.top -= grow;
+        l.bottom += grow;
     }
     // Neighbouring lines meet halfway instead of overlapping, as an editor's selection does.
     for (let i = 1; i < lines.length; i++) {

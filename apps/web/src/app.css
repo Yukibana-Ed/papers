@@ -801,6 +801,9 @@ button {
 .mirror-line {
     background: var(--yk-chip-blue-bg);
 }
+.hover-line {
+    background: color-mix(in oklab, var(--yk-chip-blue-bg) 55%, transparent);
+}
 .presence-caret {
     position: relative;
 }

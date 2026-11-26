@@ -63,8 +63,8 @@ export type ServerMessage =
     | { readonly type: 'sync'; readonly sync: SyncMode }
     /** Someone with write access should push a WIP backup: the session has changes not in one yet. */
     | { readonly type: 'backup-due' }
-    /** A message was refused, with why. */
-    | { readonly type: 'refused'; readonly reason: 'access' | 'invalid' | 'paused' | 'too-large' };
+    /** A message was refused, with why: `too-fast` when its sender went over their own share of the room's rate. */
+    | { readonly type: 'refused'; readonly reason: 'access' | 'invalid' | 'paused' | 'too-large' | 'too-fast' };
 
 function isRecord(x: unknown): x is Record<string, unknown> {
     return typeof x === 'object' && x !== null;

@@ -1,7 +1,7 @@
 import { ASSETS } from '#lib/asset-path.ts';
 import type { Diagnostic, FileContents } from '@yukibana/papers-frame-protocol';
 import { CompileFormatEnum, type TypstCompiler } from '@myriaddreamin/typst.ts/compiler';
-import { FetchPackageRegistry, MemoryAccessModel, createTypstCompiler, initOptions, loadFonts } from '@myriaddreamin/typst.ts';
+import { FetchPackageRegistry, MemoryAccessModel, createTypstCompiler, initOptions } from '@myriaddreamin/typst.ts';
 import { TYPST_ASSETS } from '#lib/typst-assets.ts';
 
 /** A Typst package a build used, for papers.lock: its spec and the SHA-256 of its archive. */
@@ -58,7 +58,7 @@ export class TypstEngine {
             const fonts = TYPST_ASSETS.fonts.files.map(f => `${TYPST_ASSETS.fonts.path}${f}`);
             await c.init({
                 getModule: () => `${TYPST_ASSETS.compiler.path}typst_ts_web_compiler_bg.wasm`,
-                beforeBuild: [loadFonts(fonts, { assets: false }), initOptions.withAccessModel(this.#access), initOptions.withPackageRegistry(this.#registry)],
+                beforeBuild: [addFonts(fonts), initOptions.withAccessModel(this.#access), initOptions.withPackageRegistry(this.#registry)],
             });
             return c;
         })();
@@ -104,4 +104,24 @@ export class TypstEngine {
         }
         return out;
     }
+}
+
+/** A build step that adds the fonts at `urls` to the compiler, fetched in parallel. In place of typst.ts's `loadFonts`,
+ *  which builds a function from text (`new Function`, for a Node import it never needs here) and so would need the
+ *  content origin's script policy to allow 'unsafe-eval'. The compiler's own functions from text are made without it
+ *  by patches/@myriaddreamin__typst-ts-web-compiler@0.8.0-rc4.patch. */
+function addFonts(urls: readonly string[]): (_: unknown, ctx: { builder: { add_raw_font(font: Uint8Array): Promise<void> } }) => Promise<void> {
+    const step = async (_: unknown, { builder }: { builder: { add_raw_font(font: Uint8Array): Promise<void> } }): Promise<void> => {
+        const fonts = await Promise.all(
+            urls.map(async url => {
+                const res = await fetch(url);
+                if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+                return new Uint8Array(await res.arrayBuffer());
+            }),
+        );
+        for (const font of fonts) await builder.add_raw_font(font);
+    };
+    // The marks typst.ts looks for: this is the font loader, and the default font assets are not wanted (otherwise it
+    // adds its own loader, the one this replaces).
+    return Object.assign(step, { _kind: 'fontLoader', _preloadRemoteFontOptions: { assets: false } });
 }

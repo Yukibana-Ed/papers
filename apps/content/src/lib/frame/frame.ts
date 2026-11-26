@@ -5,16 +5,13 @@ import { parseTexLog } from '#lib/texlog.ts';
 import { Bridge } from './bridge.ts';
 import { TexEngine } from './engine.ts';
 import { TypstEngine } from './typst-engine.ts';
-import { Viewer } from './viewer.ts';
+import { Viewer, type ToolbarAnchor } from './viewer.ts';
 
 /** How long the frame waits after the last change before building. */
 const DEBOUNCE_MS = 300;
 
 /** The selection toolbar's state, for the page to draw: where it goes, in the scroller's content coordinates. */
-export interface ToolbarState {
-    readonly x: number;
-    readonly y: number;
-}
+export type ToolbarState = ToolbarAnchor;
 
 /** The content frame: the bridge to the app, the project's files, the engine and the viewer, wired together.
  *
@@ -50,6 +47,7 @@ export class Frame {
                 this.#bridge.send({ type: 'selection', lines, text });
                 this.#onToolbar(anchor === null || lines === null ? null : anchor);
             },
+            hover: lines => this.#bridge.send({ type: 'hover', lines }),
         });
         this.#bridge = new Bridge(
             appOrigin,
