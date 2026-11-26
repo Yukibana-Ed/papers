@@ -314,6 +314,10 @@ export class FileSuggestions {
         if (this.busy) return;
         const changes = e.changes.toSorted((a, b) => a.rangeOffset - b.rangeOffset);
         if (external || !this.hooks.suggesting() || e.isUndoing || e.isRedoing) {
+            // The suggestion history holds whole texts: one from before this edit would undo it too, a collaborator's
+            // edit as well as the user's own.
+            this.history.undo = [];
+            this.history.redo = [];
             this.keepTypedTextOut(changes);
             this.settleSpans();
             this.hooks.changed();

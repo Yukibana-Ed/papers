@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { openComments, openDemo } from './support.ts';
+import { openComments, openDemo, startReply } from './support.ts';
 
 /** Types `text` into the composer that `field` opens and sends it with Ctrl+Enter. */
 async function reply(page: Page, field: Locator, text: string, keyboard: boolean): Promise<void> {
@@ -71,5 +71,19 @@ test.describe('every kind of thread can be replied to', () => {
         const resolved = page.locator('.cm-card.is-resolved').first();
         await expect(resolved.locator('[data-tip="Reopen"]')).toBeVisible();
         await expect(resolved.locator('button.cm-reply-field')).toHaveCount(0);
+    });
+
+    test('in a comment being written Ctrl+K is the comment editor’s, and Ctrl+Shift+P still opens the palette', async ({ page }) => {
+        await openDemo(page);
+        await openComments(page);
+        await startReply(page);
+        const field = page.locator('.ProseMirror').first();
+        await expect(field).toBeFocused();
+        await page.keyboard.type('a link');
+        await page.keyboard.press('Control+k');
+        await expect(page.locator('.palette')).toBeHidden();
+        await field.focus();
+        await page.keyboard.press('Control+Shift+p');
+        await expect(page.locator('.palette')).toBeVisible();
     });
 });

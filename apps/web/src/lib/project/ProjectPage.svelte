@@ -130,6 +130,11 @@
                 const r = new RoomClient(url, {
                     welcome: (_you, base, files) => {
                         welcome = { base, files };
+                        // After a reconnection: what was committed while this page was away is the head now.
+                        if (session && base !== null && base !== head && !mine.has(base)) {
+                            head = base;
+                            session.committedElsewhere(base, Object.fromEntries(files.map((f) => [f.path, f.text])));
+                        }
                     },
                     base: (base, files) => {
                         // The room tells the one who committed too, and that can arrive after a later commit from here:
@@ -173,7 +178,7 @@
                         if (!s) return;
                         const changes = s.changes.map((c) => ({ path: c.file, text: s.files[c.file] ?? null }));
                         void githubToken()
-                            .then((token) => wipBackup(token, p.owner, p.repo, p.branch, welcome?.base ?? p.commit, changes))
+                            .then((token) => wipBackup(token, p.owner, p.repo, p.branch, head, changes))
                             .then(
                                 (backup) => r.backedUp(backup),
                                 () => {
