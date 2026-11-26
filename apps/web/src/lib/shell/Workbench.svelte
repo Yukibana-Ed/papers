@@ -444,6 +444,7 @@
     <Header
         session={s}
         onOpenFile={(f) => openFile(f)}
+        onGoTo={(f, line, col) => openFile(f, line, col)}
         onPalette={() => (s.palette = true)}
         onShowReview={() => {
             s.commentFilter = 'github';

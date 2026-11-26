@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { githubUser } from '#lib/model/user.ts';
     import { onDestroy, onMount } from 'svelte';
     import type { BaseFile } from '@yukibana/papers-room-protocol';
     import { GitHubError, commit, compare, wipBackup } from '#lib/github/api.ts';
@@ -27,13 +28,10 @@
     let room: RoomClient | null = null;
     let stopSync: (() => void) | null = null;
 
-    /** A user as the app draws them, from their login alone: the hue is stable per login. */
-    function userOf(login: string, name = login): User {
-        let h = 0;
-        for (const ch of login) h = (h * 31 + ch.charCodeAt(0)) % 360;
-        const parts = name.split(/\s+/).filter(Boolean);
-        const initials = ((parts[0]?.[0] ?? login[0] ?? '?') + (parts.length > 1 ? (parts.at(-1)?.[0] ?? '') : '')).toUpperCase();
-        return { id: login, name, initials, hue: h };
+    /** Why GitHub refused, short enough for one line: the first line of its message, or the status alone. */
+    function refusal(e: GitHubError): string {
+        const first = e.message.split('\n')[0]?.trim() ?? '';
+        return first === '' ? String(e.status) : first.length > 140 ? `${first.slice(0, 139)}…` : first;
     }
 
     function start(p: LoadedProject, me: Viewer, r: RoomClient, base: string | null, baseFiles: readonly BaseFile[]): void {
@@ -44,7 +42,7 @@
         if (p.access !== 'write') for (const [path, v] of p.texts) files[path] ??= v.text;
         const committed: Record<string, string> = Object.fromEntries([...p.texts].map(([path, v]) => [path, v.text]));
         for (const f of baseFiles) committed[f.path] = f.text;
-        const users: Record<string, User> = { [me.login]: userOf(me.login, me.name) };
+        const users: Record<string, User> = { [me.login]: githubUser(me.login, me.name) };
         const s = new Session({
             repo: { owner: p.owner, name: p.repo },
             me: me.login,
@@ -73,7 +71,8 @@
                         await pull(p.branch, fresh);
                         throw new Error(`Merged ${p.branch}: commit again`, { cause: e });
                     }
-                    throw new Error(e instanceof GitHubError ? `GitHub refused the commit (${e.status})` : 'Commit failed', { cause: e });
+                    // GitHub's own words say why (a protected branch, the App not installed on the repository, ...).
+                    throw new Error(e instanceof GitHubError ? `GitHub refused the commit: ${refusal(e)}` : 'Commit failed', { cause: e });
                 }
                 head = oid;
                 mine.add(oid);

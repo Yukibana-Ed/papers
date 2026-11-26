@@ -9,7 +9,13 @@
 
     /** The one thin row at the top: project, branch, head commit, what is uncommitted, the pull request, and the
      *  actions: Suggest, Commit, Commands. */
-    let { session: s, onOpenFile, onPalette, onShowReview }: { session: Session; onOpenFile: (f: string) => void; onPalette: () => void; onShowReview: () => void } = $props();
+    let {
+        session: s,
+        onOpenFile,
+        onGoTo,
+        onPalette,
+        onShowReview,
+    }: { session: Session; onOpenFile: (f: string) => void; onGoTo: (file: string, line: number, column: number) => void; onPalette: () => void; onShowReview: () => void } = $props();
 </script>
 
 <header class="bar">
@@ -68,6 +74,22 @@
     {/if}
 
     <span class="grow"></span>
+
+    {#if s.present.length > 0}
+        <span class="present" role="group" aria-label="Here now">
+            {#each s.present as u (u)}
+                {@const at = s.presence.find((p) => p.user === u)}
+                <button
+                    type="button"
+                    class="present-one"
+                    onclick={() => at && onGoTo(at.file, at.line, at.column ?? 1)}
+                    {...tip(u === s.me ? `${s.users[u]?.name ?? u} (you)` : (s.users[u]?.name ?? u), null, u === s.me ? `another window · ${at?.file ?? ''}:${at?.line ?? ''}` : `${at?.file ?? ''}:${at?.line ?? ''}`)}
+                >
+                    <Avatar user={s.users[u]} size={22} />
+                </button>
+            {/each}
+        </span>
+    {/if}
 
     <div class="yk-segmented seg-xs narrow-only" role="group" aria-label="Pane">
         <button type="button" aria-pressed={s.narrowPane === 'source'} onclick={() => (s.narrowPane = 'source')} {...tip('Source', 'Ctrl+J')}>Source</button>
