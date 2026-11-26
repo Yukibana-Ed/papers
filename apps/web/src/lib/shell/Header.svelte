@@ -13,6 +13,7 @@
 </script>
 
 <header class="bar">
+    <h1 class="sr-only">{s.repo.name}</h1>
     <a class="brand" href="/" {...tip('Projects', null, 'back to all papers')}>
         <img src="/logo.svg" alt="" width="18" height="18" />
     </a>
@@ -33,7 +34,7 @@
             {#if s.popover === 'branch'}<BranchMenu session={s} />{/if}
         </span>
     {/if}
-    <span class="anchor">
+    <span class="anchor hide-xs">
         <button type="button" class="chip-btn mono" class:is-open={s.popover === 'log'} data-popover-anchor onclick={() => s.togglePopover('log')} {...tip(`Head ${s.head.hash}`, null, 'on GitHub · git pull to get it')}>
             <Icon name="commit" size={14} />
             {s.head.hash}
@@ -52,7 +53,7 @@
         {/if}
     </span>
     {#if s.uncommitted > 0}
-        <span class="yk-chip yk-chip--yellow pending" {...tip(`${s.uncommitted} uncommitted`, null, 'session edits your clone cannot see')}>+{s.uncommitted}</span>
+        <span class="yk-chip yk-chip--yellow pending hide-xs" {...tip(`${s.uncommitted} uncommitted`, null, 'session edits your clone cannot see')}>+{s.uncommitted}</span>
     {/if}
     {#if s.sync === 'paused'}
         <span class="yk-chip yk-chip--yellow" {...tip('Live sync paused', null, 'edits sync again tomorrow')}><Icon name="alert" />Paused</span>

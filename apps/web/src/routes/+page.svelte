@@ -15,7 +15,7 @@
 <main class="home">
     <img src="/logo.svg" alt="" width="44" height="44" />
     <h1>Yukibana Papers</h1>
-    <p class="tagline">LaTeX papers in your GitHub repository, written together.</p>
+    <p class="tagline">LaTeX and Typst papers in your GitHub repository, written together.</p>
     <div class="actions">
         {#if data.me}
             <form
