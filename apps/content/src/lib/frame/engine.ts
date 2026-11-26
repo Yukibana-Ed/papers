@@ -10,6 +10,8 @@ export interface BuildOutput {
     readonly synctex: string | null;
     readonly log: string;
     readonly ms: number;
+    /** Set when the engine itself could not start (its files did not load): not a problem with the document. */
+    readonly failure?: string;
 }
 
 /** Where the engine's files and the TeX Live store are served, on this origin. */
@@ -58,6 +60,7 @@ export class TexEngine {
             await runner.initialize(true);
             return runner;
         })();
+        // A failed start is retried on the next build (and on the app's Retry).
         this.#runner.catch(() => {
             this.#runner = null;
         });
@@ -79,8 +82,14 @@ export class TexEngine {
 
     async #build(files: ReadonlyMap<string, FileContents>, root: string, engine: Exclude<Engine, 'typst'>): Promise<BuildOutput> {
         const t0 = performance.now();
+        let runner: Runner;
         try {
-            const runner = await this.#start();
+            runner = await this.#start();
+        } catch (e) {
+            const failure = e instanceof Error ? e.message : String(e);
+            return { ok: false, pdf: null, synctex: null, log: `! ${failure}`, ms: performance.now() - t0, failure };
+        }
+        try {
             const list = [...files].map(([path, content]) => ({ path, content }));
             const sources = [...files.values()].filter((c): c is string => typeof c === 'string');
             const bib = bibliographyTool(sources);
