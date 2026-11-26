@@ -1,5 +1,6 @@
 import type { editor as Editor, IDisposable, languages, Position } from 'monaco-editor/editor/editor.api';
 import { PROJECT_ROOT_URI, monaco } from '#lib/editor/monaco.ts';
+import type { Reported } from '#lib/problems/model.ts';
 
 /** A JSON-RPC message, as LSP frames them. */
 interface Rpc {
@@ -158,6 +159,8 @@ export class LanguageClient {
         private readonly owner: string,
         private readonly send: (message: Rpc) => void,
         private readonly profile: ServerProfile = {},
+        /** Receives each file's diagnostics as well, for the Problems panel: (project path, its problems). */
+        private readonly onDiagnostics?: (file: string, items: readonly Reported[]) => void,
     ) {
         this.ready = this.initialize();
     }
@@ -211,6 +214,23 @@ export class LanguageClient {
     private notification(method: string, params: unknown): void {
         if (method !== 'textDocument/publishDiagnostics') return;
         const p = params as { uri: string; diagnostics: LspDiagnostic[] };
+        const prefix = `${PROJECT_ROOT_URI}/`;
+        const file = p.uri.startsWith(prefix) ? decodeURIComponent(p.uri.slice(prefix.length)) : null;
+        if (this.onDiagnostics && file !== null)
+            this.onDiagnostics(
+                file,
+                p.diagnostics
+                    .filter(d => !this.profile.ignoreDiagnostic?.(d.message))
+                    .map(d => ({
+                        file,
+                        line: d.range.start.line + 1,
+                        column: d.range.start.character + 1,
+                        endLine: d.range.end.line + 1,
+                        endColumn: d.range.end.character + 1,
+                        severity: d.severity === 1 ? 'error' : d.severity === 2 ? 'warning' : 'info',
+                        message: d.message,
+                    })),
+            );
         const model = monaco.editor.getModel(monaco.Uri.parse(p.uri));
         if (!model) return;
         monaco.editor.setModelMarkers(

@@ -2,6 +2,7 @@ import { changedLines } from '#lib/model/diff.ts';
 import { findRoots, includedFiles, outline, type Heading } from '#lib/model/tex.ts';
 import { addReply, findComment, setResolved } from '#lib/model/threads.ts';
 import type { Anchor, Branch, Commit, Cursor, Lines, PlacedSuggestion, Presence, Thread, User } from '#lib/model/types.ts';
+import { countProblems, mergeProblems, type Problem, type ProblemSource, type Reported } from '#lib/problems/model.ts';
 
 /** The data a session starts from: a repository at a branch, and its room. */
 export interface SessionSeed {
@@ -34,16 +35,34 @@ export interface FileChange {
     readonly del: number;
 }
 
-export type Panel = 'outline' | 'files' | 'comments';
+export type Panel = 'outline' | 'files' | 'comments' | 'problems';
 export type Popover = 'commit' | 'log' | 'branch' | 'doc' | 'builder' | null;
 export type ThemeChoice = 'light' | 'dark' | 'system';
 
 export interface BuildState {
     readonly status: 'loading' | 'compiling' | 'idle';
     readonly ok: boolean;
+    /** Pages on screen: the last good build's when this one failed. */
     readonly pages: number;
     readonly ms: number;
-    readonly errors: readonly { readonly file: string; readonly line: number; readonly message: string }[];
+    /** What the build reported. */
+    readonly diagnostics: readonly Reported[];
+    /** The engine's log, for "Show log". */
+    readonly log: string;
+}
+
+/** A part of the build service that could not start (the frame's `service` message): not a problem with the paper. */
+export interface ServiceState {
+    readonly what: 'tex-engine' | 'typst-compiler' | 'texlive';
+    readonly detail: string;
+}
+
+/** How long after the last keystroke a failed build may show its errors: never while someone is mid-word. */
+export const SETTLE_MS = 900;
+
+/** How long to wait before showing a build's errors, given the last edit at `lastEdit` and the time `now`. */
+export function settleDelay(lastEdit: number, now: number, settle = SETTLE_MS): number {
+    return Math.max(0, lastEdit + settle - now);
 }
 
 const short = (f: string): string => f.split('/').pop() ?? f;
@@ -94,7 +113,20 @@ export class Session {
     pinnedRoot = $state<string | null>(null);
     zoom = $state(1);
     scale = $state(1);
-    build = $state<BuildState>({ status: 'loading', ok: true, pages: 0, ms: 0, errors: [] });
+    /** The latest build, as the frame reported it. */
+    build = $state<BuildState>({ status: 'loading', ok: true, pages: 0, ms: 0, diagnostics: [], log: '' });
+    /** The build whose problems are shown: the latest one once it has settled (see `acceptBuild`). */
+    shownBuild = $state<BuildState>({ status: 'idle', ok: true, pages: 0, ms: 0, diagnostics: [], log: '' });
+    /** A part of the build service that could not start, or null. */
+    service = $state<ServiceState | null>(null);
+    /** What the language servers report, by server, then file. */
+    languageProblems = $state<Partial<Record<ProblemSource, Record<string, readonly Reported[]>>>>({});
+    /** Whether the Problems panel lists notes (over- and underfull boxes). */
+    showNotes = $state(false);
+    /** Whether the Problems panel shows the build's log. */
+    showLog = $state(false);
+    #lastEdit = 0;
+    #settleTimer = 0;
     commitMessage = $state('');
     justCommitted = $state(false);
     incoming = $state(0);
@@ -167,6 +199,17 @@ export class Session {
         return out;
     });
 
+    /** Every problem: the shown build's and the language servers', merged (notes included; the panel filters them). */
+    problems = $derived.by((): Problem[] => {
+        const reports: { source: ProblemSource; items: readonly Reported[] }[] = [{ source: 'build', items: this.shownBuild.diagnostics }];
+        for (const [source, files] of Object.entries(this.languageProblems) as [ProblemSource, Record<string, readonly Reported[]>][])
+            reports.push({ source, items: Object.values(files).flat() });
+        return mergeProblems(reports, this.order);
+    });
+    problemCounts = $derived(countProblems(this.problems));
+    /** The shown build's errors: what the preview lists at its top. */
+    buildErrors = $derived(this.problems.filter(p => p.severity === 'error' && p.sources.includes('build')));
+
     uncommitted = $derived(this.changes.reduce((n, c) => n + Math.max(c.add, c.del), 0));
     defaultCommitMessage = $derived(this.changes.length ? `Update ${this.changes.map(c => short(c.file)).join(', ')}` : '');
     currentBranch = $derived(this.branches[this.branch] ?? { name: this.branch, users: [], pr: null });
@@ -210,6 +253,41 @@ export class Session {
 
     edit(file: string, text: string): void {
         this.files[file] = text;
+        this.#lastEdit = Date.now();
+        // A failed build waiting to be shown waits for this pause in typing too.
+        if (this.#settleTimer) this.#scheduleShow();
+    }
+
+    /** Takes a finished build. A build without errors shows at once (the errors go away as soon as they are fixed);
+     *  one with errors shows only once typing has paused (`SETTLE_MS`), so the preview never flickers into its error
+     *  state mid-word. Until then the previous build stays shown. */
+    acceptBuild(b: BuildState): void {
+        this.build = b;
+        if (!b.diagnostics.some(d => d.severity === 'error') && b.ok) {
+            clearTimeout(this.#settleTimer);
+            this.#settleTimer = 0;
+            this.shownBuild = b;
+            return;
+        }
+        this.#scheduleShow();
+    }
+
+    #scheduleShow(): void {
+        clearTimeout(this.#settleTimer);
+        this.#settleTimer = window.setTimeout(
+            () => {
+                this.#settleTimer = 0;
+                // A newer build is running: it will be accepted when it is done.
+                if (this.build.status !== 'idle') return;
+                this.shownBuild = this.build;
+            },
+            settleDelay(this.#lastEdit, Date.now()),
+        );
+    }
+
+    /** Replaces what `source` reports for `file` (a language server's publishDiagnostics). */
+    setLanguageProblems(source: ProblemSource, file: string, items: readonly Reported[]): void {
+        this.languageProblems = { ...this.languageProblems, [source]: { ...this.languageProblems[source], [file]: items } };
     }
 
     openFile(file: string): void {
