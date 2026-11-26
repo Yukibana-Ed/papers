@@ -89,6 +89,8 @@ export class Viewer {
     #sync: SourceMap | null = null;
     /** The sync to the word, over `#sync`, once the shown build's text is read; null until then or without sources. */
     #precise: PreciseMap | null = null;
+    /** The shown build's own sync to the word, when its compiler gave one: `#precise` is then this. */
+    #exact: PreciseMap | null = null;
     /** The shown build's words, whose boxes the drawn text layers refine. */
     #words: DocWord[] = [];
     /** The build `#words` were read from: a page of another build must not refine them. */
@@ -150,7 +152,7 @@ export class Viewer {
         this.#words = words;
         this.#wordsTask = task;
         for (const p of this.#pages) if (p.drawn !== 0) this.#refine(p);
-        this.#precise = preciseMap(sync, words, this.#sources, this.#format);
+        this.#precise = this.#exact ?? preciseMap(sync, words, this.#sources, this.#format);
         // For browser tests: the sync to the word of the shown build is ready, and its pages in view are drawn (a
         // selection made before the new text layer swaps in would be lost with the old one).
         await Promise.all(this.#pages.map(p => p.rendering ?? Promise.resolve()));
@@ -204,15 +206,19 @@ export class Viewer {
         return this.#fit * this.#zoom;
     }
 
-    /** Shows a new build. Precondition: `pdf` is a complete PDF. Resolves once the new pages are laid out
-     *  and SyncTeX is in use; the pages in view draw after that. */
-    async show(pdf: Uint8Array, sync: SourceMap | null): Promise<void> {
+    /** Shows a new build. Precondition: `pdf` is a complete PDF, and `exact`, when given, is the sync to the word of
+     *  that very build (a Typst build's, from the compiler); without it the sync to the word is made by aligning the
+     *  build's words with the sources. Resolves once the new pages are laid out and SyncTeX is in use; the pages in
+     *  view draw after that. */
+    async show(pdf: Uint8Array, sync: SourceMap | null, exact: PreciseMap | null = null): Promise<void> {
         const task = getDocument({ data: pdf.slice() });
         const doc = await task.promise;
         const proxies = await Promise.all(Array.from({ length: doc.numPages }, (_, i) => doc.getPage(i + 1)));
         const old = this.#task;
         this.#task = task;
         this.#sync = sync;
+        this.#exact = exact;
+        if (exact !== null) this.#precise = exact;
         // Reuse the page elements that exist; add or remove the difference.
         while (this.#pages.length > proxies.length) {
             const gone = this.#pages.pop();

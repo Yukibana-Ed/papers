@@ -5,9 +5,14 @@ import { ASSETS } from './asset-path.ts';
  *
  *  Versions are pinned here: changing one is a deploy, and assets.yml uploads the new folder. */
 
-/** typst.ts's web compiler. 0.8.0-rc4 (a pre-release, 2026-11-09) is the one on Typst 0.15.1, the Typst of tinymist
- *  0.15.12: compiler and language server must agree on the language. Matches the `@myriaddreamin/typst.ts` dependency. */
+/** typst.ts, whose web compiler this is. 0.8.0-rc4 (a pre-release, 2026-11-09) is the one on Typst 0.15.1, the Typst of
+ *  tinymist 0.15.12: compiler and language server must agree on the language. Matches the `@myriaddreamin/typst.ts`
+ *  dependency. */
 export const TYPST_TS_VERSION = '0.8.0-rc4';
+/** Our build of that compiler (packages/typst-wasm: upstream's source at that version, plus `glyph_spans`), which is
+ *  the `@myriaddreamin/typst-ts-web-compiler` dependency: the release archive `typst-wasm-<this>`. Its wasm is served
+ *  under this name, so the script that loads it and the wasm are always of one build. */
+export const TYPST_COMPILER_BUILD = `${TYPST_TS_VERSION}-yb.1`;
 /** tinymist's official web build (`tinymist-web.tar.gz` of the GitHub release). */
 export const TINYMIST_VERSION = '0.15.12';
 /** The SHA-256 of that release asset (GitHub's asset digest); scripts/typst.ts checks it before upload. */
@@ -38,7 +43,7 @@ export const TYPST_TEXT_FONTS: readonly string[] = [
 
 /** Where each kind of asset lives: its URL path on the content origin, and its key prefix in the bucket. */
 export const TYPST_ASSETS = {
-    compiler: { path: `${ASSETS}/engine/typst/`, key: `typst/${TYPST_TS_VERSION}/`, files: ['typst_ts_web_compiler_bg.wasm'] },
+    compiler: { path: `${ASSETS}/engine/typst/`, key: `typst/${TYPST_COMPILER_BUILD}/`, files: ['typst_ts_web_compiler_bg.wasm'] },
     tinymist: { path: `${ASSETS}/engine/tinymist/`, key: `tinymist/${TINYMIST_VERSION}/`, files: ['tinymist_bg.wasm'] },
     fonts: { path: `${ASSETS}/engine/typst-fonts/`, key: `typst-fonts/${TYPST_FONTS_VERSION}/`, files: TYPST_TEXT_FONTS },
 } as const;

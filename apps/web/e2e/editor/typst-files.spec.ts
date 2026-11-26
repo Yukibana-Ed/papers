@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { openTypstPaper } from '../typst-paper.ts';
 
 /** A Typst paper's other files (a bibliography, data, an image, an included file) reach the Typst language server in
  *  the encoding it expects and the compiler as they are: opened from a gallery template (the gallery is mocked with a
@@ -23,49 +24,10 @@ const FILES: Record<string, string | Uint8Array> = {
     'dot.png': PNG,
 };
 
-async function mockGallery(page: Page): Promise<void> {
-    await page.route('https://api.github.com/repos/Yukibana-Ed/papers-templates/commits/main', route => route.fulfill({ body: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00' }));
-    await page.route('https://raw.githubusercontent.com/Yukibana-Ed/papers-templates/c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00/**', route => {
-        const path = decodeURIComponent(new URL(route.request().url()).pathname.split('/c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00/')[1] ?? '');
-        if (path === 'index.json')
-            return route.fulfill({
-                json: {
-                    version: 1,
-                    templates: [
-                        {
-                            id: 'typst-files',
-                            name: 'Files',
-                            description: 'Reads one of each kind of file.',
-                            category: 'paper',
-                            format: 'typst',
-                            engine: 'typst',
-                            root: 'main.typ',
-                            licence: '0BSD',
-                            thumbnail: 'thumbnail.png',
-                            fields: {},
-                            seeAlso: [],
-                            files: Object.keys(FILES),
-                        },
-                    ],
-                },
-            });
-        const file = FILES[path.replace(/^typst-files\//, '')];
-        if (path.endsWith('thumbnail.png') || file === undefined)
-            return route.fulfill({ status: path.endsWith('thumbnail.png') ? 200 : 404, body: path.endsWith('thumbnail.png') ? Buffer.from(PNG) : '' });
-        return route.fulfill({ body: typeof file === 'string' ? file : Buffer.from(file) });
-    });
-}
-
 test('a Typst paper reads its bibliography, data, image and included file: it builds and the language server reports nothing', async ({ page }) => {
     test.skip(!process.env['E2E_ENGINE'], 'needs the Typst compiler and language server (E2E_ENGINE=1)');
     test.setTimeout(170_000);
-    await mockGallery(page);
-    await page.goto('/new');
-    await page.getByRole('button', { name: /Files/ }).first().click();
-    await page.getByRole('button', { name: 'Open here' }).click();
-    await page.getByRole('textbox', { name: /title/i }).fill('Files');
-    await page.locator('button:text-is("Open")').click();
-    await expect(page).toHaveURL(/\/try/);
+    await openTypstPaper(page, FILES);
     // It builds: a page with the cited text.
     const frame = page.frameLocator('iframe.pv-frame');
     await expect(frame.locator('.textLayer span', { hasText: 'rows' }).first()).toBeAttached({ timeout: 150_000 });

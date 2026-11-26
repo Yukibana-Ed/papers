@@ -72,7 +72,7 @@ catalog:
   yjs: 13.6.33
   ws: 8.22.2
   zod: 4.6.7
-  '@myriaddreamin/typst-ts-web-compiler': 0.8.0-rc4
+  '@myriaddreamin/typst-ts-web-compiler': https://github.com/Yukibana-Ed/papers/releases/download/typst-wasm-0.8.0-rc4-yb.1/typst-ts-web-compiler-0.8.0-rc4-yb.1.tgz
   '@myriaddreamin/typst.ts': 0.8.0-rc4
   '@yukibana/papers-templates': workspace:*
   '@playwright/test': 1.65.0
@@ -82,5 +82,3 @@ catalogs:
     typescript: 6.0.3
 catalogMode: strict
 catalogPrune: true
-patchedDependencies:
-  '@myriaddreamin/typst-ts-web-compiler@0.8.0-rc4': patches/@myriaddreamin__typst-ts-web-compiler@0.8.0-rc4.patch

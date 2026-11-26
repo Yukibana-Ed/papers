@@ -1,11 +1,15 @@
-// The Typst side of the content origin's assets: the typst.ts compiler, tinymist's web build, and Typst's default fonts.
+// The Typst side of the content origin's assets: our build of the typst.ts compiler (packages/typst-wasm), tinymist's
+// web build, and Typst's default fonts.
 //
 //   node scripts/typst.ts fetch [dir]          tinymist's web build into <dir>/tinymist (default .engine), checked against
 //                                              its pinned SHA-256; what the dev server serves at /engine/tinymist
 //   node scripts/typst.ts stage <out>          everything the content origin serves, brotli-compressed, laid out as the
 //                                              bucket's keys (typst/<v>/, tinymist/<v>/, typst-fonts/<v>/) under <out>
+//   node scripts/typst.ts seed                 our compiler build into the local bucket of `wrangler dev`, for the browser
+//                                              tests: they run this checkout's build, which the deployed origin (their
+//                                              source for every other asset) may not have yet
 //
-// .github/workflows/assets.yml uploads <out> to the bucket. Every file is upstream's, unmodified.
+// .github/workflows/assets.yml uploads <out> to the bucket. tinymist and the fonts are upstream's, unmodified.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -56,18 +60,29 @@ async function stage(out: string): Promise<void> {
         writeFileSync(file, brotli(bytes));
         console.log(`${key}: ${bytes.length} bytes, ${readFileSync(file).length} compressed`);
     };
-    const compiler = join(dirname(fileURLToPath(import.meta.resolve('@myriaddreamin/typst-ts-web-compiler/package.json'))), 'pkg');
-    for (const f of TYPST_ASSETS.compiler.files) put(`${TYPST_ASSETS.compiler.key}${f}`, readFileSync(join(compiler, f)));
+    for (const f of TYPST_ASSETS.compiler.files) put(`${TYPST_ASSETS.compiler.key}${f}`, readFileSync(join(compilerDir(), f)));
     const tinymist = await fetchTinymist(join(out, '..', 'typst-fetch'));
     for (const f of TYPST_ASSETS.tinymist.files) put(`${TYPST_ASSETS.tinymist.key}${f}`, readFileSync(join(tinymist, f)));
     for (const f of TYPST_ASSETS.fonts.files)
         put(`${TYPST_ASSETS.fonts.key}${f}`, await download(`https://cdn.jsdelivr.net/gh/typst/typst-assets@${TYPST_FONTS_VERSION}/files/fonts/${f}`));
 }
 
+const compilerDir = (): string => join(dirname(fileURLToPath(import.meta.resolve('@myriaddreamin/typst-ts-web-compiler/package.json'))), 'pkg');
+
+function seed(): void {
+    for (const f of TYPST_ASSETS.compiler.files)
+        execFileSync('pnpm', ['exec', 'wrangler', 'r2', 'object', 'put', `yukibana-papers-assets/${TYPST_ASSETS.compiler.key}${f}`, '--local', '--file', join(compilerDir(), f)], {
+            cwd: join(here, '..'),
+            stdio: 'inherit',
+            shell: process.platform === 'win32',
+        });
+}
+
 const [command, arg] = process.argv.slice(2);
 if (command === 'fetch') await fetchTinymist(arg ?? join(here, '..', '.engine'));
 else if (command === 'stage' && arg) await stage(arg);
+else if (command === 'seed') seed();
 else {
-    console.error('usage: node scripts/typst.ts fetch [dir] | stage <out>');
+    console.error('usage: node scripts/typst.ts fetch [dir] | stage <out> | seed');
     process.exit(2);
 }

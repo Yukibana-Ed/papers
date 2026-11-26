@@ -5,6 +5,7 @@ import { parseTexLog } from '#lib/texlog.ts';
 import { Bridge } from './bridge.ts';
 import { TexEngine } from './engine.ts';
 import { TypstEngine } from './typst-engine.ts';
+import { spansMap } from '#lib/typst-spans.ts';
 import { Viewer, type ToolbarAnchor } from './viewer.ts';
 
 /** How long the frame waits after the last change before building. */
@@ -258,7 +259,8 @@ export class Frame {
         }
         this.#recovered();
         if (out.ok && out.pdf !== null) {
-            await this.#viewer.show(out.pdf, null);
+            // To the character from the compiler's own record of each glyph's source; the text map stays for lines.
+            await this.#viewer.show(out.pdf, null, out.spans === null ? null : spansMap(out.spans, textSources(files)));
             const sources = new Map<string, string>();
             for (const [path, c] of files) if (path.endsWith('.typ') && typeof c === 'string') sources.set(path, c);
             this.#viewer.setSourceMap(textMap(await this.#viewer.pageTexts(), sources));
