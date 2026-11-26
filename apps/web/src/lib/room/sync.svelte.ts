@@ -1,5 +1,6 @@
 import type * as Y from 'yjs';
-import type { Thread } from '#lib/model/types.ts';
+import type { Presence, Thread } from '#lib/model/types.ts';
+import { githubUser } from '#lib/model/user.ts';
 import type { Session } from '#lib/session.svelte.ts';
 import type { RoomClient } from './client.ts';
 import { parseRoomThread } from './thread-shape.ts';
@@ -48,27 +49,34 @@ export function syncReview(session: Session, room: RoomClient): () => void {
             });
         });
 
-        // My presence: where my cursor is, as one awareness change (the client throttles what it sends).
+        // My presence: who I am, where my cursor is and what I have selected, as one awareness change (the client
+        // throttles what it sends).
         $effect(() => {
             const c = session.cursor;
+            const s = session.selection;
             const user = session.me;
-            const cursor = { file: c.file, line: c.line };
-            const now = room.awareness.getLocalState();
-            if (now?.['user'] === user && JSON.stringify(now['cursor']) === JSON.stringify(cursor)) return;
-            room.awareness.setLocalState({ user, cursor });
+            const next = {
+                user,
+                name: session.users[user]?.name ?? user,
+                cursor: { file: c.file, line: c.line, column: c.col },
+                selection:
+                    s === null || s.startColumn === undefined || s.endColumn === undefined ? null : { file: s.file, range: [s.startLine, s.startColumn, s.endLine, s.endColumn] },
+            };
+            if (JSON.stringify(room.awareness.getLocalState()) === JSON.stringify(next)) return;
+            room.awareness.setLocalState(next);
         });
     });
 
     const onAwareness = (): void => {
-        const list = [];
+        const list: Presence[] = [];
+        // Every other window in the room, the user's own other windows among them.
         for (const [id, state] of room.awareness.getStates()) {
             if (id === room.awareness.clientID) continue;
-            const user: unknown = state['user'];
-            const cursor: unknown = state['cursor'];
-            if (typeof user !== 'string' || typeof cursor !== 'object' || cursor === null) continue;
-            const file: unknown = Reflect.get(cursor, 'file');
-            const line: unknown = Reflect.get(cursor, 'line');
-            if (typeof file === 'string' && typeof line === 'number') list.push({ user, file, line });
+            const p = presenceOf(state);
+            if (p === null) continue;
+            const name: unknown = state['name'];
+            session.meet(githubUser(p.user, typeof name === 'string' && name !== '' ? name.slice(0, 80) : p.user));
+            list.push(p);
         }
         session.presence = list;
     };
@@ -78,5 +86,28 @@ export function syncReview(session: Session, room: RoomClient): () => void {
         map.unobserve(pull);
         room.awareness.off('change', onAwareness);
         stopPush();
+    };
+}
+
+/** The presence an awareness `state` describes, or null when it is not one: states are other clients' words, so
+ *  every field is checked. */
+export function presenceOf(state: Readonly<Record<string, unknown>>): Presence | null {
+    const user = state['user'];
+    const cursor = state['cursor'];
+    if (typeof user !== 'string' || !/^[A-Za-z0-9-]{1,39}$/.test(user) || typeof cursor !== 'object' || cursor === null) return null;
+    const file: unknown = Reflect.get(cursor, 'file');
+    const line: unknown = Reflect.get(cursor, 'line');
+    const column: unknown = Reflect.get(cursor, 'column');
+    const at = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1;
+    if (typeof file !== 'string' || !at(line)) return null;
+    const selection = state['selection'];
+    const range: unknown = typeof selection === 'object' && selection !== null && Reflect.get(selection, 'file') === file ? Reflect.get(selection, 'range') : null;
+    const [startLineNumber, startColumn, endLineNumber, endColumn]: unknown[] = Array.isArray(range) && range.length === 4 ? range : [];
+    return {
+        user,
+        file,
+        line,
+        ...(at(column) ? { column } : {}),
+        ...(at(startLineNumber) && at(startColumn) && at(endLineNumber) && at(endColumn) ? { selection: { startLineNumber, startColumn, endLineNumber, endColumn } } : {}),
     };
 }

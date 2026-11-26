@@ -97,6 +97,61 @@ test('two people in a branch see each other type, and what one commits is commit
     await carol.context().close();
 });
 
+test('the people in a branch are shown at the top right, with their cursor and what they selected', async ({ page, browser }, info) => {
+    const repo = await repoFor(info.title);
+    await open(page, 'ada', repo);
+    // Alone, nobody is listed.
+    await expect(page.locator('.present-one')).toHaveCount(0);
+    const bob = await another(browser);
+    await open(bob, 'bob', repo);
+    await expect(page.locator('.present-one')).toHaveCount(1);
+    await expect(page.locator('.present-one .avatar')).toHaveAccessibleName('bob');
+    await expect(page.locator('.present-one img')).toHaveAttribute('src', 'https://avatars.githubusercontent.com/bob?s=64');
+
+    // Bob selects "from the" on the third line: Ada sees that text in his colour, and his caret where it ends.
+    await bob.locator('.monaco-editor .view-line', { hasText: 'Hello from the repository.' }).click();
+    await bob.keyboard.press('Home');
+    for (let i = 0; i < 6; i++) await bob.keyboard.press('ArrowRight');
+    for (let i = 0; i < 8; i++) await bob.keyboard.press('Shift+ArrowRight');
+    const band = page.locator('.monaco-editor .presence-selection.presence-bob');
+    const text = page.locator('.monaco-editor .view-line', { hasText: 'Hello from the repository.' }).locator('> span');
+    // The editor draws the line again when its decorations change: its box is asked for until there is one.
+    let line = await text.first().boundingBox();
+    for (let i = 0; line === null && i < 50; i++) {
+        await page.waitForTimeout(100);
+        line = await text.first().boundingBox();
+    }
+    if (!line) throw new Error('no line');
+    // The line's 26 characters are as wide as its text (the editor's font is monospaced).
+    const ch = line.width / 26;
+    // Presence is sent a few times a second: the selection arrives in steps, the last one eight characters wide.
+    await expect.poll(async () => ((await band.boundingBox())?.width ?? 0) / ch).toBeCloseTo(8, 0);
+    const box = await band.boundingBox();
+    if (!box) throw new Error('nothing drawn');
+    expect((box.x - line.x) / ch).toBeCloseTo(6, 0);
+    const caret = await page.locator('.monaco-editor .presence-caret.presence-bob').boundingBox();
+    if (!caret) throw new Error('no caret');
+    expect(Math.abs(caret.x - (box.x + box.width))).toBeLessThan(ch);
+
+    // Their picture takes Ada to where Bob is.
+    await page.locator('.monaco-editor .view-line', { hasText: 'documentclass' }).click();
+    await page.locator('.present-one').click();
+    await expect.poll(() => page.evaluate(() => document.querySelector('.monaco-editor .cursor')?.getBoundingClientRect().top ?? 0)).toBeGreaterThan(line.y - 2);
+
+    // A second window of Ada's own is listed for her too.
+    const again = await page.context().newPage();
+    await open(again, 'ada', repo);
+    await expect(page.locator('.present-one')).toHaveCount(2);
+    await expect(again.locator('.present-one')).toHaveCount(2);
+    await again.close();
+    await expect(page.locator('.present-one')).toHaveCount(1);
+
+    // When Bob leaves, so do his picture and his marks.
+    await bob.context().close();
+    await expect(page.locator('.present-one')).toHaveCount(0);
+    await expect(page.locator('.monaco-editor .presence-bob')).toHaveCount(0);
+});
+
 test('uncommitted edits are still there for whoever opens the branch next', async ({ page, browser }, info) => {
     const repo = await repoFor(info.title);
     await open(page, 'ada', repo);

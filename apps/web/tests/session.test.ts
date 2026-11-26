@@ -139,29 +139,39 @@ describe('syncReview', () => {
         stop();
     });
 
-    it('sets my presence in one awareness change per cursor line, and lists the others', () => {
+    it('sets my presence when the cursor or the selection changes, and lists the other windows', () => {
         const s = new Session(seed());
         const { room, awareness } = fakeRoom();
         const changes: unknown[] = [];
         awareness.on('change', (c: unknown) => changes.push(c));
         const stop = syncReview(s, room);
         flushSync();
-        expect(awareness.getLocalState()).toEqual({ user: 'me', cursor: { file: s.cursor.file, line: s.cursor.line } });
-        const before = changes.length;
-        expect(before).toBe(1);
+        expect(awareness.getLocalState()).toEqual({
+            user: 'me',
+            name: s.users['me']?.name ?? 'me',
+            cursor: { file: s.cursor.file, line: s.cursor.line, column: s.cursor.col },
+            selection: null,
+        });
+        expect(changes).toHaveLength(1);
         s.cursor = { ...s.cursor, col: 5 };
         flushSync();
-        expect(changes).toHaveLength(before);
-        s.cursor = { ...s.cursor, line: 3 };
+        expect(changes).toHaveLength(2);
+        s.selection = { file: MAIN, startLine: 2, endLine: 3, startColumn: 1, endColumn: 4 };
         flushSync();
-        expect(changes).toHaveLength(before + 1);
+        expect(changes).toHaveLength(3);
+        expect(awareness.getLocalState()?.['selection']).toEqual({ file: MAIN, range: [2, 1, 3, 4] });
 
-        const peer = new Awareness(new Y.Doc());
-        peer.setLocalState({ user: 'ann', cursor: { file: MAIN, line: 2 } });
-        awareness.getStates().set(peer.clientID, { user: 'ann', cursor: { file: MAIN, line: 2 } });
-        awareness.emit('change', [{ added: [peer.clientID], updated: [], removed: [] }, 'remote']);
-        expect(s.presence).toEqual([{ user: 'ann', file: MAIN, line: 2 }]);
-        peer.destroy();
+        // Another person, and this user's own second window.
+        awareness.getStates().set(7, { user: 'ann', name: 'Ann Lee', cursor: { file: MAIN, line: 2, column: 3 }, selection: { file: MAIN, range: [2, 3, 2, 9] } });
+        awareness.getStates().set(8, { user: 'me', cursor: { file: MAIN, line: 1 } });
+        awareness.getStates().set(9, { user: 'not a login', cursor: { file: MAIN, line: 1 } });
+        awareness.emit('change', [{ added: [7, 8, 9], updated: [], removed: [] }, 'remote']);
+        expect(s.presence).toEqual([
+            { user: 'ann', file: MAIN, line: 2, column: 3, selection: { startLineNumber: 2, startColumn: 3, endLineNumber: 2, endColumn: 9 } },
+            { user: 'me', file: MAIN, line: 1 },
+        ]);
+        expect(s.present).toEqual(['ann', 'me']);
+        expect(s.users['ann']).toMatchObject({ name: 'Ann Lee', initials: 'AL', picture: 'https://avatars.githubusercontent.com/ann?s=64' });
         stop();
     });
 });

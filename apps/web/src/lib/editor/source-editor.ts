@@ -408,7 +408,8 @@ export class SourceEditor {
 
     // --- presence, diagnostics, theme ---------------------------------------------------------------------------
 
-    /** Others' cursors: a caret at the end of their line, with their name. */
+    /** Others' cursors and selections (and the user's own in other windows): a caret with their name where their
+     *  cursor is (at the end of its line when the column is not known), and what they selected in their colour. */
     setPresence(list: readonly Presence[], users: Readonly<Record<string, User>>): void {
         this.users = users;
         if (!this.presenceStyle) {
@@ -420,18 +421,22 @@ export class SourceEditor {
             .map(p => {
                 const u = users[p.user];
                 const name = (u?.name.split(' ')[0] ?? p.user).replace(/["\\\n]/g, '');
-                return `.presence-${CSS.escape(p.user)}{--pc:oklch(55% 0.15 ${u?.hue ?? 0})}.presence-${CSS.escape(p.user)}::after{content:"${name}"}`;
+                return `.presence-${CSS.escape(p.user)}{--pc:oklch(55% 0.15 ${u?.hue ?? 0})}.presence-caret.presence-${CSS.escape(p.user)}::after{content:"${name}"}`;
             })
             .join('\n');
         for (const [f, m] of this.models) {
             const decos = list
                 .filter(p => p.file === f && p.line <= m.getLineCount())
-                .map(p => {
-                    const col = m.getLineMaxColumn(p.line);
-                    return {
+                .flatMap(p => {
+                    const col = Math.min(p.column ?? Number.POSITIVE_INFINITY, m.getLineMaxColumn(p.line));
+                    const caret = {
                         range: new monaco.Range(p.line, col, p.line, col),
                         options: { beforeContentClassName: `presence-caret presence-${p.user}`, hoverMessage: { value: users[p.user]?.name ?? p.user }, stickiness: GROW },
                     };
+                    const s = p.selection;
+                    if (s === undefined) return [caret];
+                    const range = m.validateRange(new monaco.Range(s.startLineNumber, s.startColumn, s.endLineNumber, s.endColumn));
+                    return [{ range, options: { className: `presence-selection presence-${p.user}`, stickiness: GROW } }, caret];
                 });
             this.D(f).presence = m.deltaDecorations(this.D(f).presence, decos);
         }
