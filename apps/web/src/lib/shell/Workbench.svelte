@@ -74,6 +74,7 @@
     $effect(() => editor?.setSuggestMode(s.suggestMode));
     $effect(() => editor?.setPresence(s.presence, s.users));
     $effect(() => editor?.setMirror(s.mirror));
+    $effect(() => editor?.setHover(s.hover));
     // The settled build's problems (language servers mark their own); notes only when the Problems panel shows them.
     $effect(() =>
         editor?.setDiagnostics(

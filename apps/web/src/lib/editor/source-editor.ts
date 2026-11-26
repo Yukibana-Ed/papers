@@ -36,6 +36,7 @@ interface FileDecorations {
     threads: string[];
     presence: string[];
     mirror: string[];
+    hover: string[];
 }
 
 /** The source editor: one Monaco editor over a model per project file, with the decorations of comments,
@@ -202,7 +203,7 @@ export class SourceEditor {
     private D(f: string): FileDecorations {
         let d = this.deco.get(f);
         if (!d) {
-            d = { threads: [], presence: [], mirror: [] };
+            d = { threads: [], presence: [], mirror: [], hover: [] };
             this.deco.set(f, d);
         }
         return d;
@@ -391,6 +392,15 @@ export class SourceEditor {
             const list =
                 lines && lines.file === f ? [{ range: new monaco.Range(lines.startLine, 1, lines.endLine, 1), options: { isWholeLine: true, className: 'mirror-line' } }] : [];
             this.D(f).mirror = m.deltaDecorations(this.D(f).mirror, list);
+        }
+    }
+
+    /** The lines whose typeset text is under the pointer in the preview, softly marked; null clears them. */
+    setHover(lines: Lines | null): void {
+        for (const [f, m] of this.models) {
+            const list =
+                lines && lines.file === f ? [{ range: new monaco.Range(lines.startLine, 1, lines.endLine, 1), options: { isWholeLine: true, className: 'hover-line' } }] : [];
+            this.D(f).hover = m.deltaDecorations(this.D(f).hover, list);
         }
     }
 
