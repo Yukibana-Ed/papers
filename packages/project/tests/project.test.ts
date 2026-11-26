@@ -60,6 +60,13 @@ describe('readProject', () => {
 });
 
 describe('parseConfig', () => {
+    it('reads a Typst version and leaves Typst documents to Typst', () => {
+        const c = parseConfig('[environment]\nkind = "managed"\ntypst = "0.14.2"\n\n[[document]]\nroot = "main.typ"\nengine = "typst"\n');
+        expect(c.environment).toEqual({ kind: 'managed', texlive: '2026', packages: [], typst: '0.14.2' });
+        expect(c.documents).toEqual([]);
+        expect(() => parseConfig('[environment]\ntypst = "latest"\n')).toThrow(/Typst version/);
+    });
+
     it('reads every kind of environment', () => {
         expect(parseConfig('[environment]\nkind = "system"\n').environment).toEqual({ kind: 'system' });
         expect(parseConfig('[environment]\nkind = "nix"\nflake = "github:o/r#paper"\n').environment).toEqual({ kind: 'nix', flake: 'github:o/r#paper' });

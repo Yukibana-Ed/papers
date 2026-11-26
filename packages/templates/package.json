@@ -1,0 +1,24 @@
+{
+  "private": true,
+  "name": "@yukibana/papers-templates",
+  "version": "0.0.0-dev",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./disk": "./src/disk.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p .",
+    "lint": "oxlint --type-aware --deny-warnings"
+  },
+  "dependencies": {
+    "smol-toml": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

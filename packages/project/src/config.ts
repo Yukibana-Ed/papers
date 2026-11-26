@@ -15,7 +15,7 @@ export type IndexTool = 'makeindex' | 'xindy' | 'upmendex' | 'none';
  *  - `nix`: a flake output that provides the toolchain (`flake`), e.g. `github:org/repo#paper`.
  *  - `oci`: a container image, pinned by digest (`image`), e.g. `ghcr.io/org/tex@sha256:…`. */
 export type Environment =
-    | { readonly kind: 'managed'; readonly texlive: string; readonly packages: readonly string[] }
+    | { readonly kind: 'managed'; readonly texlive: string; readonly packages: readonly string[]; readonly typst?: string }
     | { readonly kind: 'system' }
     | { readonly kind: 'nix'; readonly flake: string }
     | { readonly kind: 'oci'; readonly image: string };
@@ -112,7 +112,7 @@ export function parseConfig(text: string): PapersConfig {
     const env = raw['environment'];
     if (env !== undefined) {
         if (!isRecord(env)) throw new ConfigError('environment', 'must be a table');
-        const allowed: Record<string, readonly string[]> = { managed: ['kind', 'texlive', 'packages'], system: ['kind'], nix: ['kind', 'flake'], oci: ['kind', 'image'] };
+        const allowed: Record<string, readonly string[]> = { managed: ['kind', 'texlive', 'packages', 'typst'], system: ['kind'], nix: ['kind', 'flake'], oci: ['kind', 'image'] };
         const kind = oneOf(env, 'kind', 'environment.', ['managed', 'system', 'nix', 'oci'] as const) ?? 'managed';
         for (const k of Object.keys(env)) if (!(allowed[kind] ?? []).includes(k)) throw new ConfigError(`environment.${k}`, `not allowed for kind = "${kind}"`);
         if (kind === 'managed') {
@@ -121,7 +121,9 @@ export function parseConfig(text: string): PapersConfig {
             const pk = env['packages'] ?? [];
             if (!Array.isArray(pk) || !pk.every((p): p is string => typeof p === 'string' && /^[A-Za-z0-9._-]+$/.test(p)))
                 throw new ConfigError('environment.packages', 'must be a list of TeX Live package names');
-            environment = { kind, texlive, packages: pk };
+            const typst = str(env, 'typst', 'environment.');
+            if (typst !== undefined && !/^\d+\.\d+\.\d+$/.test(typst)) throw new ConfigError('environment.typst', 'must be a Typst version, such as "0.14.2"');
+            environment = { kind, texlive, packages: pk, ...(typst === undefined ? {} : { typst }) };
         } else if (kind === 'system') environment = { kind };
         else if (kind === 'nix') {
             const flake = str(env, 'flake', 'environment.');
@@ -136,7 +138,9 @@ export function parseConfig(text: string): PapersConfig {
 
     const docs = raw['document'] ?? [];
     if (!Array.isArray(docs)) throw new ConfigError('document', 'must be an array of tables ([[document]])');
-    const documents = docs.map((d: unknown, i): DocumentConfig => {
+    // Typst documents (engine = "typst") build with Typst, not with the TeX tools that read this list.
+    const tex = (docs as unknown[]).filter(d => !(isRecord(d) && d['engine'] === 'typst'));
+    const documents = tex.map((d: unknown, i): DocumentConfig => {
         const at = `document[${i}].`;
         if (!isRecord(d)) throw new ConfigError(`document[${i}]`, 'must be a table');
         for (const k of Object.keys(d)) if (!['root', 'engine', 'bibliography', 'index', 'shell-escape'].includes(k)) throw new ConfigError(`${at}${k}`, 'unknown key');

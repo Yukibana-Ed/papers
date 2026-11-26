@@ -4,6 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { forwardSearch, inverseSearch, parseSynctex, type BuildResult } from '@yukibana/papers-compiler';
 import { folderFiles, outline, readProject, type Project, type ProjectDocument } from '@yukibana/papers-project';
+import { createOnDisk } from '@yukibana/papers-templates/disk';
 
 /** Builds one document of the project in `projectDir`, however the host decides (sandbox, toolchain), in `workDir`
  *  (a copy of the project, whose paths the engine writes into the SyncTeX file). */
@@ -112,6 +113,21 @@ export function createPapersServer(o: PapersServerOptions): McpServer {
             mkdirSync(dirname(full), { recursive: true });
             writeFileSync(full, content);
             return text(`wrote ${path} (${Buffer.byteLength(content)} bytes)`);
+        },
+    );
+
+    server.registerTool(
+        'create_project',
+        {
+            description:
+                'Creates a new paper from a template in a new, empty folder of the project: a gallery id (latex-article, latex-conference, latex-thesis, latex-slides, latex-cv, typst-article, typst-slides), a GitHub repository or folder (owner/repo/folder), or a Typst Universe template (@preview/name:version). Returns the root file to build.',
+            inputSchema: { template: z.string(), folder: z.string().describe('A new folder, relative to the project'), title: z.string().optional() },
+        },
+        async ({ template, folder, title }) => {
+            if (template.toLowerCase().endsWith('.zip')) throw new Error('create_project takes a template name, not an archive');
+            const dir = inside(o.projectDir, folder);
+            const r = await createOnDisk(template, dir, title ? { title } : {});
+            return text(JSON.stringify({ origin: r.origin, root: `${folder.replace(/\\/g, '/').replace(/\/$/, '')}/${r.root}`, files: r.files }, null, 2));
         },
     );
 

@@ -185,6 +185,7 @@
 
     const commands = $derived<Command[]>([
         { id: 'commit', name: 'Commit', kbd: 'Ctrl+S', run: () => (s.popover = 'commit') },
+        { id: 'new', name: 'New paper', run: () => location.assign('/new') },
         { id: 'suggest', name: s.suggestMode ? 'Stop suggesting' : 'Suggest edits', kbd: 'Ctrl+Alt+S', run: () => (s.suggestMode = !s.suggestMode) },
         { id: 'comment', name: 'Comment on selection', kbd: 'Ctrl+Alt+M', run: newComment },
         { id: 'jump', name: 'Jump to the other side', kbd: 'Ctrl+J', run: () => void jumpOther() },
