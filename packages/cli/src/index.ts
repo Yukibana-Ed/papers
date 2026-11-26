@@ -27,6 +27,8 @@ const HELP = `papers ${VERSION}: build LaTeX papers on this computer, safely.
   papers new <template> [folder] [--title …]                        a paper from a template: latex-article, owner/repo/folder, @preview/name, a .zip
 
 --sandbox none runs TeX unconfined, with access to all your files: only for a toolchain you trust.
+--shell-escape lets documents whose papers.toml asks for it run shell commands (still in the sandbox); a project
+cannot turn this on by itself.
 `;
 
 /** A one-line, editor-clickable form of a diagnostic: `file:line: severity: message`. */
@@ -49,11 +51,11 @@ function sandboxOf(v: string | undefined): SandboxChoice {
     throw new Error(`--sandbox is auto or none, not ${v}`);
 }
 
-async function build(dir: string, doc: string | undefined, tex: string | undefined, sandbox: SandboxChoice): Promise<boolean> {
+async function build(dir: string, doc: string | undefined, tex: string | undefined, sandbox: SandboxChoice, shellEscape: boolean): Promise<boolean> {
     const project = openProject(dir);
     const d = pickDocument(project, doc);
     const toolchain = resolveToolchain(project.environment, tex);
-    const b = await buildLocal(dir, project.files, d, toolchain, sandbox, p => process.stderr.write(`  ${p}\n`));
+    const b = await buildLocal(dir, project.files, d, toolchain, sandbox, p => process.stderr.write(`  ${p}\n`), shellEscape);
     const r = b.result;
     for (const x of r.diagnostics) if (x.severity !== 'info') console.log(line(x));
     const boxes = r.diagnostics.filter(x => x.severity === 'info').length;
@@ -75,6 +77,7 @@ async function main(argv: string[]): Promise<number> {
             port: { type: 'string' },
             server: { type: 'string' },
             dev: { type: 'boolean' },
+            'shell-escape': { type: 'boolean' },
             title: { type: 'string' },
             help: { type: 'boolean', short: 'h' },
             version: { type: 'boolean', short: 'v' },
@@ -103,7 +106,7 @@ async function main(argv: string[]): Promise<number> {
             return 0;
         }
         case 'build':
-            return (await build(dir, values.doc, values.tex, sandbox)) ? 0 : 1;
+            return (await build(dir, values.doc, values.tex, sandbox, values['shell-escape'] === true)) ? 0 : 1;
 
         case 'watch': {
             let timer: NodeJS.Timeout | undefined;
@@ -116,7 +119,7 @@ async function main(argv: string[]): Promise<number> {
                 }
                 running = true;
                 try {
-                    await build(dir, values.doc, values.tex, sandbox);
+                    await build(dir, values.doc, values.tex, sandbox, values['shell-escape'] === true);
                 } catch (e) {
                     console.error(e instanceof Error ? e.message : String(e));
                 }
@@ -158,7 +161,7 @@ async function main(argv: string[]): Promise<number> {
                     const d = pickDocument(project, root);
                     const toolchain = resolveToolchain(project.environment, values.tex);
                     // The connection's folder is already a copy: build in place.
-                    const b = await buildLocal(workDir, files, d, toolchain, sandbox, onStep);
+                    const b = await buildLocal(workDir, files, d, toolchain, sandbox, onStep, values['shell-escape'] === true);
                     return { ...b.result, diagnostics: b.result.diagnostics };
                 },
                 languageServer: (workDir, server) => {
@@ -213,7 +216,15 @@ async function main(argv: string[]): Promise<number> {
                 version: VERSION,
                 build: async (projectDir, doc) => {
                     const project = openProject(projectDir);
-                    const b = await buildLocal(projectDir, project.files, doc, resolveToolchain(project.environment, values.tex), sandbox);
+                    const b = await buildLocal(
+                        projectDir,
+                        project.files,
+                        doc,
+                        resolveToolchain(project.environment, values.tex),
+                        sandbox,
+                        undefined,
+                        values['shell-escape'] === true,
+                    );
                     return { result: b.result, workDir: b.workDir, output: b.output };
                 },
             });

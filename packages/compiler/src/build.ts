@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
+import { realFileInside, sweepLinks } from './safe-fs.ts';
 import { join, posix } from 'node:path';
 import type { ProjectDocument } from '@yukibana/papers-project';
 import { parseLog, type Diagnostic } from './log.ts';
@@ -42,11 +43,15 @@ export interface BuildOptions {
     readonly haltOnError?: boolean;
     /** Called as each program starts. */
     readonly onStep?: (program: string) => void;
+    /** Let documents that ask for it (`shell-escape = true` in papers.toml) run shell commands. Default false: a
+     *  project file is written by whoever can push to the repository, so it cannot grant itself that; the person
+     *  building does, explicitly (`papers build --shell-escape`). The commands still run in the sandbox. */
+    readonly allowShellEscape?: boolean;
 }
 
 /** The engine arguments every run gets. */
-function engineArgs(doc: ProjectDocument, file: string, haltOnError: boolean): string[] {
-    return ['-interaction=nonstopmode', '-file-line-error', '-synctex=1', ...(haltOnError ? ['-halt-on-error'] : []), doc.shellEscape ? '-shell-escape' : '-no-shell-escape', file];
+function engineArgs(file: string, haltOnError: boolean, shellEscape: boolean): string[] {
+    return ['-interaction=nonstopmode', '-file-line-error', '-synctex=1', ...(haltOnError ? ['-halt-on-error'] : []), shellEscape ? '-shell-escape' : '-no-shell-escape', file];
 }
 
 function hashFile(path: string): string {
@@ -94,9 +99,15 @@ export async function buildDocument(o: BuildOptions): Promise<BuildResult> {
     const steps: BuildStep[] = [];
     const extra: Diagnostic[] = [];
     const timeoutMs = o.timeoutMs ?? 120_000;
+    const shellEscape = doc.shellEscape && o.allowShellEscape === true;
+    if (doc.shellEscape && !shellEscape)
+        extra.push({ file: null, line: null, severity: 'warning', message: 'papers.toml asks for shell escape; it is off unless you build with --shell-escape' });
     const run = async (program: string, args: string[]): Promise<RunResult> => {
         o.onStep?.(program);
         const r = await o.runner.run({ program, args, cwd, timeoutMs });
+        // The program ran in the sandbox and may have left links to files outside: they go before anything here reads
+        // the work folder (logs, .aux, the PDF), so nothing is read through them.
+        sweepLinks(o.workDir);
         steps.push({ program, code: r.code, ms: r.ms });
         if (r.code === null && !r.timedOut && r.stderr)
             extra.push({ file: null, line: null, severity: 'error', message: `${program} did not start: ${r.stderr.trim().slice(0, 300)}` });
@@ -107,7 +118,7 @@ export async function buildDocument(o: BuildOptions): Promise<BuildResult> {
 
     if (o.latexmk) {
         const flag = doc.engine === 'xelatex' ? '-pdfxe' : doc.engine === 'lualatex' ? '-pdflua' : '-pdf';
-        const r = await run('latexmk', [flag, ...engineArgs(doc, file, o.haltOnError ?? true)]);
+        const r = await run('latexmk', [flag, ...engineArgs(file, o.haltOnError ?? true, shellEscape)]);
         return finish(r.code === 0);
     }
 
@@ -115,7 +126,7 @@ export async function buildDocument(o: BuildOptions): Promise<BuildResult> {
     let failed = false;
     const engine = async (): Promise<boolean> => {
         engineRuns++;
-        const r = await run(doc.engine, engineArgs(doc, file, o.haltOnError ?? true));
+        const r = await run(doc.engine, engineArgs(file, o.haltOnError ?? true, shellEscape));
         return r.code === 0;
     };
 
@@ -163,8 +174,8 @@ export async function buildDocument(o: BuildOptions): Promise<BuildResult> {
         const summary = existsSync(logPath) ? parseLog(readFileSync(logPath, 'utf8'), cwd) : null;
         const rank = { error: 0, warning: 1, info: 2 } as const;
         const diagnostics = [...(summary?.diagnostics ?? []), ...extra].map(relative).toSorted((a, b) => rank[a.severity] - rank[b.severity]);
-        const pdf = existsSync(at(`${base}.pdf`)) ? at(`${base}.pdf`) : null;
-        const synctex = existsSync(at(`${base}.synctex.gz`)) ? at(`${base}.synctex.gz`) : existsSync(at(`${base}.synctex`)) ? at(`${base}.synctex`) : null;
+        const pdf = realFileInside(o.workDir, at(`${base}.pdf`));
+        const synctex = realFileInside(o.workDir, at(`${base}.synctex.gz`)) ?? realFileInside(o.workDir, at(`${base}.synctex`));
         const ok = succeeded && pdf !== null && !diagnostics.some(d => d.severity === 'error');
         return { ok, pdf, synctex, log: existsSync(logPath) ? logPath : null, pages: summary?.pages ?? 0, diagnostics, steps, ms: performance.now() - started };
     }
