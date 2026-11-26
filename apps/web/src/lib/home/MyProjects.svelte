@@ -13,6 +13,8 @@
 
     let projects = $state<Project[] | null>(null);
     let failure = $state<string | null>(null);
+    /** The GitHub sign-in ran out (or was revoked): the way forward is signing in again. */
+    let signedOut = $state(false);
     let query = $state('');
     let kinds = $state<Record<string, 'papers' | 'latex' | 'typst' | null>>({});
 
@@ -75,7 +77,8 @@
                 await Promise.all(Array.from({ length: 6 }, next));
             } catch (e) {
                 if (cancelled) return;
-                failure = e instanceof SignInNeeded ? 'Signed out' : e instanceof Error ? e.message : 'GitHub did not answer';
+                signedOut = e instanceof SignInNeeded;
+                failure = e instanceof Error ? e.message : 'GitHub did not answer';
             }
         })();
         return () => {
@@ -96,7 +99,9 @@
         <button class="yk-btn yk-btn--primary" type="submit" disabled={target(query) === null && visible.length === 0}>Open</button>
     </form>
     {#if failure !== null}
-        <p class="state" role="alert">{failure}</p>
+        <p class="state" role="alert">
+            {#if signedOut}<a class="yk-btn yk-btn--primary" href="/auth/login">Sign in with GitHub</a>{:else}{failure}{/if}
+        </p>
     {:else if projects === null}
         <p class="state"><span class="yk-spinner" role="status" aria-label="Loading projects"></span></p>
     {:else if projects.length === 0}

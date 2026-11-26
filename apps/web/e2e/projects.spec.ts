@@ -73,3 +73,10 @@ test('any owner/repository opens from the search, listed or not', async ({ page 
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(/\/p\/someone\/else$/);
 });
+
+test('signed out on GitHub meanwhile, the start page offers to sign in again', async ({ page }) => {
+    await signedIn(page, 'ada', API);
+    await page.route('**/auth/token', route => route.fulfill({ status: 401, json: { message: 'Sign in' } }));
+    await page.goto('/');
+    await expect(page.getByRole('link', { name: 'Sign in with GitHub' })).toHaveAttribute('href', '/auth/login');
+});
