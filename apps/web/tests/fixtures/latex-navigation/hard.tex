@@ -1,0 +1,16 @@
+\documentclass{article}
+\newcommand*\vect[1]{\mathbf{#1}}
+\def\half{\frac{1}{2}}
+\usepackage{biblatex}\addbibresource{hard.bib}
+\begin{document}
+\section{A}\label{sec:a b}
+\begin{figure}\caption{Cap \label{fig:in-caption}}\end{figure}
+\begin{verbatim}
+\label{sec:fake} \vect{x} \ref{fig:in-caption}
+\end{verbatim}
+See \hyperref[sec:a b]{here}, \ref{ sec:a b } and \cref{fig:in-caption,
+  sec:a b}.
+\cite[see][p.~\pageref{fig:in-caption}]{lamport94}
+$\vect{v} + \half \vect {w}$ \verb|\vect{x}|
+\lstinline!\half!
+\end{document}
