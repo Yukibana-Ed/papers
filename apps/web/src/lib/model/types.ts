@@ -109,4 +109,8 @@ export interface Lines {
     readonly file: string;
     readonly startLine: number;
     readonly endLine: number;
+    /** With `endColumn`: the range runs from this column on `startLine` to before `endColumn` on `endLine` (1-based);
+     *  without them it is whole lines. */
+    readonly startColumn?: number;
+    readonly endColumn?: number;
 }
