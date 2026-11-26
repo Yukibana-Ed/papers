@@ -10,7 +10,7 @@ export default {
     // The platform's line ending, which Git checks text files out with (see .gitattributes).
     endOfLine: EOL === '\r\n' ? 'crlf' : 'lf',
     sortPackageJson: false,
-    ignorePatterns: ['**/*.md'],
+    ignorePatterns: ['**/*.md', '.claude/**'],
     overrides: [
         {
             files: ['*.json', '*.yml', '*.yaml'],

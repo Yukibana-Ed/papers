@@ -8,7 +8,8 @@
 #
 # The secrets are on the `production` environment (Settings, Environments):
 #   CLOUDFLARE_API_TOKEN    a token that can deploy the yukibana-papers and yukibana-papers-content Workers and add
-#                           their custom domains in the yukibana.dev and yukibana.run zones
+#                           their custom domains in the yukibana.dev and yukibana.run zones, and create the R2 bucket
+#                           yukibana-papers-assets (Workers R2 Storage: Edit)
 #   CLOUDFLARE_ACCOUNT_ID   the Cloudflare account they are in
 name: Deploy
 run-name: Deploy ${{ github.sha }}
@@ -70,6 +71,21 @@ jobs:
 
       - name: Build
         run: pnpm run build
+
+      # The bucket the content origin serves the engine and TeX Live from (wrangler.jsonc `r2_buckets`): a deploy fails
+      # when a binding names a bucket that does not exist. Created once; afterwards wrangler reports that it exists. It
+      # stays empty until the Assets workflow fills it, and the frame cannot compile before that.
+      - name: Create the assets bucket
+        working-directory: apps/content
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if pnpm exec wrangler r2 bucket info yukibana-papers-assets >/dev/null 2>&1; then
+            echo "The bucket exists."
+          else
+            pnpm exec wrangler r2 bucket create yukibana-papers-assets
+          fi
 
       - name: Deploy the content origin
         working-directory: apps/content

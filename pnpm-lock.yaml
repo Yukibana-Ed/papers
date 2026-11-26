@@ -312,6 +312,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
+      '@yukibana/design':
+        specifier: 'catalog:'
+        version: https://codeload.github.com/Yukibana-Ed/Yukibana/tar.gz/7eee6311b75e8ea9c25ece97feee9b085ba39685#path:packages/design
       pdfjs-dist:
         specifier: 'catalog:'
         version: 6.5.438

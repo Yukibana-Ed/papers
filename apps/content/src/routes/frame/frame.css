@@ -1,0 +1,251 @@
+/* The preview frame. Colours from @yukibana/design; the pages themselves stay white, as paper. */
+html,
+body {
+    height: 100%;
+    margin: 0;
+    background: var(--yk-bg);
+    overflow: hidden;
+}
+body > div {
+    height: 100%;
+}
+
+.pv-scroll {
+    position: relative;
+    height: 100%;
+    overflow: auto;
+    outline: none;
+    scrollbar-width: thin;
+    scrollbar-color: var(--yk-line-strong) transparent;
+}
+
+.pv-pages {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 20px 0 40px;
+    width: max-content;
+    min-width: 100%;
+}
+
+.pv-page {
+    position: relative;
+    flex: none;
+    /* Paper is light in either theme, so the highlights on it take the light theme's colours. */
+    color-scheme: light;
+    background: #fff;
+    box-shadow:
+        0 0 0 1px color-mix(in oklab, var(--yk-ink) 8%, transparent),
+        0 1px 3px color-mix(in oklab, var(--yk-ink) 10%, transparent),
+        0 6px 18px color-mix(in oklab, var(--yk-ink) 6%, transparent);
+}
+.pv-page > canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+.pv-layer,
+.pv-decor {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+.pv-marks {
+    z-index: 1;
+    mix-blend-mode: multiply;
+}
+.pv-sel {
+    z-index: 2;
+    mix-blend-mode: multiply;
+}
+.pv-decor {
+    z-index: 4;
+}
+
+/* Highlights drawn from SyncTeX boxes and from the selection: rounded, merged per line, like a code editor's. */
+.pv-hl,
+.pv-sel-rect,
+.pv-flash {
+    position: absolute;
+    border-radius: 3px;
+}
+.pv-hl-comment {
+    background: color-mix(in oklab, var(--yk-chip-yellow-bg) 85%, transparent);
+}
+.pv-hl-active {
+    background: var(--yk-chip-yellow-bg);
+    box-shadow: inset 0 -2px 0 color-mix(in oklab, var(--yk-chip-yellow-fg) 55%, transparent);
+}
+.pv-hl-suggestion {
+    background: color-mix(in oklab, var(--yk-chip-violet-bg) 85%, transparent);
+}
+.pv-hl-mirror {
+    background: color-mix(in oklab, var(--yk-chip-blue-bg) 70%, transparent);
+}
+.pv-sel-rect {
+    background: var(--yk-chip-blue-bg);
+}
+.pv-flash {
+    background: color-mix(in oklab, var(--yk-accent) 22%, transparent);
+    animation: pv-flash 900ms var(--yk-motion-ease, ease-out) forwards;
+}
+@keyframes pv-flash {
+    0% {
+        opacity: 0;
+    }
+    15% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+    }
+}
+
+/* The cursor's line: a straight bar in the pane's margin, left of the page. */
+.pv-locator {
+    position: absolute;
+    left: -9px;
+    width: 3px;
+    background: var(--yk-accent);
+    transition:
+        top var(--yk-motion-fast, 120ms) ease,
+        height var(--yk-motion-fast, 120ms) ease;
+}
+
+.pv-presence {
+    position: absolute;
+    left: -30px;
+    width: 18px;
+    height: 18px;
+    translate: 0 -50%;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font: var(--yk-font-weight-semibold) 10px / 1 var(--yk-font-family-body);
+    color: #fff;
+    background: oklch(0.62 0.13 var(--hue));
+    box-shadow: 0 0 0 2px var(--yk-bg);
+}
+
+/* PDF.js's text layer, as its viewer styles it, minus the browser's own selection colour. */
+.textLayer {
+    position: absolute;
+    text-align: initial;
+    inset: 0;
+    overflow: clip;
+    opacity: 1;
+    line-height: 1;
+    letter-spacing: normal;
+    word-spacing: normal;
+    text-size-adjust: none;
+    forced-color-adjust: none;
+    transform-origin: 0 0;
+    z-index: 3;
+    --min-font-size: 1;
+    --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+    --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.textLayer :is(span, br) {
+    color: transparent;
+    position: absolute;
+    white-space: pre;
+    cursor: text;
+    transform-origin: 0% 0%;
+    user-select: text;
+}
+.textLayer > :not(.markedContent),
+.textLayer .markedContent span:not(.markedContent) {
+    z-index: 1;
+    --font-height: 0;
+    font-size: calc(var(--text-scale-factor) * var(--font-height));
+    --scale-x: 1;
+    --rotate: 0deg;
+    transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.textLayer .markedContent {
+    display: contents;
+}
+.textLayer ::selection {
+    background: transparent;
+    color: transparent;
+}
+.textLayer br::selection {
+    background: transparent;
+}
+.textLayer .endOfContent {
+    display: block;
+    position: absolute;
+    inset: 100% 0 0;
+    z-index: 0;
+    cursor: default;
+    user-select: none;
+}
+.textLayer.selecting .endOfContent {
+    top: 0;
+}
+
+/* The selection's toolbar, above its first line. */
+.pv-toolbar {
+    position: absolute;
+    z-index: 10;
+    translate: -50% calc(-100% - 8px);
+    display: flex;
+    gap: 2px;
+    padding: 3px;
+    border-radius: var(--yk-radius-md);
+    background: var(--yk-surface);
+    box-shadow:
+        0 0 0 1px var(--yk-line),
+        0 4px 14px color-mix(in oklab, var(--yk-ink) 14%, transparent);
+    animation: pv-pop var(--yk-motion-fast, 120ms) ease-out;
+}
+@keyframes pv-pop {
+    from {
+        opacity: 0;
+        translate: -50% calc(-100% - 4px);
+    }
+}
+.pv-tool {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: var(--yk-radius-sm);
+    background: transparent;
+    color: var(--yk-soft);
+    cursor: pointer;
+}
+.pv-tool:hover {
+    background: var(--yk-sunken);
+    color: var(--yk-ink);
+}
+.pv-tool:focus-visible {
+    outline: var(--yk-focus-width, 2px) solid var(--yk-ink);
+    outline-offset: var(--yk-focus-offset, 1px);
+}
+.pv-tool svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: var(--yk-icon-stroke, 1.5);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+/* Tooltips in the app's shape, "name · one clause", below the button. */
+.pv-tool[data-tip]:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    translate: -50% 0;
+    white-space: nowrap;
+    padding: 4px 8px;
+    border-radius: var(--yk-radius-sm);
+    background: var(--yk-toast);
+    color: var(--yk-on-toast);
+    font: var(--yk-font-weight-regular) var(--yk-font-size-xs) / 1.3 var(--yk-font-family-body);
+    pointer-events: none;
+}
