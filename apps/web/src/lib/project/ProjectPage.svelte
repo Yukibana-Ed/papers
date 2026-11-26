@@ -1,6 +1,8 @@
 <script lang="ts">
     import { onDestroy, onMount } from 'svelte';
     import type { BaseFile } from '@yukibana/papers-room/protocol';
+    import { GitHubError, commit, wipBackup } from '#lib/github/api.ts';
+    import { githubToken, session as githubSession, type Viewer } from '#lib/github/token.ts';
     import type { User } from '#lib/model/types.ts';
     import { RoomClient } from '#lib/room/client.ts';
     import { syncReview } from '#lib/room/sync.svelte.ts';
@@ -9,7 +11,7 @@
     import { LoadError, loadProject, type LoadedProject } from './load.ts';
 
     /** A repository's branch in the editor: read it from GitHub, join its room, then show the workbench. */
-    let { owner, repo, branch, me, contentOrigin }: { owner: string; repo: string; branch: string | null; me: { login: string; name: string }; contentOrigin: string } = $props();
+    let { owner, repo, branch, contentOrigin }: { owner: string; repo: string; branch: string | null; contentOrigin: string } = $props();
 
     let progress = $state<{ done: number; total: number } | null>(null);
     let failure = $state<string | null>(null);
@@ -26,7 +28,7 @@
         return { id: login, name, initials, hue: h };
     }
 
-    function start(p: LoadedProject, r: RoomClient, base: string | null, baseFiles: readonly BaseFile[]): void {
+    function start(p: LoadedProject, me: Viewer, r: RoomClient, base: string | null, baseFiles: readonly BaseFile[]): void {
         const files: Record<string, string> = {};
         for (const [path, text] of r.files) files[path] = text.toJSON();
         const committed: Record<string, string> = Object.fromEntries([...p.texts].map(([path, v]) => [path, v.text]));
@@ -49,17 +51,16 @@
         let head = base ?? p.commit;
         s.backend = {
             async commit(message, changes) {
-                const res = await fetch(`/api/repos/${encodeURIComponent(p.owner)}/${encodeURIComponent(p.repo)}/commit`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ branch: p.branch, head, message, changes }),
-                });
-                if (res.status === 409) throw new Error('Someone pushed to this branch: pull first');
-                if (!res.ok) throw new Error(`GitHub refused the commit (${res.status})`);
-                const { commit } = (await res.json()) as { commit: string };
-                head = commit;
-                r.committed(commit, changes.filter((c) => c.text !== null).map((c) => ({ path: c.path, blob: '', text: c.text ?? '' })));
-                return commit;
+                let oid: string;
+                try {
+                    oid = await commit(await githubToken(), p.owner, p.repo, p.branch, head, message, changes);
+                } catch (e) {
+                    if (e instanceof GitHubError && e.status === 409) throw new Error('Someone pushed to this branch: pull first', { cause: e });
+                    throw new Error(e instanceof GitHubError ? `GitHub refused the commit (${e.status})` : 'Commit failed', { cause: e });
+                }
+                head = oid;
+                r.committed(oid, changes.filter((c) => c.text !== null).map((c) => ({ path: c.path, blob: '', text: c.text ?? '' })));
+                return oid;
             },
         };
         stopSync = syncReview(s, r);
@@ -71,14 +72,30 @@
         void (async () => {
             try {
                 const p = await loadProject(owner, repo, branch, (done, total) => (progress = { done, total }));
+                const me = (await githubSession()).viewer;
                 if (cancelled) return;
                 const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const r = new RoomClient(`${proto}//${location.host}/room/${encodeURIComponent(p.owner)}/${encodeURIComponent(p.repo)}/${encodeURIComponent(p.branch)}`, {
+                const roomPath = `/room/${encodeURIComponent(p.owner)}/${encodeURIComponent(p.repo)}/${encodeURIComponent(p.branch)}`;
+                // A ticket per connection: the page shows its GitHub token to the app's Worker once, and the room gets
+                // only the ticket.
+                const url = async (): Promise<string> => {
+                    const res = await fetch('/room/ticket', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await githubToken()}` },
+                        body: JSON.stringify({ owner: p.owner, repo: p.repo, branch: p.branch }),
+                    });
+                    if (!res.ok) throw new Error(`No ticket (${res.status})`);
+                    const { ticket } = (await res.json()) as { ticket: string };
+                    return `${proto}//${location.host}${roomPath}?ticket=${encodeURIComponent(ticket)}`;
+                };
+                const r = new RoomClient(url, {
                     welcome: (_you, base, files) => {
                         welcome = { base, files };
                     },
                     base: () => {},
-                    sync: () => {},
+                    sync: m => {
+                        if (session) session.sync = m.mode;
+                    },
                     synced: () => {
                         if (session || !welcome) return;
                         const w = welcome;
@@ -93,7 +110,7 @@
                         const go = (): void => {
                             if (!session && ready()) {
                                 r.files.unobserve(go);
-                                start(p, r, w.base, w.files);
+                                start(p, me, r, w.base, w.files);
                             }
                         };
                         r.files.observe(go);
@@ -103,15 +120,18 @@
                         const s = session;
                         if (!s) return;
                         const changes = s.changes.map((c) => ({ path: c.file, text: s.files[c.file] ?? null }));
-                        void fetch(`/api/repos/${encodeURIComponent(p.owner)}/${encodeURIComponent(p.repo)}/wip`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ branch: p.branch, head: welcome?.base ?? p.commit, changes }),
-                        })
-                            .then(async (res) => (res.ok ? ((await res.json()) as { commit: string }) : null))
-                            .then((b) => b && r.backedUp(b.commit));
+                        void githubToken()
+                            .then((token) => wipBackup(token, p.owner, p.repo, p.branch, welcome?.base ?? p.commit, changes))
+                            .then(
+                                (backup) => r.backedUp(backup),
+                                () => {
+                                    // The next alarm asks again.
+                                },
+                            );
                     },
-                    connection: () => {},
+                    connection: state => {
+                        if (session && state !== 'connecting') session.sync = state === 'open' ? 'live' : 'offline';
+                    },
                     refused: (reason) => session?.flash(reason === 'paused' ? 'Live sync paused for today' : `Refused: ${reason}`),
                 });
                 room = r;

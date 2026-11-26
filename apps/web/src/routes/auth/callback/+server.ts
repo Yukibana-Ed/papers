@@ -1,6 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 import { authEnv, finishLogin } from '#lib/server/auth.ts';
-import { viewer } from '#lib/server/github.ts';
+import { viewer } from '#lib/github/api.ts';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async event => {
