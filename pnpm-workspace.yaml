@@ -42,6 +42,7 @@ catalog:
   '@yukibana/papers-sandbox': workspace:*
   dockview: 8.6.1
   esbuild: 0.28.2
+  fast-check: 4.10.2
   happy-dom: 21.0.4
   lib0: 0.2.120
   markdown-it: 14.3.3
