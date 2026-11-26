@@ -27,11 +27,26 @@ catalog:
   '@types/node': 24.19.2
   # The design system, pinned to a commit of Yukibana-Ed/Yukibana main.
   '@yukibana/design': github:Yukibana-Ed/Yukibana#7eee6311b75e8ea9c25ece97feee9b085ba39685&path:packages/design
+  '@yukibana/papers-frame-protocol': workspace:*
+  monaco-editor: 0.57.0
   oxfmt: 0.75.0
   oxlint: 1.90.0
   oxlint-tsgolint: 7.0.2005
+  pdfjs-dist: 6.5.438
+  prosemirror-commands: 1.7.2
+  prosemirror-history: 1.5.1
+  prosemirror-inputrules: 1.5.1
+  prosemirror-keymap: 1.2.3
+  prosemirror-markdown: 1.13.9
+  prosemirror-model: 1.25.13
+  prosemirror-schema-list: 1.6.0
+  prosemirror-state: 1.4.4
+  prosemirror-transform: 1.12.5
+  prosemirror-view: 1.42.9
   svelte: 5.57.3
   svelte-check: 4.7.7
+  texlyre-busytex: 1.4.1
+  typescript: 7.0.2
   vite: 8.3.5
   vitest: 5.0.5
   wrangler: 4.156.0
