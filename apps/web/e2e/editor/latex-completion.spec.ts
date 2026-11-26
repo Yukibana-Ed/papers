@@ -79,6 +79,15 @@ test.describe('LaTeX completion', () => {
         expect(r.ms).toBeLessThan(500);
     });
 
+    test('a citation is found by its title, its author or its year', async ({ page }) => {
+        await openDemo(page);
+        expect((await suggest(page, '\\cite{unhelpf')).labels).toEqual(['becker2019']);
+        await page.keyboard.press('Enter');
+        expect((await state(page)).text).toMatch(/\\cite\{becker2019\}?$/);
+        await page.keyboard.press('Escape');
+        expect((await suggest(page, '\\cite{2007')).labels).toEqual(['hattie2007']);
+    });
+
     test('labels from every file, including one just typed', async ({ page }) => {
         await openDemo(page);
         await caretAt(page, 'sections/method.tex', 1, 1);
