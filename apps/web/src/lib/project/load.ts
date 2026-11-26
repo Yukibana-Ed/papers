@@ -17,6 +17,8 @@ export interface LoadedProject {
     readonly assets: ReadonlyMap<string, Uint8Array>;
     /** Every file of the tree, for the file list. */
     readonly order: readonly string[];
+    /** The text files and build inputs of the tree that were not read, each with why, as a clause to show. */
+    readonly unread: ReadonlyMap<string, string>;
 }
 
 const TEXT = /\.(tex|ltx|sty|cls|bib|bst|bbx|cbx|dtx|ins|def|cfg|clo|typ|txt|md|csv|dat|tikz|pgf|latexmkrc|lua)$|(^|\/)(latexmkrc|\.latexmkrc|Makefile|papers\.toml)$/i;
@@ -68,22 +70,39 @@ async function gh<T>(f: (token: string) => Promise<T>): Promise<T> {
 
 /** Reads `branch` (or the default branch) of `owner/repo` from GitHub, from this page: one tree listing, then the
  *  text files and the build inputs, 24 at a time. Large repositories keep to the documents' folders: a file outside
- *  every document's folder is listed but not read. Throws a `LoadError` when GitHub cut the tree listing short. */
+ *  every document's folder is listed but not read. What was not read, and why, is in `unread`: nothing is left out
+ *  silently. Throws a `LoadError` when GitHub cut the tree listing short. */
 export async function loadProject(owner: string, repo: string, branch: string | null, onProgress: (done: number, total: number) => void): Promise<LoadedProject> {
     const info = await gh(token => repoInfo(token, owner, repo));
     const b = branch ?? info.defaultBranch;
     const t = await gh(token => tree(token, owner, repo, b));
     // GitHub lists at most 100,000 entries in one tree: a project that opened without the rest would look complete.
     if (t.truncated) throw new LoadError('failed', 'Too many files to open');
-    const candidates = t.files.filter(f => (TEXT.test(f.path) && f.size <= MAX_TEXT) || (ASSET.test(f.path) && f.size <= MAX_ASSET));
+    const kinds = t.files.filter(f => TEXT.test(f.path) || ASSET.test(f.path));
+    const unread = new Map<string, string>();
+    const candidates = kinds.filter(f => {
+        const max = TEXT.test(f.path) ? MAX_TEXT : MAX_ASSET;
+        if (f.size > max) unread.set(f.path, `larger than ${max / (1024 * 1024)} MB`);
+        return f.size <= max;
+    });
     // Which folders hold documents: a `.tex` at the top of a folder with \documentclass is found after reading, so take
     // the folders of every .tex file first, and read everything under the shallowest of them.
     const texDirs = new Set(candidates.filter(f => f.path.endsWith('.tex')).map(f => f.path.split('/').slice(0, -1).join('/')));
     const roots = [...texDirs].filter(d => ![...texDirs].some(o => o !== d && (o === '' || d.startsWith(`${o}/`))));
     const inScope = (p: string): boolean => roots.some(d => d === '' || p.startsWith(`${d}/`));
     let total = 0;
-    const wanted = candidates.filter(f => {
-        if (!inScope(f.path) || total + f.size > MAX_TOTAL) return false;
+    // Text before images, and small before large: when the project is over the limit, what is left out is what
+    // matters least to a build, not whatever comes last by name.
+    const byNeed = candidates.toSorted((x, y) => Number(ASSET.test(x.path) && !TEXT.test(x.path)) - Number(ASSET.test(y.path) && !TEXT.test(y.path)) || x.size - y.size);
+    const wanted = byNeed.filter(f => {
+        if (!inScope(f.path)) {
+            unread.set(f.path, "outside the documents' folders");
+            return false;
+        }
+        if (total + f.size > MAX_TOTAL) {
+            unread.set(f.path, `the project is over ${MAX_TOTAL / (1024 * 1024)} MB`);
+            return false;
+        }
         total += f.size;
         return true;
     });
@@ -108,7 +127,7 @@ export async function loadProject(owner: string, repo: string, branch: string | 
         } else assets.set(f.path, bytes);
     }
     const order = t.files.map(f => f.path).toSorted(sortPaths);
-    return { owner, repo, branch: b, defaultBranch: info.defaultBranch, access: info.access, commit: t.commit, texts, assets, order };
+    return { owner, repo, branch: b, defaultBranch: info.defaultBranch, access: info.access, commit: t.commit, texts, assets, order, unread };
 }
 
 /** Files before folders' contents at each level, then by name: the order of the file list. */

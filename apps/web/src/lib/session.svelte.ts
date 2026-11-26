@@ -22,6 +22,8 @@ export interface SessionSeed {
     readonly assets?: Readonly<Record<string, Uint8Array>>;
     /** What the user may do in the repository (write when absent): with `comment`, the source cannot be edited. */
     readonly access?: 'write' | 'comment';
+    /** Files of the repository that were not loaded (too large, over the project's limit): path → why, as a clause. */
+    readonly unread?: Readonly<Record<string, string>>;
 }
 
 /** What a repository's session does that the demo does not. */
@@ -82,6 +84,10 @@ export class Session {
     /** The project's files in the order the file list shows them. */
     get order(): readonly string[] {
         return this.seed.order;
+    }
+    /** The repository's files that were not loaded: path → why. */
+    get unread(): Readonly<Record<string, string>> {
+        return this.seed.unread ?? {};
     }
     get assets(): Readonly<Record<string, Uint8Array>> {
         return this.seed.assets ?? {};
@@ -216,7 +222,7 @@ export class Session {
         const reports: { source: ProblemSource; items: readonly Reported[] }[] = [{ source: 'build', items: this.shownBuild.diagnostics }];
         for (const [source, files] of Object.entries(this.languageProblems) as [ProblemSource, Record<string, readonly Reported[]>][])
             reports.push({ source, items: Object.values(files).flat() });
-        return mergeProblems(reports, this.order);
+        return mergeProblems(reports, this.order, this.seed.unread);
     });
     problemCounts = $derived(countProblems(this.problems));
     /** The shown build's errors: what the preview lists at its top. */

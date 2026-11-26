@@ -463,6 +463,19 @@ button {
     width: 2px;
     background: var(--yk-ink);
 }
+.filelist .folder .yk-icon {
+    transition: transform var(--yk-duration-fast, 120ms);
+}
+.filelist .folder.is-closed .yk-icon:first-child {
+    transform: rotate(-90deg);
+}
+.filelist .is-unread {
+    color: var(--yk-soft);
+    cursor: default;
+}
+.filelist .is-unread:hover {
+    background: transparent;
+}
 .filelist .mod {
     font-family: var(--yk-font-family-mono);
     font-size: 11px;

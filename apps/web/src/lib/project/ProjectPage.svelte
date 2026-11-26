@@ -57,6 +57,7 @@
             presence: [],
             assets: Object.fromEntries(p.assets),
             access: p.access,
+            unread: Object.fromEntries(p.unread),
         });
         head = base ?? p.commit;
         s.backend = {

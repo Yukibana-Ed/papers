@@ -5,6 +5,9 @@
     import { chooseTheme, readTheme } from '@yukibana/design/theme';
     import type { FrameMessage, SelectionAction, SourceLines, SourcePoint } from '@yukibana/papers-frame-protocol';
     import { onDestroy, onMount, untrack } from 'svelte';
+    import { SvelteSet } from 'svelte/reactivity';
+    import { allFolders, foldersOf, treeRows } from '#lib/model/filetree.ts';
+    import { sortPaths } from '#lib/project/load.ts';
     import type { CommentOps } from '#lib/comments/ops.ts';
     import type { SourceEditor } from '#lib/editor/source-editor.ts';
     import BuilderMenu from '#lib/preview/BuilderMenu.svelte';
@@ -415,6 +418,30 @@
         s.panel = 'problems';
     }
 
+    // --- the file list: folders open and close ------------------------------------------------------------------------
+    /** Every file the list shows: the project's, and the repository's that were not loaded. */
+    const listed = $derived([...s.order, ...Object.keys(s.unread)].toSorted(sortPaths));
+    /** The closed folders. A large project starts with its folders closed, a small one with them open. */
+    const closedFolders = new SvelteSet<string>(untrack(() => (listed.length > 40 ? allFolders(listed) : [])));
+    const fileRows = $derived(treeRows(listed, closedFolders));
+    // The folders of the file in the editor are open: the list always shows where one is.
+    $effect(() => {
+        for (const folder of foldersOf(s.activeFile)) closedFolders.delete(folder);
+    });
+    function toggleFolder(path: string): void {
+        if (!closedFolders.delete(path)) closedFolders.add(path);
+    }
+    /** The worst problem in the files of `folder`, which a closed folder shows for them. */
+    function folderProblem(folder: string): 'error' | 'warning' | undefined {
+        let worst: 'error' | 'warning' | undefined;
+        for (const [file, severity] of problemFiles) {
+            if (!file.startsWith(`${folder}/`)) continue;
+            if (severity === 'error') return 'error';
+            if (severity === 'warning') worst = 'warning';
+        }
+        return worst;
+    }
+
     /** Problems by file, for the file list's marks. */
     const problemFiles = $derived.by(() => {
         const m = new Map<string, 'error' | 'warning'>();
@@ -618,25 +645,54 @@
             {:else if s.panel === 'files'}
                 <div class="panel-head"><span>Files</span></div>
                 <ul class="filelist">
-                    {#each s.order as f (f)}
-                        {@const isRoot = s.roots.includes(f)}
-                        <li>
-                            <button
-                                type="button"
-                                class="row-btn"
-                                class:is-current={f === s.activeFile}
-                                style:padding-left="{10 + (f.split('/').length - 1) * 14}px"
-                                onclick={() => openFile(f)}
-                                {...isRoot ? tip(short(f), null, 'compiles by itself') : {}}
-                            >
-                                <Icon name={isRoot ? 'doc' : 'files'} size={14} />
-                                <span class:strong={!f.includes('/')}>{short(f)}</span>
-                                <span class="grow"></span>
-                                {#if problemFiles.get(f) === 'error'}<span class="file-problem sev-error" {...tip('Errors')}><Icon name="alert" size={12} /></span>
-                                {:else if problemFiles.get(f) === 'warning'}<span class="file-problem sev-warning" {...tip('Warnings')}><Icon name="warning" size={12} /></span>{/if}
-                                {#if s.changes.some((c) => c.file === f)}<span class="mod" role="img" aria-label="uncommitted">M</span>{/if}
-                            </button>
-                        </li>
+                    {#each fileRows as row (`${row.kind}:${row.path}`)}
+                        {#if row.kind === 'folder'}
+                            {@const worst = row.open ? undefined : folderProblem(row.path)}
+                            <li>
+                                <button
+                                    type="button"
+                                    class="row-btn folder"
+                                    class:is-closed={!row.open}
+                                    aria-expanded={row.open}
+                                    style:padding-left="{10 + row.depth * 14}px"
+                                    onclick={() => toggleFolder(row.path)}
+                                    {...tip(row.path)}
+                                >
+                                    <Icon name="chevron" size={14} />
+                                    <span>{row.name}</span>
+                                    <span class="grow"></span>
+                                    {#if worst === 'error'}<span class="file-problem sev-error" {...tip('Errors')}><Icon name="alert" size={12} /></span>
+                                    {:else if worst === 'warning'}<span class="file-problem sev-warning" {...tip('Warnings')}><Icon name="warning" size={12} /></span>{/if}
+                                </button>
+                            </li>
+                        {:else if s.unread[row.path] !== undefined}
+                            <li>
+                                <span class="row-btn is-unread" style:padding-left="{10 + row.depth * 14}px" {...tip(row.path, null, `not loaded: ${s.unread[row.path] ?? ''}`)}>
+                                    <Icon name="files" size={14} />
+                                    <span>{row.name}</span>
+                                </span>
+                            </li>
+                        {:else}
+                            {@const f = row.path}
+                            {@const isRoot = s.roots.includes(f)}
+                            <li>
+                                <button
+                                    type="button"
+                                    class="row-btn"
+                                    class:is-current={f === s.activeFile}
+                                    style:padding-left="{10 + row.depth * 14}px"
+                                    onclick={() => openFile(f)}
+                                    {...isRoot ? tip(f, null, 'compiles by itself') : tip(f)}
+                                >
+                                    <Icon name={isRoot ? 'doc' : 'files'} size={14} />
+                                    <span class:strong={row.depth === 0}>{row.name}</span>
+                                    <span class="grow"></span>
+                                    {#if problemFiles.get(f) === 'error'}<span class="file-problem sev-error" {...tip('Errors')}><Icon name="alert" size={12} /></span>
+                                    {:else if problemFiles.get(f) === 'warning'}<span class="file-problem sev-warning" {...tip('Warnings')}><Icon name="warning" size={12} /></span>{/if}
+                                    {#if s.changes.some((c) => c.file === f)}<span class="mod" role="img" aria-label="uncommitted">M</span>{/if}
+                                </button>
+                            </li>
+                        {/if}
                     {/each}
                 </ul>
             {:else if s.panel === 'problems'}
