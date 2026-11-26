@@ -59,9 +59,7 @@ export class TypstEngine {
     #init(): Promise<TypstCompiler> {
         this.#compiler ??= (async () => {
             const c = createTypstCompiler();
-            // `upload=2`: on 2026-11-26 these addresses served the fonts' compressed bytes for a while, and a browser
-            // keeps what it got for good; the new address leaves those copies behind.
-            const fonts = TYPST_ASSETS.fonts.files.map(f => `${TYPST_ASSETS.fonts.path}${f}?upload=2`);
+            const fonts = TYPST_ASSETS.fonts.files.map(f => `${TYPST_ASSETS.fonts.path}${f}`);
             await c.init({
                 // The build in the address: the script that loads the wasm is this build's, and a browser that kept
                 // another build's wasm (the files are cached for good) must not pair it with this script.
