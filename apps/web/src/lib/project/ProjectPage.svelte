@@ -28,6 +28,12 @@
     let room: RoomClient | null = null;
     let stopSync: (() => void) | null = null;
 
+    /** Why GitHub refused, short enough for one line: the first line of its message, or the status alone. */
+    function refusal(e: GitHubError): string {
+        const first = e.message.split('\n')[0]?.trim() ?? '';
+        return first === '' ? String(e.status) : first.length > 140 ? `${first.slice(0, 139)}…` : first;
+    }
+
     function start(p: LoadedProject, me: Viewer, r: RoomClient, base: string | null, baseFiles: readonly BaseFile[]): void {
         const files: Record<string, string> = {};
         for (const [path, text] of r.files) files[path] = text.toJSON();
@@ -65,7 +71,8 @@
                         await pull(p.branch, fresh);
                         throw new Error(`Merged ${p.branch}: commit again`, { cause: e });
                     }
-                    throw new Error(e instanceof GitHubError ? `GitHub refused the commit (${e.status})` : 'Commit failed', { cause: e });
+                    // GitHub's own words say why (a protected branch, the App not installed on the repository, ...).
+                    throw new Error(e instanceof GitHubError ? `GitHub refused the commit: ${refusal(e)}` : 'Commit failed', { cause: e });
                 }
                 head = oid;
                 mine.add(oid);

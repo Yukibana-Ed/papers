@@ -8,12 +8,12 @@ const MAIN = ['\\documentclass{article}', '\\begin{document}', 'Hello from the r
 
 /** A repository of its own for the test `title` names and for this run of it, so that tests do not meet in a room
  *  and no room remembers an earlier run (rooms outlive the tests' Workers). */
-async function repoFor(title: string, readers: readonly string[] = []): Promise<string> {
+async function repoFor(title: string, readers: readonly string[] = [], refuse?: string): Promise<string> {
     const name = `ada/${title
         .replace(/[^a-z0-9]+/gi, '-')
         .toLowerCase()
         .slice(0, 40)}-${Math.random().toString(36).slice(2, 10)}`;
-    await makeRepo(name, { 'main.tex': MAIN, 'refs.bib': '@book{knuth, title={The TeXbook}}\n' }, readers);
+    await makeRepo(name, { 'main.tex': MAIN, 'refs.bib': '@book{knuth, title={The TeXbook}}\n' }, readers, refuse);
     return name;
 }
 
@@ -197,4 +197,15 @@ test('with read access the source cannot be edited or committed', async ({ page 
     await typeAfter(page, 'Hello from the repository.', ' Nope.');
     await expect(page.locator('.monaco-editor .view-lines')).not.toContainText('Nope.');
     await expect(page.getByRole('button', { name: 'Commit' })).toBeDisabled();
+});
+
+test("a commit GitHub refuses says why, in GitHub's words, and the edits stay", async ({ page }, info) => {
+    const repo = await repoFor(info.title, [], 'Repository rule violations found\n\nChanges must be made through a pull request.');
+    await open(page, 'ada', repo);
+    await typeAfter(page, 'Hello from the repository.', ' And an edit.');
+    await page.getByRole('button', { name: 'Commit' }).click();
+    await page.getByRole('textbox', { name: 'Message' }).press('Enter');
+    await expect(page.getByText('GitHub refused the commit: Repository rule violations found')).toBeVisible();
+    await expect(page.locator('.pending')).toBeVisible();
+    expect((await repoState(repo)).commits).toHaveLength(1);
 });
