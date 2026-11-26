@@ -141,7 +141,7 @@ export class Viewer {
         this.#precise = preciseMap(sync, words, this.#sources, this.#format);
         this.#drawOverlays();
         // Development only (gone from builds): the maps, for the sync-accuracy probe to measure.
-        if (import.meta.env.DEV) Object.assign(window, { papersSync: { coarse: sync, precise: this.#precise, words, sources: this.#sources } });
+        if (import.meta.env.DEV) Object.assign(window, { papersSync: { coarse: sync, precise: this.#precise, words, sources: this.#sources, pages: this.#pages.map(p => p.proxy) } });
     }
 
     /** The text runs of every page of the shown build, in PDF points from each page's top-left, reading order. */
