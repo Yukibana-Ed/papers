@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { appOrigin } from '#lib/origin.ts';
 
-const platform = (env: Record<string, unknown>): App.Platform => ({ env }) as unknown as App.Platform;
+const platform = (env: Record<string, unknown>): App.Platform => ({ env: env as never });
 
 describe('appOrigin', () => {
     it('is the Worker var outside development', () => {

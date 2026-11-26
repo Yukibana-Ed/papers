@@ -1,4 +1,4 @@
-import { dev } from '$app/environment';
+import { dev } from '$app/env';
 
 /** The content app's dev server. `VITE_CONTENT_ORIGIN` overrides it (a second checkout running side by side). */
 const DEV_CONTENT_ORIGIN = 'http://localhost:5185';
