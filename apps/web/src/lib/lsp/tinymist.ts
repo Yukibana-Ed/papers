@@ -1,20 +1,22 @@
-import { monaco } from '#lib/editor/monaco.ts';
+import { PROJECT_ROOT_URI, monaco } from '#lib/editor/monaco.ts';
 import type { LanguageClient, ServerProfile } from './client.ts';
-
-type Contents = { type: 'ok'; content: string } | { type: 'err'; error: string };
+import { fsContents, type FsContents } from './fs-contents.ts';
 
 /** tinymist as the editor runs it:
  *  - the project's root is the workspace folder (`PROJECT_ROOT_URI`), so `../refs.bib` from a subfolder is inside it
  *    (setting `rootPath` instead fails in the web build: `Path::is_absolute` is false on wasm32-unknown-unknown);
- *  - files the server watches (bibliographies, data, files not open on it) are answered from the editor's models, and
- *    sent again when they change;
+ *  - files the server watches (bibliographies, data, images, files not open on it) are answered from the editor's
+ *    models, or `asset` for binary files, base64-encoded as the server expects, and sent again when a model changes;
  *  - font diagnostics are left out: the web build has no fonts, and the compiler in the frame (typst.ts, with Typst's
  *    fonts) is the authority on them. */
-export function tinymistProfile(): ServerProfile {
+export function tinymistProfile(asset: (path: string) => Uint8Array | undefined = () => undefined): ServerProfile {
     const watched = new Set<string>();
-    const contents = (uri: string): Contents => {
-        const model = monaco.editor.getModel(monaco.Uri.parse(uri));
-        return model ? { type: 'ok', content: model.getValue() } : { type: 'err', error: 'not in the project' };
+    const root = `${monaco.Uri.parse(PROJECT_ROOT_URI).path}/`;
+    const contents = (uri: string): FsContents => {
+        const parsed = monaco.Uri.parse(uri);
+        const model = monaco.editor.getModel(parsed);
+        if (model) return fsContents(model.getValue());
+        return fsContents(parsed.path.startsWith(root) ? asset(parsed.path.slice(root.length)) : undefined);
     };
     let listening = false;
     const listen = (client: LanguageClient): void => {
@@ -40,7 +42,10 @@ export function tinymistProfile(): ServerProfile {
                     return { uri, content: contents(uri) };
                 });
                 listen(client);
-                if (inserts.length) void client.request('tinymist/fsChange', { inserts, removes: [], isSync: true });
+                // Not as a sync event: the server asks for these while checking the paper and goes on without them;
+                // a sync answer filled its file system but left the paper checked without the files (a stale "failed to
+                // load file" until the next edit). As a change, it checks the paper again with them.
+                if (inserts.length) void client.request('tinymist/fsChange', { inserts, removes: [], isSync: false });
                 return null;
             },
         },
