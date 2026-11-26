@@ -4,6 +4,7 @@ import { getDocument, GlobalWorkerOptions, TextLayer, type PDFDocumentLoadingTas
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type { PreviewMark, PreviewPresence, SourceLines, SourcePoint } from '@yukibana/papers-frame-protocol';
 import { charBoxes, pageGlyphs } from '#lib/glyphs.ts';
+import { extendByWord, wordBeside } from '#lib/word-motion.ts';
 import { docWords, preciseMap, refineWords, type DocWord, type PreciseMap } from '#lib/precise.ts';
 
 /** A character of the text layer: its page, its run (span index) and offset there, and its middle in page points. */
@@ -711,7 +712,7 @@ export class Viewer {
     /** With text selected here, the keys an editor moves a selection's end with do so: Shift with Left or Right by a
      *  character, with Ctrl too (Option on a Mac) by a word, Shift with Home or End to the line's ends. The page's text
      *  is not editable, so a browser would not do it by itself. Ctrl with Left or Right alone selects the word before
-     *  or after the selection instead. */
+     *  or after the selection instead. Repeated, a step by a word goes on word by word to the end of the text drawn. */
     #onKeydown = (e: KeyboardEvent): void => {
         const selection = window.getSelection();
         if (selection === null || !this.#hasSelection()) return;
@@ -725,24 +726,32 @@ export class Viewer {
         else return;
         if (!e.shiftKey && step !== 'word') return;
         e.preventDefault();
-        if (e.shiftKey) {
+        if (step !== 'word') {
             selection.modify('extend', forward ? 'forward' : 'backward', step);
-            if (step === 'word') this.#trimSelection();
             return;
         }
-        // Without Shift only by word: the next or the previous word becomes the selection, so that the keys keep working
-        // (a caret would not show here) and the source follows word by word. Plain arrows scroll.
-        const next = (): void => {
-            if (forward) selection.collapseToEnd();
-            else selection.collapseToStart();
-            selection.modify('extend', forward ? 'forward' : 'backward', 'word');
-            this.#trimSelection();
-        };
-        next();
-        // From inside a word that gave the rest of that word: the word after it is meant.
-        const r = selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
-        const beside = r === null ? '' : forward ? (r.startContainer.textContent ?? '').charAt(r.startOffset - 1) : (r.endContainer.textContent ?? '').charAt(r.endOffset);
-        if (/[\p{L}\p{N}]/u.test(beside)) next();
+        // By a word by our own rules (word-motion.ts), not the browser's: its step differs by platform, and on Windows
+        // stops after the space behind a word, from where cutting the selection back to its words undid the step.
+        const flat = flatText(this.#column);
+        const anchor = flat.position(selection.anchorNode, selection.anchorOffset);
+        const focus = flat.position(selection.focusNode, selection.focusOffset);
+        if (anchor === null || focus === null) return;
+        if (e.shiftKey) {
+            const moved = extendByWord(flat.text, anchor, focus, forward);
+            // Each end on the run its side of the selection is in, where two runs meet.
+            const to = flat.point(moved, moved > anchor);
+            const from = flat.point(anchor, anchor > moved);
+            if (to !== null && from !== null) selection.setBaseAndExtent(from.node, from.offset, to.node, to.offset);
+            return;
+        }
+        // Without Shift: the next or the previous word becomes the selection, so that the keys keep working (a caret
+        // would not show here) and the source follows word by word. Plain arrows scroll.
+        const word = wordBeside(flat.text, Math.min(anchor, focus), Math.max(anchor, focus), forward);
+        const start = flat.point(word.start, false);
+        const end = flat.point(word.end, true);
+        if (start === null || end === null) return;
+        if (forward) selection.setBaseAndExtent(start.node, start.offset, end.node, end.offset);
+        else selection.setBaseAndExtent(end.node, end.offset, start.node, start.offset);
     };
 
     #hasSelection(): boolean {
@@ -958,6 +967,60 @@ function wordAt(x: number, y: number): string | null {
     while (b < text.length && /[\p{L}\p{N}]/u.test(text[b] ?? '')) b++;
     const w = text.slice(a, b);
     return w === '' ? null : w;
+}
+
+/** The text of the text layers in `root` in reading order, as word-motion.ts wants it: the text runs one after the
+ *  other, with a line feed between two that do not touch on one line. `position` gives the place of a DOM point in
+ *  that text (null when there is no text), and `point` the DOM point of a place: of two runs that meet there, the
+ *  earlier one's end when `end`, else the later one's start. */
+function flatText(root: Element): {
+    text: string;
+    position(node: Node | null, offset: number): number | null;
+    point(at: number, end: boolean): { node: Text; offset: number } | null;
+} {
+    const nodes: Text[] = [];
+    const starts: number[] = [];
+    let text = '';
+    let before: DOMRect | null = null;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
+        if (!(n instanceof Text) || n.length === 0 || n.parentElement?.closest('.textLayer') == null) continue;
+        const rect = n.parentElement.getBoundingClientRect();
+        if (before !== null) {
+            const overlap = Math.min(before.bottom, rect.bottom) - Math.max(before.top, rect.top);
+            const gap = rect.left - before.right;
+            const height = Math.min(before.height, rect.height);
+            // A run that goes on where the last one stopped (a change of font inside a word) is the same text.
+            if (!(overlap >= height / 2 && Math.abs(gap) <= height * 0.15)) text += '\n';
+        }
+        nodes.push(n);
+        starts.push(text.length);
+        text += n.data;
+        before = rect;
+    }
+    return {
+        text,
+        position(node, offset) {
+            if (node === null || nodes.length === 0) return null;
+            const k = node instanceof Text ? nodes.indexOf(node) : -1;
+            if (k >= 0) return (starts[k] ?? 0) + Math.min(offset, nodes[k]?.length ?? 0);
+            // A point between elements: the start of the first run after it.
+            const range = document.createRange();
+            range.setStart(node, offset);
+            const next = nodes.findIndex(n => range.comparePoint(n, 0) >= 0);
+            return next < 0 ? text.length : (starts[next] ?? 0);
+        },
+        point(at, end) {
+            let found: { node: Text; offset: number } | null = null;
+            for (const [k, node] of nodes.entries()) {
+                const offset = at - (starts[k] ?? 0);
+                if (offset < 0 || offset > node.length) continue;
+                found = { node, offset };
+                if (end) break;
+            }
+            return found;
+        },
+    };
 }
 
 /** The characters of the text nodes in `root` that `range` covers, in document order, as (text node, offset) pairs. */
