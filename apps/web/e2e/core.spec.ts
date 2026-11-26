@@ -90,12 +90,12 @@ test.describe('new paper', () => {
 
 test.describe('preview', () => {
     // The TeX engine and TeX Live come from the assets bucket, which local wrangler does not hold in CI. With
-    // E2E_ENGINE=1 (a local run with the engine served), the preview builds and the selection toolbar is checked.
+    // E2E_ENGINE=1 (CI sets it; see playwright.config.ts), the preview builds and the selection toolbar is checked.
     test.skip(!process.env['E2E_ENGINE'], 'needs the TeX engine (E2E_ENGINE=1)');
     test('selecting text in the preview shows the toolbar', async ({ page }) => {
         await openDemo(page);
         const frame = page.frameLocator('iframe.pv-frame');
-        await expect(frame.locator('.textLayer span').first()).toBeVisible({ timeout: 60_000 });
+        await expect(frame.locator('.textLayer span').first()).toBeVisible({ timeout: 170_000 });
         const span = frame.locator('.textLayer span').nth(20);
         const box = await rect(span);
         await page.mouse.move(box.x + 2, box.y + box.height / 2);

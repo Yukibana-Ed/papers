@@ -12,6 +12,9 @@ declare global {
                 TL_SNAPSHOT: string;
                 /** The engine's files and the TeX Live store (wrangler.jsonc `r2_buckets`). */
                 ASSETS_R2: AssetBucket;
+                /** Browser tests only, never in wrangler.jsonc: an origin whose `/r2/…` assets stand in for those the
+                 *  local bucket lacks (the deployed content origin), so tests run the real engine without uploading it. */
+                ASSETS_FALLBACK?: string;
             };
         }
     }
