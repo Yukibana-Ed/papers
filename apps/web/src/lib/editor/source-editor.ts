@@ -616,16 +616,17 @@ function cleanOp(op: Editor.IIdentifiedSingleEditOperation): Editor.IIdentifiedS
 }
 
 /** The first match of `quote` in `m`, or null. */
-/** Where a thread on `quote` is anchored in `m`: `saved`, the range it was made on, while the quote is still there;
- *  else the quote's occurrence nearest to it (the text moved since: the range is from when the thread was made);
- *  else `saved` itself (a quote taken from the preview is not the source's text). Null when there is neither. */
+/** Where a thread on `quote` is anchored in `m`: `saved`, the range it was made on, while the quote is still there
+ *  (in it, or overlapping it: a quote taken from the preview has other blanks than the source); else the quote's
+ *  occurrence nearest to it (the text moved since: the range is from when the thread was made); else `saved` itself
+ *  (a quote taken from the preview need not be the source's text at all). Null when there is neither. */
 function anchorFor(m: Model, quote: string, saved: Range | null): Range | null {
     // Long quotes are kept cut, with an ellipsis.
-    const start = quote.endsWith('…') ? quote.slice(0, -1) : quote;
+    const start = (quote.endsWith('…') ? quote.slice(0, -1) : quote).trim();
     if (start === '') return saved;
-    if (saved && m.getValueInRange(saved).startsWith(start)) return saved;
     const found = m.findMatches(start, false, false, true, null, false).map(f => f.range);
     if (saved === null) return found[0] ?? null;
+    if (found.some(r => monaco.Range.areIntersectingOrTouching(r, saved))) return saved;
     const far = (r: Range): number => Math.abs(r.startLineNumber - saved.startLineNumber) * 1000 + Math.abs(r.startColumn - saved.startColumn);
     return found.toSorted((a, b) => far(a) - far(b))[0] ?? saved;
 }
