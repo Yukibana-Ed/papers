@@ -7,9 +7,12 @@ import type { PageText, SourceMap } from '#lib/sourcemap.ts';
 export interface DocWord {
     readonly key: string;
     readonly text: string;
-    /** First from shares of its run's width; the viewer replaces them with the text layer's own boxes once a page's
-     *  text layer is drawn (`refineWords`), as glyphs are not all the same width. */
+    /** From its glyphs where they are known (`chars`). Otherwise first from shares of its run's width, which the viewer
+     *  replaces with the text layer's own boxes once a page's text layer is drawn (`refineWords`). */
     readonly parts: PageBox[];
+    /** The box of each character of `text` as the page draws its glyph, when every one is known: exact, where shares
+     *  of a width are not. */
+    readonly chars?: readonly PageBox[];
     /** Where its first part's characters are in the text layer: the page, the run (its span) and the offset there. */
     readonly at?: { readonly page: number; readonly run: number; readonly offset: number };
 }
@@ -49,10 +52,17 @@ export interface PreciseMap {
 
 const WORD = /[\p{L}\p{N}]+/gu;
 
-/** The document's words in reading order, from the text layer's runs: each run's width shared out by its characters.
+/** The smallest box around `boxes`, between `top` and `top + height`. Precondition: `boxes` is not empty. */
+function around(boxes: readonly PageBox[], top: number, height: number): PageBox {
+    const x = Math.min(...boxes.map(b => b.x));
+    return { page: boxes[0]?.page ?? 0, x, y: top, width: Math.max(...boxes.map(b => b.x + b.width)) - x, height };
+}
+
+/** The document's words in reading order, from the text layer's runs: each word's box is around its glyphs where the
+ *  run has them (`PageText.chars`), else its share of the run's width by its characters.
  *  A word that ends its run with a hyphen and goes on at the start of the next line is joined to that next word. */
 export function docWords(texts: readonly PageText[]): DocWord[] {
-    const out: { key: string; text: string; parts: PageBox[]; hyphen: boolean; y: number; at?: { page: number; run: number; offset: number } }[] = [];
+    const out: { key: string; text: string; parts: PageBox[]; chars: PageBox[] | null; hyphen: boolean; y: number; at?: { page: number; run: number; offset: number } }[] = [];
     for (const t of texts) {
         if (!t.str || t.width <= 0) continue;
         const per = t.width / t.str.length;
@@ -60,33 +70,36 @@ export function docWords(texts: readonly PageText[]): DocWord[] {
         const matches = [...t.str.matchAll(WORD)];
         matches.forEach((m, k) => {
             const i = m.index ?? 0;
-            const box: PageBox = { page: t.page, x: t.x + i * per, y: top, width: m[0].length * per, height: t.height * 1.1 };
+            const glyphs = t.chars?.slice(i, i + m[0].length).filter(b => b !== null) ?? [];
+            const chars = glyphs.length === m[0].length ? glyphs : null;
+            const box: PageBox = chars !== null ? around(chars, top, t.height * 1.1) : { page: t.page, x: t.x + i * per, y: top, width: m[0].length * per, height: t.height * 1.1 };
             const prev = out.at(-1);
             if (k === 0 && prev !== undefined && prev.hyphen && (box.page !== prev.parts[0]?.page || box.y > prev.y + t.height * 0.5)) {
                 prev.key += keyOf(m[0]);
                 prev.text += m[0];
                 prev.parts.push(box);
+                prev.chars = prev.chars !== null && chars !== null ? [...prev.chars, ...chars] : null;
                 prev.hyphen = false;
                 return;
             }
             const after = t.str.slice(i + m[0].length);
             const hyphen = k === matches.length - 1 && /^[-‐‑]\s*$/.test(after);
             const at = t.run === undefined ? undefined : { page: t.page, run: t.run, offset: i };
-            out.push({ key: keyOf(m[0]), text: m[0], parts: [box], hyphen, y: top, ...(at === undefined ? {} : { at }) });
+            out.push({ key: keyOf(m[0]), text: m[0], parts: [box], chars, hyphen, y: top, ...(at === undefined ? {} : { at }) });
         });
     }
-    return out.map(w => {
-        const word: DocWord = w.at === undefined ? { key: w.key, text: w.text, parts: w.parts } : { key: w.key, text: w.text, parts: w.parts, at: w.at };
-        return word;
+    return out.map(({ key, text, parts, chars, at }): DocWord => {
+        const word = { key, text, parts };
+        return Object.assign(word, chars === null ? {} : { chars }, at === undefined ? {} : { at });
     });
 }
 
-/** Replaces the boxes of `page`'s one-part words with `boxOf(run, from, to)`: the box of characters [`from`, `to`)
- *  of text run `run`, in PDF points from the page's top-left, or null where it cannot say. Hyphenated words keep their
- *  shares. */
+/** Replaces the boxes of `page`'s one-part words without glyph boxes with `boxOf(run, from, to)`: the box of
+ *  characters [`from`, `to`) of text run `run`, in PDF points from the page's top-left, or null where it cannot say.
+ *  Hyphenated words keep their shares. */
 export function refineWords(words: readonly DocWord[], page: number, boxOf: (run: number, from: number, to: number) => PageBox | null): void {
     for (const w of words) {
-        if (w.at === undefined || w.at.page !== page || w.parts.length !== 1) continue;
+        if (w.chars !== undefined || w.at === undefined || w.at.page !== page || w.parts.length !== 1) continue;
         const box = boxOf(w.at.run, w.at.offset, w.at.offset + w.text.length);
         if (box !== null) w.parts[0] = box;
     }
@@ -188,8 +201,24 @@ export function preciseMap(coarse: SourceMap, words: readonly DocWord[], sources
         return before;
     };
 
-    /** The part of `word` that holds its character `k`, cut to that character (shares of the part's width). */
+    /** The part of `word` that holds its character `k`, cut to the characters from `k` to `upTo` (exclusive) that are
+     *  in that part: around their glyphs where known, else by shares of the part's width. */
     const charBox = (word: DocWord, k: number, upTo: number): PageBox | null => {
+        const first = word.chars?.[k];
+        if (word.chars !== undefined && first !== undefined) {
+            const part = word.parts.find(
+                p =>
+                    p.page === first.page &&
+                    first.x + first.width / 2 >= p.x &&
+                    first.x + first.width / 2 <= p.x + p.width &&
+                    first.y < p.y + p.height &&
+                    first.y + first.height > p.y,
+            );
+            if (part !== undefined) {
+                const inPart = word.chars.slice(k, Math.max(k + 1, upTo)).filter(c => c.page === part.page && c.y < part.y + part.height && c.y + c.height > part.y);
+                return around(inPart.length > 0 ? inPart : [first], part.y, part.height);
+            }
+        }
         let offset = 0;
         for (const p of word.parts) {
             // A part's share of the word's characters, by width.
@@ -292,9 +321,18 @@ export function preciseMap(coarse: SourceMap, words: readonly DocWord[], sources
             });
             const word = words[hit];
             if (word === undefined || gap > 3) return null;
-            // The character under the point, by its share of the word's width.
+            // The character under the point: the last glyph that starts at or before it, else by its share of the
+            // word's width.
             const part = word.parts.length === 1 ? word.parts[0] : undefined;
-            const k = part === undefined ? null : Math.floor(((x - part.x) / part.width) * word.text.length);
+            const k =
+                part === undefined
+                    ? null
+                    : word.chars !== undefined
+                      ? Math.max(
+                            0,
+                            word.chars.findLastIndex(c => c.x <= x),
+                        )
+                      : Math.floor(((x - part.x) / part.width) * word.text.length);
             return sourceOf(hit, word, k, page, x, y);
         },
 

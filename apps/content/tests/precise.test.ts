@@ -55,3 +55,49 @@ describe('preciseMap', () => {
         expect(map.locate({ file: 'main.tex', line: 1, column: 9 })).toBeNull();
     });
 });
+
+describe('with glyph boxes', () => {
+    // "Will fill" where W is 3 pt wide, i and l 0.5 pt, f 1 pt: the glyphs are where the font puts them, not at shares
+    // of the run's width. The second run ends "ta-" and the third starts "ble": one word over two lines.
+    const widths: Record<string, number> = { W: 3, i: 0.5, l: 0.5, f: 1, ' ': 1, t: 1, a: 1, b: 1, e: 1, '-': 1 };
+    const run = (str: string, y: number): PageText => {
+        let x = 10;
+        const chars = str.split('').map(c => {
+            const box = c === ' ' ? null : { page: 1, x, y: y - 8, width: widths[c] ?? 1, height: 10 };
+            x += widths[c] ?? 1;
+            return box;
+        });
+        return { page: 1, str, x: 10, y, width: x - 10, height: 10, chars };
+    };
+    const texts = [run('Will fill ta-', 20), run('ble', 34)];
+    const source = 'Will fill table';
+    const lines: SourceMap = { segments: (_f, line) => (line === 1 ? [LINE_BAND(20), LINE_BAND(34)] : []), backward: () => ({ file: 'main.tex', line: 1 }) };
+    const exact = preciseMap(lines, docWords(texts), new Map([['main.tex', source]]), 'latex');
+
+    it('boxes a word around its glyphs', () => {
+        const [will, fill] = docWords(texts);
+        expect(will?.parts[0]).toMatchObject({ x: 10, width: 4.5 });
+        expect(fill?.parts[0]).toMatchObject({ x: 15.5, width: 2.5 });
+    });
+
+    it('places a source column on its glyph', () => {
+        // The "i" of "Will" follows a W three points wide.
+        expect(exact.locate({ file: 'main.tex', line: 1, column: 1 })).toMatchObject({ x: 13, width: 0.5 });
+    });
+
+    it('finds the character whose glyph is under a point', () => {
+        // x = 12.5 is still inside the W; by shares of the width it would be the second "l".
+        expect(exact.pointToSource(1, 12.5, 15)).toMatchObject({ column: 0, exact: true });
+        expect(exact.pointToSource(1, 14.2, 15)).toMatchObject({ column: 3, exact: true });
+    });
+
+    it('cuts a range to the glyphs at its ends, on each line of a hyphenated word', () => {
+        // "ill fil": the end of "Will" and the start of "fill".
+        expect(exact.range({ file: 'main.tex', line: 1, column: 1 }, { file: 'main.tex', line: 1, column: 8 })).toMatchObject([
+            { x: 13, width: 1.5 },
+            { x: 15.5, width: 2 },
+        ]);
+        // The "b" of "table" is on the second line.
+        expect(exact.locate({ file: 'main.tex', line: 1, column: 12 })).toMatchObject({ x: 10, y: 34 - 8.5, width: 1 });
+    });
+});

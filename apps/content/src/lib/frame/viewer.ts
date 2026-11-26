@@ -3,6 +3,7 @@ import { getDocument, GlobalWorkerOptions, TextLayer, type PDFDocumentLoadingTas
 // oxlint-disable-next-line import/default
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type { PreviewMark, PreviewPresence, SourceLines, SourcePoint } from '@yukibana/papers-frame-protocol';
+import { charBoxes, pageGlyphs } from '#lib/glyphs.ts';
 import { docWords, preciseMap, refineWords, type DocWord, type PreciseMap } from '#lib/precise.ts';
 
 /** A character of the text layer: its page, its run (span index) and offset there, and its middle in page points. */
@@ -139,7 +140,7 @@ export class Viewer {
         const sync = this.#sync;
         if (sync === null) return;
         const task = this.#task;
-        const words = docWords(await this.pageTexts());
+        const words = docWords(await this.pageTexts(true));
         if (this.#sync !== sync || this.#task !== task) return;
         this.#words = words;
         this.#wordsTask = task;
@@ -151,15 +152,24 @@ export class Viewer {
         if (this.#task !== task) return;
         this.#column.dataset['sync'] = String(++this.#syncs);
         this.#drawOverlays();
-        // Development only (gone from builds): the maps, for the sync-accuracy probe to measure.
-        if (import.meta.env.DEV) Object.assign(window, { papersSync: { coarse: sync, precise: this.#precise, words, sources: this.#sources } });
+        // In development and under a browser test only: the maps, the pages and their glyphs with ink boxes, for the
+        // sync-accuracy probe and the glyph test to measure.
+        if (import.meta.env.DEV || navigator.webdriver) {
+            const pages = this.#pages.map(p => p.proxy);
+            Object.assign(window, {
+                papersSync: { coarse: sync, precise: this.#precise, words, sources: this.#sources, pages, glyphs: (page: PDFPageProxy) => pageGlyphs(page, true) },
+            });
+        }
     }
 
-    /** The text runs of every page of the shown build, in PDF points from each page's top-left, reading order. */
-    async pageTexts(): Promise<PageText[]> {
+    /** The text runs of every page of the shown build, in PDF points from each page's top-left, reading order. With
+     *  `glyphs`, each run has the boxes of its characters' glyphs (`PageText.chars`), from the page's drawing
+     *  instructions; a page whose instructions cannot be read has none. */
+    async pageTexts(glyphs = false): Promise<PageText[]> {
         const out: PageText[] = [];
         for (const [i, p] of this.#pages.entries()) {
             const content = await p.proxy.getTextContent();
+            const texts: PageText[] = [];
             // `run` counts the items with a string, empty or not, as PDF.js's text layer numbers its spans (`data-run`).
             let run = -1;
             for (const item of content.items) {
@@ -169,8 +179,14 @@ export class Viewer {
                 const transform: unknown[] = item.transform;
                 const e = Number(transform[4] ?? 0);
                 const f = Number(transform[5] ?? 0);
-                out.push({ page: i + 1, run, str: item.str, x: e, y: p.height - f, width: item.width, height: item.height });
+                texts.push({ page: i + 1, run, str: item.str, x: e, y: p.height - f, width: item.width, height: item.height });
             }
+            const boxes = glyphs
+                ? await pageGlyphs(p.proxy)
+                      .then(g => charBoxes(texts, g))
+                      .catch(() => null)
+                : null;
+            for (const [k, t] of texts.entries()) out.push(boxes === null ? t : { ...t, chars: boxes[k] ?? [] });
         }
         return out;
     }
