@@ -47,6 +47,11 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      # The built Workers under workerd, with their vars: the app frames the configured content origin and the content
+      # origin lets only the configured app frame it, with production's vars and with a preview's --var overrides.
+      - name: Check the built Workers read their vars
+        run: node .github/scripts/check-workers.mjs --preview
+
       # Each Worker of a pull request, for the Preview workflow to upload once a maintainer approves: bundled here, with
       # the pull request's dependencies, since SvelteKit's output imports them by name and an upload that bundles would
       # take them from main's checkout. Only for branches of this repository.

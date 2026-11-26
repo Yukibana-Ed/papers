@@ -1,5 +1,6 @@
 import { notFound, objectResponse, type AssetBucket } from '#lib/r2.ts';
 import { cleanName, parseShard, resolve, shardOf, type Shard } from '#lib/tl-index.ts';
+import { workerPlatform } from '#lib/platform.ts';
 
 /** Parsed index shards, per isolate: 256 at most, about 150 KB each. */
 const shards = new Map<string, Promise<Shard | null>>();
@@ -18,7 +19,8 @@ function shard(bucket: AssetBucket, snapshot: string, id: string): Promise<Shard
 /** `/tl/<format>/<name>`: the TeX Live file kpathsea asks for, as texlyre-busytex's remote endpoint expects it (the
  *  bytes, and the file's real name in a `fileid` header), from the snapshot `TL_SNAPSHOT` in the bucket. 404 when the
  *  snapshot has no such file. */
-export async function GET({ params, platform }: { params: { format: string; name: string }; platform?: App.Platform }): Promise<Response> {
+export async function GET({ params }: { params: { format: string; name: string } }): Promise<Response> {
+    const platform: App.Platform | undefined = workerPlatform();
     const format = Number(params.format);
     const name = cleanName(params.name);
     if (platform === undefined || !Number.isInteger(format) || name === '') return notFound();
