@@ -59,7 +59,6 @@ body {
 }
 /* Every highlight multiplies with the page under it: the paper around the glyphs takes its colour, while the ink,
  * black times anything, stays as dark as it was. A plain translucent layer would wash the glyphs out instead. */
-.pv-hover,
 .pv-marks,
 .pv-sel {
     z-index: 1;
@@ -94,12 +93,6 @@ body {
 }
 .pv-sel-rect {
     background: var(--yk-chip-blue-bg);
-}
-/* The source line under the pointer, as the prototype showed it: a soft box. */
-.pv-hover-box {
-    position: absolute;
-    border-radius: 3px;
-    background: color-mix(in oklab, var(--yk-chip-blue-bg) 45%, transparent);
 }
 .pv-flash {
     background: color-mix(in oklab, var(--yk-accent) 22%, transparent);

@@ -2,8 +2,7 @@ import { expect, test, type FrameLocator, type Page } from '@playwright/test';
 import { openDemo } from '../support.ts';
 
 /** Selecting in the LaTeX preview, with the real TeX engine: the text layer lies on the glyphs, the selection's
- *  highlight covers what is selected at full line height in the paper's colours, its toolbar covers no text, and the
- *  source line under the pointer is marked on both sides. */
+ *  highlight covers what is selected at full line height in the paper's colours, and its toolbar covers no text. */
 
 type Box = { x: number; y: number; width: number; height: number };
 
@@ -175,21 +174,6 @@ for (const deviceScaleFactor of [1, 2]) {
             // One line, not the page.
             expect(selected.length).toBeLessThan(text.length * 3 + 20);
         });
-
-        test('the source line under the pointer is marked in the preview and in the editor', async ({ page }) => {
-            const frame = await preview(page);
-            const run = frame
-                .locator('.pv-page')
-                .first()
-                .locator('.textLayer span')
-                .filter({ hasText: /\w{4,}/ })
-                .nth(10);
-            await run.hover({ position: { x: 6, y: 4 } });
-            await expect(frame.locator('.pv-hover-box').first()).toBeVisible();
-            await expect(page.locator('.monaco-editor .hover-line').first()).toBeAttached();
-            await page.mouse.move(2, 2);
-            await expect(frame.locator('.pv-hover-box')).toHaveCount(0);
-        });
     });
 }
 
@@ -274,14 +258,6 @@ for (const deviceScaleFactor of [1, 2]) {
             const clip = { x: box.x, y: box.y - 2, width: box.width, height: box.height + 4 };
             await page.mouse.move(5, 5);
             const before = await page.screenshot({ clip });
-
-            // The source line under the pointer.
-            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-            await expect(frame.locator('.pv-hover-box').first()).toBeVisible();
-            const hovered = await inkAndPaper(page, before, await page.screenshot({ clip }));
-            expect(hovered.inkPixels).toBeGreaterThan(20);
-            expect(hovered.inkLighter).toBeLessThanOrEqual(3);
-            expect(hovered.paperChanged).toBeGreaterThan(0.5);
 
             // A selection over the whole run.
             await page.mouse.move(box.x + 1, box.y + box.height / 2);

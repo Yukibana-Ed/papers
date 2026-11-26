@@ -36,7 +36,6 @@ export interface Diagnostic {
 interface FileDecorations {
     threads: string[];
     presence: string[];
-    hover: string[];
 }
 
 /** The source editor: one Monaco editor over a model per project file, with the decorations of comments,
@@ -261,7 +260,7 @@ export class SourceEditor {
     private D(f: string): FileDecorations {
         let d = this.deco.get(f);
         if (!d) {
-            d = { threads: [], presence: [], hover: [] };
+            d = { threads: [], presence: [] };
             this.deco.set(f, d);
         }
         return d;
@@ -408,7 +407,7 @@ export class SourceEditor {
         }
     }
 
-    // --- presence, hover, diagnostics, theme ---------------------------------------------------------------------------
+    // --- presence, diagnostics, theme ---------------------------------------------------------------------------
 
     /** Others' cursors: a caret at the end of their line, with their name. */
     setPresence(list: readonly Presence[], users: Readonly<Record<string, User>>): void {
@@ -436,15 +435,6 @@ export class SourceEditor {
                     };
                 });
             this.D(f).presence = m.deltaDecorations(this.D(f).presence, decos);
-        }
-    }
-
-    /** The lines whose typeset text is under the pointer in the preview, softly marked; null clears them. */
-    setHover(lines: Lines | null): void {
-        for (const [f, m] of this.models) {
-            const list =
-                lines && lines.file === f ? [{ range: new monaco.Range(lines.startLine, 1, lines.endLine, 1), options: { isWholeLine: true, className: 'hover-line' } }] : [];
-            this.D(f).hover = m.deltaDecorations(this.D(f).hover, list);
         }
     }
 
