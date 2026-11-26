@@ -1,6 +1,7 @@
 import type { Engine, FileContents } from '@yukibana/papers-frame-protocol';
 import type { BusyTexRunner as Runner } from 'texlyre-busytex';
 import { ASSETS } from '#lib/asset-path.ts';
+import { COMMON_TL_FILES } from '#lib/tl-common.ts';
 
 /** What one build produced. `pdf` and `synctex` are set iff `ok`. */
 export interface BuildOutput {
@@ -55,9 +56,12 @@ export class TexEngine {
 
     #start(): Promise<Runner> {
         this.#runner ??= (async (): Promise<Runner> => {
+            // The TeX Live files most papers read come together while the engine loads, instead of one by one later.
+            const common = fetchCommon();
             const { BusyTexRunner } = await import('texlyre-busytex');
             const runner = new BusyTexRunner({ busytexBasePath: ENGINE_BASE, preloadDataPackages: [`${ENGINE_BASE}/texlive-basic.js`] });
             await runner.initialize(true);
+            await handOver(runner, await common);
             return runner;
         })();
         // A failed start is retried on the next build (and on the app's Retry).
@@ -111,5 +115,45 @@ export class TexEngine {
         } catch (e) {
             return { ok: false, pdf: null, synctex: null, log: `! ${e instanceof Error ? e.message : String(e)}`, ms: performance.now() - t0 };
         }
+    }
+}
+
+/** How many TeX Live requests the prefetch keeps in flight. */
+const PARALLEL = 12;
+
+interface Fetched {
+    readonly files: { name: string; format: number; content: Uint8Array }[];
+    readonly misses: string[];
+}
+
+/** The files of `COMMON_TL_FILES` as the store has them now: those it has with their bytes, those it does not as
+ *  misses (`format/name`). Never throws; a request that fails is left out, and the engine asks for it itself. */
+async function fetchCommon(): Promise<Fetched> {
+    const out: Fetched = { files: [], misses: [] };
+    const todo = [...COMMON_TL_FILES.hits, ...COMMON_TL_FILES.misses];
+    const base = new URL(TL_ENDPOINT, location.href);
+    const next = async (): Promise<void> => {
+        for (let item = todo.shift(); item !== undefined; item = todo.shift()) {
+            const [format, name] = item;
+            try {
+                const r = await fetch(new URL(`${format}/${encodeURIComponent(name)}`, base));
+                if (r.ok) out.files.push({ name, format, content: new Uint8Array(await r.arrayBuffer()) });
+                else if (r.status === 404) out.misses.push(`${format}/${name}`);
+            } catch {
+                // Left to the engine.
+            }
+        }
+    };
+    await Promise.all(Array.from({ length: PARALLEL }, next));
+    return out;
+}
+
+/** Gives the engine what `fetchCommon` found, so it reads those files (and skips those misses) without asking. */
+async function handOver(runner: Runner, fetched: Fetched): Promise<void> {
+    try {
+        if (fetched.files.length > 0) await runner.writeTexliveRemoteFiles(fetched.files.map(f => ({ name: f.name, format: f.format, content: f.content })));
+        if (fetched.misses.length > 0) await runner.writeTexliveRemoteMisses(fetched.misses);
+    } catch {
+        // The engine asks for them itself.
     }
 }
