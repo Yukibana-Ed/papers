@@ -1,20 +1,27 @@
 import type { Cookies, RequestEvent } from '@sveltejs/kit';
 import { importKey, seal, unseal } from './seal.ts';
 
-/** The signed-in user's session: their GitHub App user tokens, sealed in an httpOnly cookie. There is no session
- *  table: the cookie is the session, and signing out deletes it. */
+/** The signed-in browser: who it is, and the GitHub App refresh token, sealed in an httpOnly cookie. The Worker only
+ *  exchanges codes and refresh tokens (it holds the client secret); the access token it gets back goes to the page,
+ *  which keeps it in memory and calls GitHub itself. Nothing is stored on our side: signing out deletes the cookie. */
 export interface Session {
     readonly login: string;
     readonly name: string;
-    readonly access: string;
-    /** Epoch ms when `access` expires (GitHub App user tokens last 8 hours). */
-    readonly expires: number;
     readonly refresh: string;
+}
+
+/** What the page gets from `/auth/token`. */
+export interface AccessToken {
+    readonly token: string;
+    /** Epoch ms when it expires (GitHub App user tokens last 8 hours). */
+    readonly expires: number;
+    readonly login: string;
+    readonly name: string;
 }
 
 const COOKIE = 'yk_session';
 const STATE_COOKIE = 'yk_oauth_state';
-const PURPOSE = 'session/v1';
+const PURPOSE = 'session/v2';
 
 export interface AuthEnv {
     readonly GITHUB_CLIENT_ID: string;
@@ -33,9 +40,7 @@ export function authEnv(event: RequestEvent): AuthEnv | null {
 function isSession(x: unknown): x is Session {
     if (typeof x !== 'object' || x === null) return false;
     const r = x as Record<string, unknown>;
-    return (
-        typeof r['login'] === 'string' && typeof r['name'] === 'string' && typeof r['access'] === 'string' && typeof r['expires'] === 'number' && typeof r['refresh'] === 'string'
-    );
+    return typeof r['login'] === 'string' && typeof r['name'] === 'string' && typeof r['refresh'] === 'string';
 }
 
 async function writeSession(cookies: Cookies, env: AuthEnv, s: Session): Promise<void> {
@@ -58,23 +63,29 @@ async function exchange(env: AuthEnv, params: Record<string, string>): Promise<T
     return (await r.json()) as TokenResponse;
 }
 
-/** The session of the request, with a fresh access token (refreshed and re-sealed when it is about to expire), or
- *  null when signed out or the refresh token no longer works. */
+/** Who is signed in, from the cookie alone (no call to GitHub), or null. */
 export async function getSession(event: RequestEvent): Promise<Session | null> {
     const env = authEnv(event);
     const raw = event.cookies.get(COOKIE);
     if (!env || !raw) return null;
     const s = await unseal(await importKey(env.SESSION_KEY), PURPOSE, raw);
-    if (!isSession(s)) return null;
-    if (s.expires - Date.now() > 5 * 60 * 1000) return s;
+    return isSession(s) ? s : null;
+}
+
+/** A fresh access token for the page: the refresh token is exchanged (GitHub rotates it, so the cookie is rewritten),
+ *  or null when signed out or the refresh token no longer works (then the cookie goes). Pages serialize their calls
+ *  with a Web Lock, since a refresh token works once. */
+export async function freshToken(event: RequestEvent): Promise<AccessToken | null> {
+    const env = authEnv(event);
+    const s = await getSession(event);
+    if (!env || !s) return null;
     const t = await exchange(env, { grant_type: 'refresh_token', refresh_token: s.refresh });
     if (!t.access_token || !t.refresh_token) {
         event.cookies.delete(COOKIE, { path: '/' });
         return null;
     }
-    const next: Session = { ...s, access: t.access_token, refresh: t.refresh_token, expires: Date.now() + (t.expires_in ?? 28800) * 1000 };
-    await writeSession(event.cookies, env, next);
-    return next;
+    await writeSession(event.cookies, env, { ...s, refresh: t.refresh_token });
+    return { token: t.access_token, expires: Date.now() + (t.expires_in ?? 28800) * 1000, login: s.login, name: s.name };
 }
 
 /** Where to send the browser to sign in: GitHub's consent page, with a state that the callback checks. */
@@ -94,8 +105,9 @@ export function loginUrl(event: RequestEvent, env: AuthEnv, returnTo: string): s
     return u.href;
 }
 
-/** Finishes a sign-in: checks the state, exchanges the code, and seals the session. Returns where to go next, or
- *  null when the callback is not one this browser started. */
+/** Finishes a sign-in: checks the state, exchanges the code, and seals who it is with the refresh token. The access
+ *  token of this exchange is used once, to ask GitHub who signed in, and dropped. Returns where to go next, or null
+ *  when the callback is not one this browser started. */
 export async function finishLogin(event: RequestEvent, env: AuthEnv, viewer: (token: string) => Promise<{ login: string; name: string }>): Promise<string | null> {
     const saved = event.cookies.get(STATE_COOKIE);
     event.cookies.delete(STATE_COOKIE, { path: '/auth' });
@@ -112,13 +124,7 @@ export async function finishLogin(event: RequestEvent, env: AuthEnv, viewer: (to
     const t = await exchange(env, { code, redirect_uri: `${event.url.origin}/auth/callback` });
     if (!t.access_token || !t.refresh_token) return null;
     const who = await viewer(t.access_token);
-    await writeSession(event.cookies, env, {
-        login: who.login,
-        name: who.name,
-        access: t.access_token,
-        refresh: t.refresh_token,
-        expires: Date.now() + (t.expires_in ?? 28800) * 1000,
-    });
+    await writeSession(event.cookies, env, { login: who.login, name: who.name, refresh: t.refresh_token });
     return typeof expected.returnTo === 'string' ? expected.returnTo : '/';
 }
 
