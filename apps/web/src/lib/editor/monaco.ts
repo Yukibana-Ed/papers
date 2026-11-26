@@ -163,6 +163,12 @@ export function applyTheme(dark: boolean): void {
             'scrollbarSlider.background': `${tokenHex('--yk-line')}99`,
             'scrollbarSlider.hoverBackground': `${tokenHex('--yk-line-strong')}99`,
             'editorGutter.background': tokenHex('--yk-surface'),
+            'menu.background': tokenHex('--yk-surface'),
+            'menu.foreground': tokenHex('--yk-ink'),
+            'menu.selectionBackground': tokenHex('--yk-bg'),
+            'menu.selectionForeground': tokenHex('--yk-ink'),
+            'menu.separatorBackground': tokenHex('--yk-line'),
+            'menu.border': tokenHex('--yk-line'),
         },
     });
     monaco.editor.setTheme('yk');
