@@ -60,11 +60,24 @@ describe('complete', () => {
         expect(r?.offers.find(o => o.label === String.raw`\textbf`)?.insert).toBe('textbf{$1}');
     });
 
+    it('offers whole environments after a backslash, after the commands', () => {
+        const r = complete(String.raw`\it`, '', index(), 'main.tex');
+        const itemize = r?.offers.find(o => o.label === String.raw`\begin{itemize}`);
+        expect(itemize).toEqual({ label: String.raw`\begin{itemize}`, insert: 'begin{itemize}\n\t\\item $0\n\\end{itemize}', kind: 'snippet', detail: '' });
+        expect(labels(r).indexOf(String.raw`\item`)).toBeLessThan(labels(r).indexOf(String.raw`\begin{itemize}`));
+        // The project's own environments too.
+        expect(labels(r)).toContain(String.raw`\begin{claim}`);
+        const figure = r?.offers.find(o => o.label === String.raw`\begin{figure}`)?.insert ?? '';
+        expect(figure).toContain('\\includegraphics[width=${2:\\linewidth}]{$3}');
+        expect(figure.endsWith(String.raw`\end{figure}`)).toBe(true);
+    });
+
     it('offers environments after \\begin{, with their \\end, and the open one after \\end{', () => {
         const begin = complete(String.raw`\begin{it`, '', index(), 'main.tex');
         expect(labels(begin)).toContain('itemize');
         expect(labels(begin)).toContain('claim');
-        expect(begin?.offers.find(o => o.label === 'itemize')?.insert).toBe('itemize}\n\t$0\n\\end{itemize}');
+        expect(begin?.offers.find(o => o.label === 'itemize')?.insert).toBe('itemize}\n\t\\item $0\n\\end{itemize}');
+        expect(begin?.offers.find(o => o.label === 'claim')?.insert).toBe('claim}\n\t$0\n\\end{claim}');
         // Editing an existing \begin{…}: the name only.
         expect(complete(String.raw`\begin{it`, '}', index(), 'main.tex')?.offers.find(o => o.label === 'itemize')?.insert).toBe('itemize');
         expect(labels(complete(String.raw`\begin{proof} text \end{`, '', index(), 'main.tex'))[0]).toBe('proof');
