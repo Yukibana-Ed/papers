@@ -23,7 +23,10 @@ describe('room tickets', () => {
     it('do not open with another key, or when tampered with', async () => {
         const raw = await mintTicket(KEY, t);
         expect(await checkTicket(OTHER, raw, room, 1_000)).toBeNull();
-        const flipped = raw.slice(0, -2) + (raw.endsWith('A') ? 'B' : 'A') + raw.slice(-1);
+        // Change one character in the middle (the ciphertext), always to a different one: the old version could
+        // "change" a character to itself, or touch only the unused bits of the last one, and then the ticket rightly still opened (a flaky failure).
+        const i = Math.floor(raw.length / 2);
+        const flipped = raw.slice(0, i) + (raw[i] === 'A' ? 'B' : 'A') + raw.slice(i + 1);
         expect(await checkTicket(KEY, flipped, room, 1_000)).toBeNull();
         expect(await checkTicket(KEY, '', room, 1_000)).toBeNull();
     });
