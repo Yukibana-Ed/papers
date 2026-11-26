@@ -103,6 +103,61 @@ test.describe('problems', () => {
         await expect(page.locator('.dv-tab[aria-selected="true"]:has(.file-tab)')).toContainText('method.tex');
     });
 
+    test("a problem's text can be selected and copied, and its menu goes to the source or copies it", async ({ page, context }) => {
+        await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+        const clipboard = (): Promise<string> => page.evaluate(() => navigator.clipboard.readText());
+        const selected = (): Promise<string> => page.evaluate(() => getSelection()?.toString() ?? '');
+        const activeTab = page.locator('.dv-tab[aria-selected="true"]:has(.file-tab)');
+        await openDemo(page);
+        await frame(page, failed(2, 3));
+        await page.locator('.dv-tab', { hasText: 'paper.tex' }).click();
+
+        // In the preview: dragging over the message selects it and goes nowhere.
+        const msg = page.locator('.pv-error.first .pv-error-msg');
+        await expect(msg).toBeVisible();
+        const box = (await msg.boundingBox())!;
+        await page.mouse.move(box.x + 1, box.y + box.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width - 1, box.y + box.height / 2, { steps: 5 });
+        await page.mouse.up();
+        expect(await selected()).toContain('Unknown command');
+        await expect(activeTab).toContainText('paper.tex');
+        await page.evaluate(() => getSelection()?.removeAllRanges());
+
+        // Its menu copies the message, or everything with the location.
+        await page.locator('.pv-error.first').click({ button: 'right' });
+        const menu = page.getByRole('menu', { name: 'Problem' });
+        await expect(menu.getByRole('menuitem')).toHaveText([/Go to source/, /Copy message/, /Copy with location/]);
+        await menu.getByRole('menuitem', { name: /Copy message/ }).click();
+        await expect(menu).toHaveCount(0);
+        await expect.poll(clipboard).toBe('Unknown command \\foo\nUndefined control sequence.');
+        await page.locator('.pv-error.first').click({ button: 'right' });
+        await menu.getByRole('menuitem', { name: /Copy with location/ }).click();
+        await expect.poll(clipboard).toBe('sections/intro.tex:3: error: Unknown command \\foo\nUndefined control sequence.\nl.3 \\foo');
+        await expect(activeTab).toContainText('paper.tex');
+
+        // Escape closes it; a plain click still goes to the source.
+        await page.locator('.pv-error.first').click({ button: 'right' });
+        await page.keyboard.press('Escape');
+        await expect(menu).toHaveCount(0);
+        await page.locator('.pv-error.first').click();
+        await expect(activeTab).toContainText('intro.tex');
+
+        // In Problems: Ctrl+C on a row copies its message, and the menu, opened and used from the keyboard, goes to it.
+        await page.locator('.dv-tab', { hasText: 'paper.tex' }).click();
+        await page.keyboard.press('Control+Shift+Y');
+        const row = page.locator('.prob-row').first();
+        await page.evaluate(() => navigator.clipboard.writeText(''));
+        await row.focus();
+        await page.keyboard.press('Control+c');
+        await expect.poll(clipboard).toBe('Unknown command \\foo\nUndefined control sequence.');
+        await row.click({ button: 'right' });
+        await expect(menu.getByRole('menuitem', { name: /Go to source/ })).toBeFocused();
+        await page.keyboard.press('Enter');
+        await expect(activeTab).toContainText('intro.tex');
+        await expect(page.locator('.monaco-editor .line-numbers.active-line-number', { hasText: '3' })).toBeVisible();
+    });
+
     test('a build service that did not load is not shown as a problem with the paper', async ({ page }) => {
         await openDemo(page);
         await frame(page, { type: 'service', failure: { what: 'tex-engine', detail: 'busytex.wasm: HTTP 404' } });

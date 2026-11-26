@@ -179,3 +179,14 @@ export function nextProblem(list: readonly Problem[], order: readonly string[], 
     if (dir === 1) return items.find(p => rank(p.file, p.line) > here) ?? items[0] ?? null;
     return items.toReversed().find(p => rank(p.file, p.line) < here) ?? items.at(-1) ?? null;
 }
+
+/** A problem as text for the clipboard. Without `location`: its message, then the reporter's own message when that
+ *  differs. With it: `file:line[:column]: severity: message` (a note's severity is "note"), then the reporter's own
+ *  message and the log's excerpt, each on lines of their own. */
+export function problemText(p: Problem, location: boolean): string {
+    const where = `${p.file}:${p.line}${p.column === undefined ? '' : `:${p.column}`}`;
+    const lines = [location ? `${where}: ${p.severity === 'info' ? 'note' : p.severity}: ${p.message}` : p.message];
+    if (p.raw !== undefined && p.raw !== p.message) lines.push(p.raw);
+    if (location && p.excerpt) lines.push(p.excerpt);
+    return lines.join('\n');
+}

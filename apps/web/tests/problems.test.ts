@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { byFile, countProblems, mergeProblems, nextProblem, readable } from '#lib/problems/model.ts';
+import { byFile, countProblems, mergeProblems, nextProblem, problemText, readable, type Problem } from '#lib/problems/model.ts';
 import { SETTLE_MS, settleDelay } from '#lib/session.svelte.ts';
 
 const order = ['paper.tex', 'sections/intro.tex', 'sections/method.tex'];
@@ -101,5 +101,26 @@ describe('settleDelay', () => {
     it('waits until typing has paused for a while, and not at all after a pause', () => {
         expect(settleDelay(1000, 1100)).toBe(SETTLE_MS - 100);
         expect(settleDelay(1000, 1000 + SETTLE_MS + 5)).toBe(0);
+    });
+});
+
+describe('problemText', () => {
+    const p: Problem = {
+        id: 'e',
+        severity: 'error',
+        file: 'sections/intro.tex',
+        line: 4,
+        message: 'Unknown command \\foo',
+        raw: 'Undefined control sequence.',
+        sources: ['build'],
+        excerpt: 'l.4 \\foo',
+    };
+    it('is the message and what the reporter said', () => {
+        expect(problemText(p, false)).toBe('Unknown command \\foo\nUndefined control sequence.');
+        expect(problemText({ ...p, raw: 'Unclosed delimiter', message: 'Unclosed delimiter' }, false)).toBe('Unclosed delimiter');
+    });
+    it('with its location, starts like a compiler line and ends with the excerpt', () => {
+        expect(problemText(p, true)).toBe('sections/intro.tex:4: error: Unknown command \\foo\nUndefined control sequence.\nl.4 \\foo');
+        expect(problemText({ id: 'n', severity: 'info', file: 'a.typ', line: 2, column: 7, message: 'Overfull', sources: ['tinymist'] }, true)).toBe('a.typ:2:7: note: Overfull');
     });
 });
