@@ -41,6 +41,7 @@ export interface GalleryEntry extends TemplateInfo {
     readonly files: readonly string[];
 }
 
+/** A template whose manifest or files are not what a template must be; the message says what is wrong. */
 export class TemplateError extends Error {}
 
 const ENGINES = ['pdflatex', 'xelatex', 'lualatex', 'typst'];

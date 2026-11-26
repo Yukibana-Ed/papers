@@ -10,10 +10,12 @@ export interface PendingPaper {
 
 let pending: PendingPaper | null = null;
 
+/** Keeps `p` for /try, replacing any paper kept before. */
 export function setPending(p: PendingPaper): void {
     pending = p;
 }
 
+/** The paper kept by `setPending`, or null; it stays kept, so going back to /try shows it again. */
 export function takePending(): PendingPaper | null {
     return pending;
 }

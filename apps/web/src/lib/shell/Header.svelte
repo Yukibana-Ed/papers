@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { dialogFocus } from '#lib/ui/focus.ts';
     import { keepInView } from '#lib/ui/place.ts';
     import type { Session } from '#lib/session.svelte.ts';
     import Avatar from '#lib/ui/Avatar.svelte';
@@ -38,7 +39,7 @@
             {s.head.hash}
         </button>
         {#if s.popover === 'log'}
-            <div class="popover pop-log" role="dialog" {@attach keepInView} aria-label="Log">
+            <div class="popover pop-log" role="dialog" {@attach keepInView} {@attach dialogFocus} aria-label="Log">
                 {#each s.commits.slice(0, 8) as c, i (c.hash + i)}
                     <div class="log-row">
                         <span class="mono hash">{c.hash}</span>
@@ -57,12 +58,6 @@
         <span class="yk-chip yk-chip--yellow" {...tip('Live sync paused', null, 'edits sync again tomorrow')}><Icon name="alert" />Paused</span>
     {:else if s.sync === 'offline'}
         <span class="yk-chip" {...tip('Offline', null, 'edits are kept and sent on reconnect')}><Icon name="alert" />Offline</span>
-    {/if}
-    {#if s.incoming > 0}
-        <span class="yk-chip yk-chip--blue incoming" {...tip(`${s.incoming} incoming`, null, 'pushed outside the session, merged')}>
-            <Icon name="down" />
-            {s.incoming} incoming
-        </span>
     {/if}
     {#if s.pr}
         <button type="button" class="chip-btn" onclick={onShowReview} {...tip(`PR #${s.pr.number}`, null, s.pr.title)}>
@@ -89,7 +84,7 @@
         data-done={s.justCommitted ? '' : undefined}
         disabled={!s.uncommitted && !s.justCommitted}
         onclick={() => s.togglePopover('commit')}
-        {...tip('Commit', 'Ctrl+S', `push session changes to ${s.branch}`)}
+        {...tip('Commit', 'Ctrl+S', `commit the session's changes to ${s.branch}`)}
     >
         {s.justCommitted ? '✓ Committed' : 'Commit'}
     </button>
@@ -98,7 +93,7 @@
     </button>
 
     {#if s.popover === 'commit'}
-        <div class="popover pop-commit" role="dialog" {@attach keepInView} aria-label="Commit">
+        <div class="popover pop-commit" role="dialog" {@attach keepInView} {@attach dialogFocus} aria-label="Commit">
             <!-- svelte-ignore a11y_autofocus -->
             <input autofocus class="yk-input" placeholder={s.defaultCommitMessage} bind:value={s.commitMessage} onkeydown={(e) => e.key === 'Enter' && void s.commit()} aria-label="Message" />
             <ul class="changes">
@@ -124,7 +119,7 @@
             <div class="pop-row">
                 <span class="muted mono">{s.branch}</span>
                 <span class="grow"></span>
-                <button type="button" class="yk-btn yk-btn--primary btn-sm" onclick={() => void s.commit()} {...tip('Commit and push', 'Enter')}>Commit</button>
+                <button type="button" class="yk-btn yk-btn--primary btn-sm" onclick={() => void s.commit()} {...tip('Commit', 'Enter')}>Commit</button>
             </div>
         </div>
     {/if}

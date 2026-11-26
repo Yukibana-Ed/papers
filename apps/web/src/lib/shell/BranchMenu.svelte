@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { dialogFocus } from '#lib/ui/focus.ts';
     import { keepInView } from '#lib/ui/place.ts';
     import type { Session } from '#lib/session.svelte.ts';
     import Avatar from '#lib/ui/Avatar.svelte';
@@ -10,7 +11,7 @@
     let name = $state('');
 </script>
 
-<div class="popover pop-branch" role="dialog" {@attach keepInView} aria-label="Branches">
+<div class="popover pop-branch" role="dialog" {@attach keepInView} {@attach dialogFocus} aria-label="Branches">
     {#each s.branchNames as n (n)}
         {@const b = s.branches[n]}
         <button type="button" class="row-btn" class:is-current={n === s.branch} onclick={() => s.switchBranch(n)}>

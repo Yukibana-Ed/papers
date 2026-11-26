@@ -38,6 +38,7 @@ export function objectResponse(object: AssetObject, type: string | undefined, ex
     return new Response(object.body, init);
 }
 
+/** The answer for a file the snapshot does not have: a 404 that may be cached for good, like a hit. */
 export function notFound(): Response {
     // A miss is as permanent as a hit within one snapshot: kpathsea probes many names that do not exist.
     return new Response(null, { status: 404, headers: { 'Cache-Control': IMMUTABLE, 'Cross-Origin-Resource-Policy': 'same-origin' } });
