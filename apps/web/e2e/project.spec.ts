@@ -57,7 +57,7 @@ test('a repository opens with its files, and Commit writes the edits to its bran
     // A second commit goes on top of the first: the page knows the new head.
     await typeAfter(page, 'And an edit.', ' Twice.');
     await page.getByRole('button', { name: 'Commit' }).click();
-    await page.keyboard.press('Enter');
+    await page.getByRole('textbox', { name: 'Message' }).press('Enter');
     await expect(page.locator('.pending')).toBeHidden();
     expect((await repoState(repo)).commits).toHaveLength(3);
 });
@@ -75,7 +75,7 @@ test('two people in a branch see each other type, and what one commits is commit
     await expect(bob.locator('.pending')).toBeVisible();
 
     await page.getByRole('button', { name: 'Commit' }).click();
-    await page.keyboard.press('Enter');
+    await page.getByRole('textbox', { name: 'Message' }).press('Enter');
     await expect(page.locator('.pending')).toBeHidden();
     await expect(bob.locator('.pending')).toBeHidden();
     expect((await repoState(repo)).files['main.tex']).toContain('Ada was here. So was Bob.');
@@ -83,7 +83,7 @@ test('two people in a branch see each other type, and what one commits is commit
     // Bob's next commit goes on top of Ada's: his page learnt the new head from the room.
     await typeAfter(bob, 'So was Bob.', ' Again.');
     await bob.getByRole('button', { name: 'Commit' }).click();
-    await bob.keyboard.press('Enter');
+    await bob.getByRole('textbox', { name: 'Message' }).press('Enter');
     await expect(bob.locator('.pending')).toBeHidden();
     await expect(page.locator('.pending')).toBeHidden();
     expect((await repoState(repo)).commits.map(c => c.author)).toEqual(['bob', 'ada', 'ada']);
@@ -121,7 +121,7 @@ test('a push from a clone is merged into the session, when the branch is opened 
     // Someone pushes a new first line from a clone. Ada's commit meets it: the push is merged in, and she commits again.
     await pushTo(repo, { 'main.tex': MAIN.replace('\\documentclass{article}', '\\documentclass[a4paper]{article}') });
     await page.getByRole('button', { name: 'Commit' }).click();
-    await page.keyboard.press('Enter');
+    await page.getByRole('textbox', { name: 'Message' }).press('Enter');
     await expect(page.locator('.monaco-editor .view-lines')).toContainText('a4paper');
     await expect(page.locator('.monaco-editor .view-lines')).toContainText('Typed in the room.');
     await expect(page.locator('.pending')).toBeVisible();

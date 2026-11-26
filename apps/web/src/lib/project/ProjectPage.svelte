@@ -76,6 +76,7 @@
                     throw new Error(e instanceof GitHubError ? `GitHub refused the commit (${e.status})` : 'Commit failed', { cause: e });
                 }
                 head = oid;
+                mine.add(oid);
                 r.committed(oid, changes.filter((c) => c.text !== null).map((c) => ({ path: c.path, blob: '', text: c.text ?? '' })));
                 return oid;
             },
@@ -131,6 +132,9 @@
                         welcome = { base, files };
                     },
                     base: (base, files) => {
+                        // The room tells the one who committed too, and that can arrive after a later commit from here:
+                        // taken as news it would put the head and the committed files back.
+                        if (mine.has(base)) return;
                         // Someone committed: later commits from here go on top of theirs.
                         head = base;
                         session?.committedElsewhere(base, Object.fromEntries(files.map((f) => [f.path, f.text])));
@@ -201,6 +205,8 @@
 
     /** The branch's head as this page knows it: what the next commit must go on top of. */
     let head = '';
+    /** The commits made from this page. */
+    const mine = new Set<string>();
     /** The room's sync mode as it last said. */
     let mode: 'live' | 'batched' | 'paused' = 'live';
     let welcome: { base: string | null; files: readonly BaseFile[] } | null = null;
