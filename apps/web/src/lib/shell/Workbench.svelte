@@ -123,7 +123,7 @@
                 // A reloaded frame lost the server: a new client, whose initialize the new server answers.
                 retryLanguageServer,
             );
-            client = new LanguageClient('typst', 'tinymist', (m) => p.lspSend('tinymist', m), tinymistProfile(), (st) => {
+            client = new LanguageClient('typst', 'tinymist', (m) => p.lspSend('tinymist', m), tinymistProfile((path) => s.assets[path]), (st) => {
                 if (cancelled) return;
                 if (st.status === 'unavailable') s.languageServer = { status: 'failed', detail: heard ? st.detail : 'the preview frame cannot be reached' };
                 else s.languageServer = { status: st.status, detail: '' };
@@ -145,7 +145,9 @@
     $effect(() => {
         void lspStarts;
         const p = preview;
-        if (!editor || !p || languageClient || !Object.keys(s.files).some((f) => f.endsWith('.typ'))) return;
+        // Only once Typst is in use (its document or a Typst file open): the server is 8.5 MB, which a LaTeX paper
+        // would load for nothing on its first visit.
+        if (!editor || !p || languageClient || !(s.root.endsWith('.typ') || s.activeFile.endsWith('.typ'))) return;
         startTypstServer(p);
     });
     onDestroy(() => languageClient?.dispose());
