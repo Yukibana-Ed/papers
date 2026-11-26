@@ -29,7 +29,8 @@ export default {
                     'style-src': ['self', 'unsafe-inline'],
                     'img-src': ['self', 'data:', 'blob:', 'https://avatars.githubusercontent.com'],
                     'font-src': ['self', 'data:'],
-                    'connect-src': ['self', 'https://api.github.com'],
+                    // GitHub's API, and papers serve on this computer for Build on this computer (paired explicitly).
+                    'connect-src': ['self', 'https://api.github.com', 'http://127.0.0.1:47115', 'ws://127.0.0.1:47115'],
                     'worker-src': ['self', 'blob:'],
                     'object-src': ['none'],
                     'base-uri': ['self'],

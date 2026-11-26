@@ -40319,15 +40319,7 @@ function parseString(ctx) {
                     let hex3 = ctx.s.charCodeAt(ctx.p);
                     let digit =
                         /* 0-9 */
-                        hex3 >= 48 && hex3 <= 57
-                            ? hex3 - 48
-                            : /* A-F */
-                              hex3 >= 65 && hex3 <= 70
-                              ? hex3 - 65 + 10
-                              : /* a-f */
-                                hex3 >= 97 && hex3 <= 102
-                                ? hex3 - 97 + 10
-                                : -1;
+                        hex3 >= 48 && hex3 <= 57 ? hex3 - 48 : /* A-F */ hex3 >= 65 && hex3 <= 70 ? hex3 - 65 + 10 : /* a-f */ hex3 >= 97 && hex3 <= 102 ? hex3 - 97 + 10 : -1;
                     if (digit < 0) TomlError.x('invalid non-hex character in unicode escape', ctx);
                     value = (value << 4) | digit;
                 }
