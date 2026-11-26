@@ -1,5 +1,6 @@
 import type { RequestEvent } from '@sveltejs/kit';
 import type { Handle } from '@sveltejs/kit/hooks';
+import { IDENTITY_HEADER } from '@yukibana/papers-room-protocol';
 import { THEME_BOOT } from '@yukibana/design/theme';
 import { appHeaders, scriptHash, withContentOrigin } from '#lib/headers.ts';
 import { authEnv } from '#lib/server/auth.ts';
@@ -9,9 +10,6 @@ import { workerPlatform } from '#lib/server/platform.ts';
 
 /** The theme script's hash: it is inline (it must run before the first paint) and not SvelteKit's own. */
 const themeHash = scriptHash(THEME_BOOT);
-
-/** The header the room trusts for who is connecting (apps/room/src/worker.ts). */
-const IDENTITY_HEADER = 'X-Yukibana-Identity';
 
 /** `/room/<owner>/<repo>/<branch>?ticket=…`: a WebSocket to the branch's room, for the holder of a ticket from
  *  `/room/ticket`. The room learns who they are and what they may do from this Worker alone. */

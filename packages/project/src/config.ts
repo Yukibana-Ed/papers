@@ -219,6 +219,7 @@ export function withTypstPackages(lock: PapersLock | null, typstVersion: string,
     return { ...(lock ?? { version: 1 }), version: 1, typst: { version: typstVersion, packages: sorted } };
 }
 
+/** `lock` as the text of `papers.lock`: two-space JSON with a final newline, so a rewrite of the same lock is no diff. */
 export function formatLock(lock: PapersLock): string {
     return `${JSON.stringify(lock, null, 2)}\n`;
 }

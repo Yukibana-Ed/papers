@@ -60,7 +60,6 @@ export class SourceEditor {
     private internal = false;
     private readonly suggesting: Editor.IContextKey<boolean>;
     private threads: readonly Thread[] = [];
-    private activeThread: string | null = null;
     private suggestMode = false;
     private readonly me: string;
 
@@ -219,10 +218,16 @@ export class SourceEditor {
     // --- threads -------------------------------------------------------------------------------------------------------
 
     /** Shows `threads` (open ones marked in the text and the gutter) and marks `active`. New threads are anchored to
-     *  their `range`, or to the first match of their `quote`; Monaco then tracks the anchor through edits. */
+     *  their `range`, or to the first match of their `quote`; Monaco then tracks the anchor through edits. The anchor of
+     *  a thread that is gone (a cancelled draft, a deleted thread) is removed. */
     setThreads(threads: readonly Thread[], active: string | null): void {
         this.threads = threads;
-        this.activeThread = active;
+        const ids = new Set(threads.map(t => t.id));
+        for (const [id, d] of this.threadDeco) {
+            if (ids.has(id)) continue;
+            this.models.get(d.file)?.deltaDecorations([d.id], []);
+            this.threadDeco.delete(id);
+        }
         for (const t of threads) this.placeThread(t);
         for (const [f, m] of this.models) {
             const list = threads
@@ -332,18 +337,6 @@ export class SourceEditor {
         const r = this.anchorOf(threadId);
         if (!t || !r) return;
         this.applyInternal(t.file, this.model(t.file), r, text);
-    }
-
-    /** Merges a change made outside the session (a push to the branch) into the file, and lights up its line for a
-     *  moment. Returns the line, or null when `find` is not in the file. */
-    applyExternal(file: string, find: string, replace: string): number | null {
-        const m = this.models.get(file);
-        const r = m ? findRange(m, find) : null;
-        if (!m || !r) return null;
-        this.applyInternal(file, m, r, replace);
-        const [id] = m.deltaDecorations([], [{ range: new monaco.Range(r.startLineNumber, 1, r.startLineNumber, 1), options: { isWholeLine: true, className: 'incoming-line' } }]);
-        if (id !== undefined) setTimeout(() => m.deltaDecorations([id], []), 2400);
-        return r.startLineNumber;
     }
 
     private applyInternal(_file: string, m: Model, r: TextRange, text: string): void {
@@ -540,10 +533,6 @@ export class SourceEditor {
     /** Monaco's theme as applied, for browser tests. */
     get themeIsDark(): boolean {
         return this.host.querySelector('.monaco-editor')?.classList.contains('vs-dark') ?? false;
-    }
-
-    get currentThread(): string | null {
-        return this.activeThread;
     }
 }
 

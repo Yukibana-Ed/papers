@@ -36,7 +36,7 @@
   },
   "dependencies": {
     "@yukibana/papers-frame-protocol": "catalog:",
-    "@yukibana/papers-room": "catalog:",
+    "@yukibana/papers-room-protocol": "catalog:",
     "@yukibana/papers-runner": "catalog:",
     "@yukibana/papers-templates": "catalog:",
     "lib0": "catalog:",

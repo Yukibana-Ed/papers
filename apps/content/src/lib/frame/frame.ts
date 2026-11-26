@@ -1,6 +1,6 @@
 import type { AppMessage, ServiceFailure, Engine, FileContents, LanguageServer, SelectionAction, SourceLines } from '@yukibana/papers-frame-protocol';
 import { syncTexMap, textMap } from '#lib/sourcemap.ts';
-import { parseSynctex } from '#lib/synctex.ts';
+import { parseSynctex } from '@yukibana/papers-tex';
 import { parseTexLog } from '#lib/texlog.ts';
 import { Bridge } from './bridge.ts';
 import { TexEngine } from './engine.ts';

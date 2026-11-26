@@ -9,6 +9,7 @@ export interface ArchiveLimits {
 
 export const DEFAULT_LIMITS: ArchiveLimits = { maxFiles: 2000, maxBytes: 64 * 1024 * 1024 };
 
+/** An archive that cannot be read, or that is over its limits; the message says which. */
 export class ArchiveError extends Error {}
 
 async function inflate(data: Uint8Array, format: 'gzip' | 'deflate-raw', limit: number): Promise<Uint8Array> {

@@ -131,7 +131,6 @@ export class Session {
     #settleTimer = 0;
     commitMessage = $state('');
     justCommitted = $state(false);
-    incoming = $state(0);
     /** Who builds the preview: this tab (BusyTeX in the content frame) or this computer (`papers serve`, paired
      *  explicitly; never detected). */
     builder = $state<'browser' | 'computer'>('browser');
@@ -226,7 +225,8 @@ export class Session {
 
     /** The comments panel's items, in document order. */
     items = $derived.by(() => {
-        const pos = (file: string, line = 0, col = 0): number => this.order.indexOf(file) * 1e6 + line * 1e3 + col;
+        // File (in the explorer's order), then line, then column.
+        const pos = (file: string, line = 0, col = 0): readonly [number, number, number] => [this.order.indexOf(file), line, col];
         const threads = this.visibleThreads
             .filter(t => this.commentFilter === 'all' || (this.commentFilter === 'github' ? t.source === 'github' : t.source === 'team'))
             .filter(t => this.showResolved || !t.root.resolved || t.id === this.activeThread)
@@ -235,7 +235,7 @@ export class Session {
             this.commentFilter === 'github'
                 ? []
                 : this.suggestions.map(s => ({ kind: 'suggestion' as const, id: s.id, file: s.file, suggestion: s, pos: pos(s.file, s.line, s.col) }));
-        return [...threads, ...suggs].toSorted((a, b) => a.pos - b.pos);
+        return [...threads, ...suggs].toSorted((a, b) => a.pos[0] - b.pos[0] || a.pos[1] - b.pos[1] || a.pos[2] - b.pos[2]);
     });
 
     branchNames = $derived(Object.keys(this.branches));
@@ -319,7 +319,6 @@ export class Session {
         this.popover = this.popover === p ? null : p;
     }
 
-    /** Commits every uncommitted change with the message typed, or the default one. */
     /** Commits every uncommitted change with the message typed, or the default one: through `backend` when the
      *  session is a repository's, else locally (the demo). A refused commit leaves everything uncommitted. */
     async commit(): Promise<void> {
@@ -334,13 +333,16 @@ export class Session {
             this.commitMessage = '';
             this.popover = null;
             this.justCommitted = true;
-            setTimeout(() => (this.justCommitted = false), 2000);
+            clearTimeout(this.justCommittedTimer);
+            this.justCommittedTimer = setTimeout(() => (this.justCommitted = false), 2000);
         } catch (e) {
             this.flash(e instanceof Error ? e.message : 'Commit failed');
         } finally {
             this.committing = false;
         }
     }
+
+    private justCommittedTimer: ReturnType<typeof setTimeout> | undefined;
 
     /** Where commits go for a repository's session; null in the demo. */
     backend: SessionBackend | null = null;
@@ -360,7 +362,7 @@ export class Session {
 
     /** Starts a draft thread on `quote` in `file`, and opens the comments panel on it. */
     startThread(file: string, quote: string, range: Thread['range']): void {
-        const id = `n${hex7()}`;
+        const id = `n${crypto.randomUUID()}`;
         const q = quote.length > 80 ? `${quote.slice(0, 80)}…` : quote;
         this.threads.push({
             id,
@@ -377,7 +379,7 @@ export class Session {
 
     /** Adds a posted team thread on `quote` in `file` with `body` as its first comment, and makes it current. */
     comment(file: string, quote: string, range: Thread['range'], body: string): void {
-        const id = `n${hex7()}`;
+        const id = `n${crypto.randomUUID()}`;
         const q = quote.length > 80 ? `${quote.slice(0, 80)}…` : quote;
         this.threads.push({
             id,
@@ -402,7 +404,10 @@ export class Session {
     }
 
     reply(threadId: string, commentId: string, body: string): void {
-        this.updateThread(threadId, t => ({ ...t, root: addReply(t.root, commentId, { id: hex7(), author: this.me, when: 'now', resolved: false, body, replies: [] }) }));
+        this.updateThread(threadId, t => ({
+            ...t,
+            root: addReply(t.root, commentId, { id: crypto.randomUUID(), author: this.me, when: 'now', resolved: false, body, replies: [] }),
+        }));
     }
 
     post(threadId: string, body: string, target: 'team' | 'github'): void {

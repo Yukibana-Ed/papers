@@ -9,6 +9,7 @@ export interface Viewer {
     readonly name: string;
 }
 
+/** Thrown when the user has no GitHub sign-in (or it expired past refreshing): the page sends them to sign in. */
 export class SignInNeeded extends Error {
     constructor() {
         super('Sign in');

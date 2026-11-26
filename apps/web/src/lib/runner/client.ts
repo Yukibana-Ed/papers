@@ -43,7 +43,10 @@ function body(contents: string | Uint8Array): FileBody {
 
 /** The app's end of `papers serve`: the project's files, mirrored; builds on request; each build's PDF and SyncTeX
  *  back. Only the app talks to it (the server checks the Origin and the token); the outputs go on to the content frame,
- *  which renders them, as it renders its own. */
+ *  which renders them, as it renders its own.
+ *
+ *  Promises: `closed` is reported once, when the server stops or refuses, and never after `close`; a build asked for
+ *  before the server is ready runs once it is (the last one asked for). */
 export class RunnerClient {
     private readonly ws: WebSocket;
     private sent: Record<string, string | Uint8Array> = {};
@@ -52,6 +55,8 @@ export class RunnerClient {
     private seq = 0;
     private latest = '';
     private open = false;
+    private ended = false;
+    private queued: { files: Readonly<Record<string, string | Uint8Array>>; root: string } | null = null;
 
     constructor(
         token: string,
@@ -60,14 +65,12 @@ export class RunnerClient {
         this.ws = new WebSocket(`ws://127.0.0.1:${DEFAULT_PORT}/ws`);
         this.ws.binaryType = 'arraybuffer';
         this.ws.addEventListener('open', () => this.ws.send(JSON.stringify({ type: 'hello', token, protocol: RUNNER_PROTOCOL })));
-        this.ws.addEventListener('close', () => {
-            this.open = false;
-            this.on.closed('papers serve stopped');
-        });
+        this.ws.addEventListener('close', () => this.end('papers serve stopped'));
         this.ws.addEventListener('message', (e: MessageEvent) => this.message(e.data));
     }
 
     private message(data: unknown): void {
+        if (this.ended) return;
         if (data instanceof ArrayBuffer) {
             const p = this.pending;
             this.pending = null;
@@ -89,6 +92,11 @@ export class RunnerClient {
             case 'ready':
                 this.open = true;
                 this.on.ready({ sandbox: m.sandbox, toolchain: m.toolchain });
+                if (this.queued) {
+                    const q = this.queued;
+                    this.queued = null;
+                    this.build(q.files, q.root);
+                }
                 break;
             case 'status':
                 if (m.id === this.latest) this.on.status(m.step);
@@ -104,16 +112,29 @@ export class RunnerClient {
                 break;
             }
             case 'error':
-                this.on.closed(m.message);
+                this.end(m.message);
+                this.ws.close();
                 break;
             case 'lsp':
                 break;
         }
     }
 
-    /** Sends what changed in `files` since the last call (everything the first time), then builds `root`. */
+    private end(reason: string): void {
+        this.open = false;
+        if (this.ended) return;
+        this.ended = true;
+        this.on.closed(reason);
+    }
+
+    /** Sends what changed in `files` since the last call (everything the first time), then builds `root`; before the
+     *  server is ready, remembers it for then. Does nothing once closed. */
     build(files: Readonly<Record<string, string | Uint8Array>>, root: string): void {
-        if (!this.open) return;
+        if (this.ended) return;
+        if (!this.open) {
+            this.queued = { files, root };
+            return;
+        }
         const first = Object.keys(this.sent).length === 0;
         if (first) this.ws.send(JSON.stringify({ type: 'project', files: Object.fromEntries(Object.entries(files).map(([p, c]) => [p, body(c)])) }));
         else {
@@ -127,7 +148,11 @@ export class RunnerClient {
         this.ws.send(JSON.stringify({ type: 'build', id: this.latest, root }));
     }
 
+    /** Disconnects; no event is reported after it. */
     close(): void {
+        this.ended = true;
+        this.open = false;
+        this.queued = null;
         this.ws.close();
     }
 }

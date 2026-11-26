@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { dialogFocus } from '#lib/ui/focus.ts';
     import { keepInView } from '#lib/ui/place.ts';
     import { chooseTheme, readTheme } from '@yukibana/design/theme';
     import type { FrameMessage, SelectionAction, SourceLines, SourcePoint } from '@yukibana/papers-frame-protocol';
@@ -97,25 +98,37 @@
     /** Starts tinymist in the frame and its client here. The status shown is the client's, told by the frame when the
      *  server fails (missing files, a crash), and "the preview frame cannot be reached" when the frame never said a word. */
     function startTypstServer(p: NonNullable<typeof preview>): void {
-        languageClient = { dispose: () => {} };
+        // Disposing before the modules have loaded cancels the start: no server, no client.
+        let cancelled = false;
+        let c: { dispose(): void } | null = null;
+        languageClient = {
+            dispose: () => {
+                cancelled = true;
+                c?.dispose();
+            },
+        };
         s.languageServer = { status: 'starting', detail: '' };
         void Promise.all([import('#lib/lsp/client.ts'), import('#lib/lsp/tinymist.ts')]).then(([{ LanguageClient }, { tinymistProfile }]) => {
-            let c: InstanceType<typeof LanguageClient> | null = null;
+            if (cancelled) return;
+            let client: InstanceType<typeof LanguageClient> | null = null;
             let heard = false;
             // The server first, then the client, whose first message (initialize) must find it.
             p.startServer(
                 'tinymist',
-                (m) => c?.receive(m as Parameters<InstanceType<typeof LanguageClient>['receive']>[0]),
+                (m) => client?.receive(m as Parameters<InstanceType<typeof LanguageClient>['receive']>[0]),
                 (status, detail) => {
                     heard = true;
-                    if (status === 'failed') c?.fail(detail);
+                    if (status === 'failed') client?.fail(detail);
                 },
+                // A reloaded frame lost the server: a new client, whose initialize the new server answers.
+                retryLanguageServer,
             );
-            c = new LanguageClient('typst', 'tinymist', (m) => p.lspSend('tinymist', m), tinymistProfile(), (st) => {
+            client = new LanguageClient('typst', 'tinymist', (m) => p.lspSend('tinymist', m), tinymistProfile(), (st) => {
+                if (cancelled) return;
                 if (st.status === 'unavailable') s.languageServer = { status: 'failed', detail: heard ? st.detail : 'the preview frame cannot be reached' };
                 else s.languageServer = { status: st.status, detail: '' };
             }, (file, items) => s.setLanguageProblems('tinymist', file, items));
-            languageClient = c;
+            c = client;
         });
     }
 
@@ -143,8 +156,10 @@
         if (!ed || !room) return;
         const files = room.files;
         for (const [path, text] of files) ed.bind(path, text);
-        const onFiles = (e: { keysChanged: Set<string> }): void => {
-            for (const path of e.keysChanged) {
+        // Only paths that got a (new) text: edits inside a text do not reach this observer, and a deleted path has none.
+        const onFiles = (e: { changes: { keys: Map<string, { action: 'add' | 'update' | 'delete' }> } }): void => {
+            for (const [path, change] of e.changes.keys) {
+                if (change.action === 'delete') continue;
                 const text = files.get(path);
                 if (text) ed.bind(path, text);
             }
@@ -249,6 +264,7 @@
 
     const commands = $derived<Command[]>([
         { id: 'commit', name: 'Commit', kbd: 'Ctrl+S', run: () => (s.popover = 'commit') },
+        { id: 'close-tab', name: 'Close tab', kbd: 'Ctrl+Alt+W', run: () => s.activeFile && s.closeTab(s.activeFile) },
         { id: 'new', name: 'New paper', run: () => location.assign('/new') },
         { id: 'suggest', name: s.suggestMode ? 'Stop suggesting' : 'Suggest edits', kbd: 'Ctrl+Alt+S', run: () => (s.suggestMode = !s.suggestMode) },
         { id: 'comment', name: 'Comment on selection', kbd: 'Ctrl+Alt+M', run: newComment },
@@ -282,6 +298,8 @@
         if (k.alt && k.code === 'KeyS') return 'suggest';
         if (k.alt && k.code === 'KeyM') return 'comment';
         if (!k.shift && key === 'j') return 'jump';
+        // Ctrl+W is the browser's own in most of them, which never pass it on; Ctrl+Alt+W always reaches the page.
+        if (!k.shift && k.code === 'KeyW') return 'close-tab';
         if (k.shift && key === 'o') return 'outline';
         if (k.shift && key === 'e') return 'files';
         if (k.shift && key === 'm') return 'comments';
@@ -305,6 +323,28 @@
         e.preventDefault();
         e.stopPropagation();
         runKey(id);
+    }
+
+    /** The tab list's keys: the arrows (and Home, End) move to another tab and open it; Delete closes the current one. */
+    function onTabKey(e: KeyboardEvent): void {
+        const tabs = s.tabs;
+        const at = tabs.indexOf(s.activeFile);
+        if (at < 0 || !tabs.length) return;
+        let next: number;
+        if (e.key === 'ArrowRight') next = (at + 1) % tabs.length;
+        else if (e.key === 'ArrowLeft') next = (at - 1 + tabs.length) % tabs.length;
+        else if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = tabs.length - 1;
+        else if (e.key === 'Delete') {
+            e.preventDefault();
+            s.closeTab(s.activeFile);
+            return;
+        } else return;
+        e.preventDefault();
+        const f = tabs[next];
+        if (f === undefined) return;
+        s.activeFile = f;
+        document.getElementById(`file-tab-${next}`)?.focus();
     }
 
     /** The shortcuts the content frame may forward: the frame runs untrusted content, so a forwarded key can only open
@@ -425,7 +465,7 @@
                                 <span class="grow"></span>
                                 {#if problemFiles.get(f) === 'error'}<span class="file-problem sev-error" {...tip('Errors')}><Icon name="alert" size={12} /></span>
                                 {:else if problemFiles.get(f) === 'warning'}<span class="file-problem sev-warning" {...tip('Warnings')}><Icon name="warning" size={12} /></span>{/if}
-                                {#if s.changes.some((c) => c.file === f)}<span class="mod" aria-label="uncommitted">M</span>{/if}
+                                {#if s.changes.some((c) => c.file === f)}<span class="mod" role="img" aria-label="uncommitted">M</span>{/if}
                             </button>
                         </li>
                     {/each}
@@ -441,33 +481,28 @@
     {/if}
 
     <section class="pane pane-source" aria-label="Source">
-        <div class="yk-dock" role="tablist" data-focused="">
-            {#each s.tabs as f (f)}
+        <div class="yk-dock" role="tablist" tabindex="-1" aria-label="Open files" data-focused="" onkeydown={onTabKey}>
+            {#each s.tabs as f, i (f)}
                 {@const dirty = s.changes.some((c) => c.file === f)}
                 <button
                     type="button"
                     role="tab"
+                    id="file-tab-{i}"
                     class="yk-dock-tab"
                     aria-selected={f === s.activeFile}
+                    aria-controls="file-panel"
+                    tabindex={f === s.activeFile ? 0 : -1}
                     onclick={() => (s.activeFile = f)}
                     onauxclick={(e) => e.button === 1 && s.closeTab(f)}
                     {...tip(f, null, dirty ? 'uncommitted edits' : null)}
                 >
                     {short(f)}
                     {#if dirty}<span class="tab-dot"></span>{/if}
-                    <span
-                        role="button"
-                        tabindex="-1"
-                        class="tab-x"
-                        onclick={(e) => {
-                            e.stopPropagation();
-                            s.closeTab(f);
-                        }}
-                        onkeydown={() => {}}
-                        {...tip('Close', 'Ctrl+W')}
-                    >
-                        <Icon name="x" size={12} />
-                    </span>
+                </button>
+                <!-- A sibling of its tab, not inside it: a button may not hold another. Out of the tab order, like the tabs
+                     the arrow keys reach; the keyboard closes with Ctrl+Alt+W. -->
+                <button type="button" tabindex="-1" class="tab-x" onclick={() => s.closeTab(f)} {...tip(`Close ${short(f)}`, 'Ctrl+Alt+W')}>
+                    <Icon name="x" size={12} />
                 </button>
             {/each}
             <div class="yk-dock-actions">
@@ -483,7 +518,7 @@
                 {/if}
             </div>
         </div>
-        <div class="editor-host-wrap">
+        <div class="editor-host-wrap" id="file-panel" role="tabpanel" aria-labelledby={s.tabs.includes(s.activeFile) ? `file-tab-${s.tabs.indexOf(s.activeFile)}` : undefined} aria-label={s.tabs.includes(s.activeFile) ? undefined : 'Editor'}>
             <div class="editor-host" bind:this={host}></div>
             {#if selButton !== null}
                 <button type="button" class="sel-comment yk-icon-btn" style:top="{selButton}px" onmousedown={(e) => e.preventDefault()} onclick={newComment} {...tip('Comment', 'Ctrl+Alt+M', null, 'right')}>
@@ -539,7 +574,7 @@
                 <BuilderMenu session={s} onPaired={(token) => preview?.connectComputer(token)} />
             {/if}
             {#if s.popover === 'doc'}
-                <div class="popover pop-doc" role="dialog" {@attach keepInView} aria-label="Document">
+                <div class="popover pop-doc" role="dialog" {@attach keepInView} {@attach dialogFocus} aria-label="Document">
                     {#each s.roots as r (r)}
                         <button
                             type="button"

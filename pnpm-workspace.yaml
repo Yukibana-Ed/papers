@@ -33,11 +33,12 @@ catalog:
   '@yukibana/design': github:Yukibana-Ed/Yukibana#7eee6311b75e8ea9c25ece97feee9b085ba39685&path:packages/design
   '@yukibana/papers-compiler': workspace:*
   '@yukibana/papers-frame-protocol': workspace:*
-  '@yukibana/papers-room': workspace:*
+  '@yukibana/papers-room-protocol': workspace:*
   '@yukibana/papers-lsp': workspace:*
   '@yukibana/papers-mcp': workspace:*
   '@yukibana/papers-project': workspace:*
   '@yukibana/papers-runner': workspace:*
+  '@yukibana/papers-tex': workspace:*
   '@yukibana/papers-sandbox': workspace:*
   esbuild: 0.28.2
   happy-dom: 21.0.4

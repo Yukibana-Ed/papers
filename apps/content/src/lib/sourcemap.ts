@@ -1,4 +1,4 @@
-import { backward, lineSegments, type PageBox, type SyncTex } from './synctex.ts';
+import { backward, lineSegments, type PageBox, type SyncTex } from '@yukibana/papers-tex';
 
 /** How the preview links its pages to source lines, whatever the engine: the boxes a source line shows in, and the
  *  source line under a point of a page. Coordinates are PDF points from a page's top-left; pages count from 1. */

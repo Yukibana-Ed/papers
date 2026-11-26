@@ -38,6 +38,7 @@ export function objectResponse(object: AssetObject, type: string | undefined, ex
     return new Response(object.body, init);
 }
 
+/** The answer for a file the snapshot does not have: a 404 that may be cached for good, like a hit. */
 export function notFound(): Response {
     // Misses are cached briefly only: kpathsea probes many names that do not exist, but a miss is not permanent (an
     // asset upload may still be on its way; misses cached for a year while the store was empty broke builds).

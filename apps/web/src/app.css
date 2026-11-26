@@ -124,14 +124,6 @@ button {
     font-family: var(--yk-font-family-mono);
     cursor: default;
 }
-.incoming {
-    animation: fade-in var(--yk-motion-fast) var(--yk-motion-ease);
-}
-.incoming .yk-icon {
-    width: 11px;
-    height: 11px;
-    stroke-width: 2.4;
-}
 .pr-ok {
     display: inline-grid;
     place-items: center;
@@ -674,23 +666,48 @@ button {
 .yk-dock-tab {
     font-size: var(--yk-font-size-sm);
 }
+/* The close button follows its tab and sits over the tab's right padding, so the tab's fill and line run under it. */
+.yk-dock > .yk-dock-tab {
+    padding-right: 30px;
+}
 .tab-x {
     display: inline-grid;
     place-items: center;
+    align-self: center;
+    position: relative;
     width: 16px;
     height: 16px;
+    margin: 0 8px 0 -24px;
+    padding: 0;
+    border: 0;
     border-radius: 4px;
-    margin-right: -6px;
+    background: transparent;
     opacity: 0;
     color: var(--yk-soft);
+    cursor: pointer;
 }
-.yk-dock-tab:hover .tab-x,
-.yk-dock-tab[aria-selected='true'] .tab-x {
+.yk-dock-tab:hover + .tab-x,
+.yk-dock-tab[aria-selected='true'] + .tab-x,
+.tab-x:hover,
+.tab-x:focus-visible {
     opacity: 1;
 }
 .tab-x:hover {
     background: var(--yk-sunken);
     color: var(--yk-ink);
+}
+/* The dividers between tabs, which the design system draws between adjacent tabs: here a close button is between. */
+.yk-dock > .tab-x + .yk-dock-tab::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 9px;
+    bottom: 9px;
+    width: 1px;
+    background: var(--yk-line);
+}
+.yk-dock > .yk-dock-tab[aria-selected='true'] + .tab-x + .yk-dock-tab::before {
+    opacity: 0;
 }
 .tab-dot {
     width: 6px;
@@ -699,6 +716,7 @@ button {
     background: var(--yk-warn);
 }
 .yk-dock-tab:hover .tab-dot,
+.yk-dock-tab:has(+ .tab-x:hover) .tab-dot,
 .yk-dock-tab[aria-selected='true'] .tab-dot {
     display: none;
 }
@@ -785,10 +803,6 @@ button {
 }
 .hover-line {
     background: color-mix(in oklab, var(--yk-chip-blue-bg) 55%, transparent);
-}
-.incoming-line {
-    background: var(--yk-info-bg);
-    transition: background 600ms;
 }
 .presence-caret {
     position: relative;
