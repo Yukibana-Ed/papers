@@ -130,7 +130,7 @@ export async function loadProject(owner: string, repo: string, branch: string | 
     return { owner, repo, branch: b, defaultBranch: info.defaultBranch, access: info.access, commit: t.commit, texts, assets, order, unread };
 }
 
-/** Files before folders' contents at each level, then by name: the order of the file list. */
+/** Folders before files at each level, each by name: the order of the file list. */
 export function sortPaths(a: string, b: string): number {
     const pa = a.split('/');
     const pb = b.split('/');
@@ -141,7 +141,7 @@ export function sortPaths(a: string, b: string): number {
         if (x !== y) {
             const xFile = i === pa.length - 1;
             const yFile = i === pb.length - 1;
-            if (xFile !== yFile) return xFile ? -1 : 1;
+            if (xFile !== yFile) return xFile ? 1 : -1;
             return x.localeCompare(y);
         }
     }

@@ -9,25 +9,25 @@ const show = (closed: string[]): string[] =>
 describe('the file list', () => {
     it('shows each folder as a row before what it holds', () => {
         expect(show([])).toEqual([
-            'paper.tex',
-            'refs.bib',
             'docs/',
-            '  README.md',
             '  notes/',
             '    a.md',
             '    b.md',
+            '  README.md',
             'sections/',
-            '  intro.tex',
             '  deep/',
             '    er/',
             '      x.tex',
+            '  intro.tex',
+            'paper.tex',
+            'refs.bib',
         ]);
     });
 
     it('shows nothing of a closed folder but its row, whatever is open inside it', () => {
-        expect(show(['docs'])).toEqual(['paper.tex', 'refs.bib', 'docs/ …', 'sections/', '  intro.tex', '  deep/', '    er/', '      x.tex']);
-        expect(show(['docs/notes', 'sections/deep'])).toEqual(['paper.tex', 'refs.bib', 'docs/', '  README.md', '  notes/ …', 'sections/', '  intro.tex', '  deep/ …']);
-        expect(show([...allFolders(PATHS)])).toEqual(['paper.tex', 'refs.bib', 'docs/ …', 'sections/ …']);
+        expect(show(['docs'])).toEqual(['docs/ …', 'sections/', '  deep/', '    er/', '      x.tex', '  intro.tex', 'paper.tex', 'refs.bib']);
+        expect(show(['docs/notes', 'sections/deep'])).toEqual(['docs/', '  notes/ …', '  README.md', 'sections/', '  deep/ …', '  intro.tex', 'paper.tex', 'refs.bib']);
+        expect(show([...allFolders(PATHS)])).toEqual(['docs/ …', 'sections/ …', 'paper.tex', 'refs.bib']);
     });
 
     it('names the folders a file is in, outermost first', () => {

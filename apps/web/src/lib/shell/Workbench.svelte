@@ -419,17 +419,45 @@
     }
 
     // --- the file list: folders open and close ------------------------------------------------------------------------
-    /** Every file the list shows: the project's, and the repository's that were not loaded. */
-    const listed = $derived([...s.order, ...Object.keys(s.unread)].toSorted(sortPaths));
-    /** The closed folders. A large project starts with its folders closed, a small one with them open. */
-    const closedFolders = new SvelteSet<string>(untrack(() => (listed.length > 40 ? allFolders(listed) : [])));
+    /** Every file the list shows: all of the repository's, those the editor does not open too. */
+    const listed = $derived([...new Set([...s.order, ...Object.keys(s.unread), ...s.otherFiles])].toSorted(sortPaths));
+    /** The closed folders, kept per project in this browser. Until one is toggled, a large project has its folders
+     *  closed and a small one has them open. */
+    const foldersKey = untrack(() => `papers.folders.${s.repo.owner}/${s.repo.name}`);
+    function keptFolders(): string[] | null {
+        try {
+            const kept: unknown = JSON.parse(localStorage.getItem(foldersKey) ?? 'null');
+            return Array.isArray(kept) ? kept.filter((k): k is string => typeof k === 'string') : null;
+        } catch {
+            return null;
+        }
+    }
+    const closedFolders = new SvelteSet<string>(untrack(() => keptFolders() ?? (listed.length > 40 ? allFolders(listed) : [])));
     const fileRows = $derived(treeRows(listed, closedFolders));
     // The folders of the file in the editor are open: the list always shows where one is.
     $effect(() => {
         for (const folder of foldersOf(s.activeFile)) closedFolders.delete(folder);
     });
-    function toggleFolder(path: string): void {
-        if (!closedFolders.delete(path)) closedFolders.add(path);
+    function setFolder(path: string, open: boolean): void {
+        if (open) closedFolders.delete(path);
+        else closedFolders.add(path);
+        try {
+            localStorage.setItem(foldersKey, JSON.stringify([...closedFolders]));
+        } catch {
+            // Without storage the folders are as they are until the page is left.
+        }
+    }
+    /** The list by the keyboard, as a tree: Up and Down move between rows, Left closes a folder and Right opens it. */
+    function onFilesKey(e: KeyboardEvent): void {
+        const row = e.target instanceof HTMLElement ? e.target.closest<HTMLElement>('.row-btn') : null;
+        const list = row?.closest('.filelist');
+        if (row === null || list == null || e.ctrlKey || e.metaKey || e.altKey) return;
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            const rows = [...list.querySelectorAll<HTMLElement>('button.row-btn')];
+            rows[rows.indexOf(row) + (e.key === 'ArrowDown' ? 1 : -1)]?.focus();
+        } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && row.dataset['folder'] !== undefined) setFolder(row.dataset['folder'], e.key === 'ArrowRight');
+        else return;
+        e.preventDefault();
     }
     /** The worst problem in the files of `folder`, which a closed folder shows for them. */
     function folderProblem(folder: string): 'error' | 'warning' | undefined {
@@ -644,7 +672,8 @@
                 </ul>
             {:else if s.panel === 'files'}
                 <div class="panel-head"><span>Files</span></div>
-                <ul class="filelist">
+                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                <ul class="filelist" onkeydown={onFilesKey}>
                     {#each fileRows as row (`${row.kind}:${row.path}`)}
                         {#if row.kind === 'folder'}
                             {@const worst = row.open ? undefined : folderProblem(row.path)}
@@ -655,7 +684,8 @@
                                     class:is-closed={!row.open}
                                     aria-expanded={row.open}
                                     style:padding-left="{10 + row.depth * 14}px"
-                                    onclick={() => toggleFolder(row.path)}
+                                    data-folder={row.path}
+                                    onclick={() => setFolder(row.path, !row.open)}
                                     {...tip(row.path)}
                                 >
                                     <Icon name="chevron" size={14} />
@@ -665,9 +695,10 @@
                                     {:else if worst === 'warning'}<span class="file-problem sev-warning" {...tip('Warnings')}><Icon name="warning" size={12} /></span>{/if}
                                 </button>
                             </li>
-                        {:else if s.unread[row.path] !== undefined}
+                        {:else if s.files[row.path] === undefined}
+                            {@const why = s.unread[row.path]}
                             <li>
-                                <span class="row-btn is-unread" style:padding-left="{10 + row.depth * 14}px" {...tip(row.path, null, `not loaded: ${s.unread[row.path] ?? ''}`)}>
+                                <span class="row-btn is-unread" style:padding-left="{10 + row.depth * 14}px" {...tip(row.path, null, why === undefined ? 'not text' : `not loaded: ${why}`)}>
                                     <Icon name="files" size={14} />
                                     <span>{row.name}</span>
                                 </span>

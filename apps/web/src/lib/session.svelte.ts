@@ -24,6 +24,9 @@ export interface SessionSeed {
     readonly access?: 'write' | 'comment';
     /** Files of the repository that were not loaded (too large, over the project's limit): path → why, as a clause. */
     readonly unread?: Readonly<Record<string, string>>;
+    /** The repository's other files, which the file list shows but the editor does not open: images and fonts (loaded
+     *  for the build) and files no build reads. */
+    readonly otherFiles?: readonly string[];
 }
 
 /** What a repository's session does that the demo does not. */
@@ -88,6 +91,10 @@ export class Session {
     /** The repository's files that were not loaded: path → why. */
     get unread(): Readonly<Record<string, string>> {
         return this.seed.unread ?? {};
+    }
+    /** The repository's files that are listed but not opened here (`SessionSeed.otherFiles`). */
+    get otherFiles(): readonly string[] {
+        return this.seed.otherFiles ?? [];
     }
     get assets(): Readonly<Record<string, Uint8Array>> {
         return this.seed.assets ?? {};

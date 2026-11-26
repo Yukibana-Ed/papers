@@ -7,7 +7,7 @@ test('the file list shows folders, which close and open, and the folder of the o
     await page.keyboard.press('Control+Shift+E');
     const rows = page.locator('.filelist li');
     const names = async (): Promise<string[]> => (await rows.allInnerTexts()).map(t => t.split('\n')[0]?.trim() ?? '');
-    await expect.poll(names).toEqual(['paper.tex', 'refs.bib', 'slides.tex', 'brief', 'brief.typ', 'findings.typ', 'sections', 'intro.tex', 'method.tex', 'results.tex']);
+    await expect.poll(names).toEqual(['brief', 'brief.typ', 'findings.typ', 'sections', 'intro.tex', 'method.tex', 'results.tex', 'paper.tex', 'refs.bib', 'slides.tex']);
     const folder = page.locator('.filelist .folder', { hasText: 'sections' });
     await expect(page.locator('.filelist .folder')).toHaveCount(2);
     await expect(folder).toHaveAttribute('aria-expanded', 'true');
@@ -22,12 +22,21 @@ test('the file list shows folders, which close and open, and the folder of the o
 
     await folder.click();
     await expect(folder).toHaveAttribute('aria-expanded', 'false');
-    await expect.poll(names).toEqual(['paper.tex', 'refs.bib', 'slides.tex', 'brief', 'brief.typ', 'findings.typ', 'sections']);
-    // By the keyboard too, as any button.
-    await folder.press('Enter');
+    await expect.poll(names).toEqual(['brief', 'brief.typ', 'findings.typ', 'sections', 'paper.tex', 'refs.bib', 'slides.tex']);
+    // By the keyboard, as a tree: Right opens, Left closes, Down and Up move between rows.
+    await folder.press('ArrowRight');
     await expect.poll(names).toHaveLength(10);
-    await folder.press('Enter');
+    await folder.press('ArrowDown');
+    await expect(page.locator('.filelist .row-btn', { hasText: 'intro.tex' })).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await expect(folder).toBeFocused();
+    await folder.press('ArrowLeft');
     await expect.poll(names).toHaveLength(7);
+    // Closed folders are kept for the project.
+    await page.reload();
+    await page.waitForFunction(() => Reflect.get(window, '__papersTest') !== undefined);
+    await page.keyboard.press('Control+Shift+E');
+    await expect(page.locator('.filelist .folder', { hasText: 'brief' })).toHaveAttribute('aria-expanded', 'true');
 
     // Opening a file of a closed folder (from anywhere: a tab, a problem, the palette) opens the folder: the list shows
     // where one is.
