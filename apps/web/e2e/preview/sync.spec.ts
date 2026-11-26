@@ -97,3 +97,33 @@ test.describe('sync to the word', () => {
         await expect.poll(async () => Math.min(...(await frame.locator('.pv-hl-mirror').evaluateAll(els => els.map(e => e.getBoundingClientRect().width))))).toBeLessThan(line);
     });
 });
+
+test.describe('a click in the preview', () => {
+    test.skip(!process.env['E2E_ENGINE'], 'needs the TeX engine (E2E_ENGINE=1)');
+
+    test('shows its source at once, before the editor takes the keyboard', async ({ page }) => {
+        const frame = await preview(page);
+        await expect(page.locator('.pv-spin')).toHaveCount(0, { timeout: 120_000 });
+        await expect(frame.locator('.pv-pages[data-sync]')).toBeAttached({ timeout: 60_000 });
+        // The page watches for the click (its window loses the focus to the frame) and for the caret to arrive.
+        await page.evaluate(() => {
+            const hook = Reflect.get(window, '__papersTest') as { editor: { testState(): { caret: { line: number } | null; text: string } } };
+            const w = window as unknown as { clickedAt?: number; shownAt?: number };
+            window.addEventListener('blur', () => (w.clickedAt ??= performance.now()));
+            const look = (): void => {
+                const st = hook.editor.testState();
+                if (w.clickedAt !== undefined && st.caret?.line === 3 && st.text.includes('where most of them struggle')) w.shownAt = performance.now();
+                else requestAnimationFrame(look);
+            };
+            requestAnimationFrame(look);
+        });
+        const u = await charBox(page, frame, 'struggle', 3, 4);
+        await page.mouse.click(u.x + u.width / 2, u.y + u.height / 2);
+        await expect.poll(() => page.evaluate(() => (window as unknown as { shownAt?: number }).shownAt ?? null)).not.toBeNull();
+        const ms = await page.evaluate(() => {
+            const w = window as unknown as { clickedAt: number; shownAt: number };
+            return w.shownAt - w.clickedAt;
+        });
+        expect(ms).toBeLessThan(100);
+    });
+});
