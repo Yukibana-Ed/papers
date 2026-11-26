@@ -415,6 +415,9 @@ importers:
       '@yukibana/papers-room':
         specifier: 'catalog:'
         version: link:../room
+      '@yukibana/papers-runner':
+        specifier: 'catalog:'
+        version: link:../../packages/runner
       '@yukibana/papers-templates':
         specifier: 'catalog:'
         version: link:../../packages/templates

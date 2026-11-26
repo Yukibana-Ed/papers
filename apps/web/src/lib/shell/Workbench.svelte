@@ -4,6 +4,7 @@
     import { onMount } from 'svelte';
     import type { CommentOps } from '#lib/comments/ops.ts';
     import type { SourceEditor } from '#lib/editor/source-editor.ts';
+    import BuilderMenu from '#lib/preview/BuilderMenu.svelte';
     import Preview from '#lib/preview/Preview.svelte';
     import type { RoomClient } from '#lib/room/client.ts';
     import type { Session } from '#lib/session.svelte.ts';
@@ -405,11 +406,21 @@
                 <button type="button" class="yk-icon-btn icon-xs" onclick={() => s.zoomBy(-0.1)} {...tip('Zoom out', 'Ctrl+-')}><Icon name="minus" size={14} /></button>
                 <span class="muted zoom-n">{Math.round(s.scale * 100)}%</span>
                 <button type="button" class="yk-icon-btn icon-xs" onclick={() => s.zoomBy(0.1)} {...tip('Zoom in', 'Ctrl+=')}><Icon name="plus" size={14} /></button>
-                <span class="backend" {...tip('Browser', null, 'TeX Live 2026, in this tab')}>
-                    <Icon name="globe" size={12} />
-                    Browser
-                </span>
+                <button
+                    type="button"
+                    class="backend"
+                    class:is-open={s.popover === 'builder'}
+                    data-popover-anchor
+                    onclick={() => s.togglePopover('builder')}
+                    {...tip(s.builder === 'computer' ? 'This computer' : 'Browser', null, s.builder === 'computer' ? 'papers serve, sandboxed' : 'TeX Live 2026, in this tab')}
+                >
+                    <Icon name={s.builder === 'computer' ? 'doc' : 'globe'} size={12} />
+                    {s.builder === 'computer' ? 'Computer' : 'Browser'}
+                </button>
             </div>
+            {#if s.popover === 'builder'}
+                <BuilderMenu session={s} onPaired={(token) => preview?.connectComputer(token)} />
+            {/if}
             {#if s.popover === 'doc'}
                 <div class="popover pop-doc" role="dialog" aria-label="Document">
                     {#each s.roots as r (r)}

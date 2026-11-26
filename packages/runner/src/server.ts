@@ -237,7 +237,7 @@ export async function startRunner(o: RunnerOptions): Promise<Runner> {
                     busy = busy.then(async () => {
                         try {
                             const r = await o.build(dir, root, step => send({ type: 'status', id: m.id, step }));
-                            send({ type: 'built', id: m.id, ok: r.ok, pages: r.pages, ms: Math.round(r.ms), diagnostics: r.diagnostics });
+                            // The outputs first, then `built`: a client can show the build as soon as it hears that it is done.
                             for (const [name, path] of [
                                 ['pdf', r.pdf],
                                 ['synctex', r.synctex],
@@ -247,6 +247,7 @@ export async function startRunner(o: RunnerOptions): Promise<Runner> {
                                 send({ type: 'artifact', id: m.id, name, bytes: bytes.length });
                                 ws.send(bytes, { binary: true });
                             }
+                            send({ type: 'built', id: m.id, ok: r.ok, pages: r.pages, ms: Math.round(r.ms), diagnostics: r.diagnostics });
                         } catch (e) {
                             fail(e instanceof Error ? e.message : String(e));
                         }

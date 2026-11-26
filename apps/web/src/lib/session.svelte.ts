@@ -35,7 +35,7 @@ export interface FileChange {
 }
 
 export type Panel = 'outline' | 'files' | 'comments';
-export type Popover = 'commit' | 'log' | 'branch' | 'doc' | null;
+export type Popover = 'commit' | 'log' | 'branch' | 'doc' | 'builder' | null;
 export type ThemeChoice = 'light' | 'dark' | 'system';
 
 export interface BuildState {
@@ -98,6 +98,11 @@ export class Session {
     commitMessage = $state('');
     justCommitted = $state(false);
     incoming = $state(0);
+    /** Who builds the preview: this tab (BusyTeX in the content frame) or this computer (`papers serve`, paired
+     *  explicitly; never detected). */
+    builder = $state<'browser' | 'computer'>('browser');
+    /** What `papers serve` builds with, once paired. */
+    computer = $state<{ sandbox: string; toolchain: string } | null>(null);
     /** How the session reaches the room: `live`, `batched` (the room asked for fewer messages), `paused` (the room's
      *  daily budget is spent; edits stay here until it is live again), `offline` (no connection; edits wait). Always
      *  `live` in the demo. */

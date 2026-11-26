@@ -30,6 +30,7 @@ export class Frame {
     #again = false;
     #started = false;
     #selection: { lines: SourceLines | null; text: string } = { lines: null, text: '' };
+    #builder: 'browser' | 'external' = 'browser';
     readonly #onToolbar: (state: ToolbarState | null) => void;
 
     /** Precondition: `scroller` is an empty element that scrolls vertically; `appOrigin` is the app's origin. */
@@ -104,11 +105,30 @@ export class Frame {
             case 'theme':
                 document.documentElement.dataset['theme'] = m.dark ? 'dark' : 'light';
                 return;
+            case 'builder':
+                this.#builder = m.builder;
+                if (m.builder === 'browser') this.#schedule(0);
+                else clearTimeout(this.#timer);
+                return;
+            case 'output':
+                void this.#showOutput(m);
+                return;
         }
+    }
+
+    /** A build from the user's computer: shown like one of ours. Only PDFs and SyncTeX cross; the frame parses both, as
+     *  for its own builds, since they come from the project's (untrusted) sources either way. */
+    async #showOutput(m: Extract<AppMessage, { type: 'output' }>): Promise<void> {
+        if (m.ok && m.pdf !== null) {
+            const sync = m.synctex === null ? null : parseSynctex(await synctexText(m.synctex));
+            await this.#viewer.show(m.pdf, sync);
+        }
+        this.#bridge.send({ type: 'built', ok: m.ok, pages: this.#viewer.pageCount, ms: m.ms, diagnostics: m.diagnostics });
     }
 
     #schedule(delay: number): void {
         clearTimeout(this.#timer);
+        if (this.#builder !== 'browser') return;
         this.#timer = window.setTimeout(() => void this.#build(), delay);
     }
 
@@ -179,6 +199,13 @@ export class Frame {
         this.#bridge.dispose();
         this.#viewer.dispose();
     }
+}
+
+/** SyncTeX's text from its bytes, gunzipped when they are gzip (magic 1f 8b). */
+async function synctexText(bytes: Uint8Array): Promise<string> {
+    if (bytes[0] !== 0x1f || bytes[1] !== 0x8b) return new TextDecoder().decode(bytes);
+    const stream = new Blob([bytes.slice()]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return new Response(stream).text();
 }
 
 /** The log's last `!` line, or a generic message when there is none (the engine failed before TeX ran). */
