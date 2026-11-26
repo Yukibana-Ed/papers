@@ -5,14 +5,9 @@
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="color-scheme" content="light dark" />
         <meta name="robots" content="noindex" />
-        <!-- Keeps the messages that arrive before the frame's code runs (the app's hello); src/lib/frame/bridge.ts reads them. -->
-        <script>
-            window.__ykEarly = [];
-            window.addEventListener('message', function keep(e) {
-                if (window.__ykEarly) window.__ykEarly.push(e);
-                else window.removeEventListener('message', keep);
-            });
-        </script>
+        <!-- Keeps the messages that arrive before the frame's code runs (the app's hello); src/lib/frame/bridge.ts reads
+             them. A file, not an inline script: the content origin's policy allows scripts from itself only. -->
+        <script src="%sveltekit.assets%/early.js"></script>
         %sveltekit.head%
     </head>
     <body>
