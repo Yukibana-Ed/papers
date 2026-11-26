@@ -5,6 +5,17 @@ import { readSyncMessage, writeSyncStep1, writeUpdate } from 'y-protocols/sync';
 import * as Y from 'yjs';
 import { DOC_REVIEW, DOC_TEXT, MSG_AWARENESS, MSG_SYNC, type BaseFile, type DocId, type Identity, type ServerMessage, type SyncMode } from '@yukibana/papers-room-protocol';
 
+/** What the `url` callback throws when the app's Worker turned the ticket request down for the user's sign-in (401 or
+ *  403): the client stops reconnecting and reports `signedOut`. */
+export class TicketRefused extends Error {
+    constructor(readonly status: number) {
+        super(`No ticket (${status})`);
+    }
+}
+
+/** At most one presence message per this many milliseconds: a cursor moves on every key. */
+export const PRESENCE_MS = 150;
+
 export interface RoomEvents {
     welcome(you: Identity, base: string | null, files: readonly BaseFile[]): void;
     base(base: string, files: readonly BaseFile[]): void;
@@ -14,13 +25,19 @@ export interface RoomEvents {
     backupDue(): void;
     connection(state: 'connecting' | 'open' | 'closed'): void;
     refused(reason: string): void;
+    /** The ticket was refused for the user's sign-in: the client has stopped, and signing in again is the way back. */
+    signedOut(): void;
 }
 
 /** The app's end of a room: the branch's two Yjs documents kept in sync with the room over one WebSocket, the
  *  user's presence, and the room's sync mode honoured (changes batched or held while paused, never dropped).
  *
- *  Reconnects with backoff; after a reconnection both documents sync again from their state vectors, so edits made
- *  while offline are sent then. */
+ *  Reconnects with jittered backoff until `close`, or until the ticket is refused for the user's sign-in; after a
+ *  reconnection both documents sync again from their state vectors, so edits made while offline are sent then. An
+ *  update the room refused while paused is sent the same way: the client reconnects once the room takes messages again.
+ *
+ *  Presence: only this client's own state is sent, at most once per `PRESENCE_MS`; while paused only the latest state
+ *  is kept, to be sent on resume. */
 export class RoomClient {
     readonly text = new Y.Doc();
     readonly review = new Y.Doc();
@@ -28,13 +45,21 @@ export class RoomClient {
     private ws: WebSocket | null = null;
     private mode: SyncMode = { mode: 'live' };
     private readonly pending = new Map<DocId, Uint8Array[]>();
-    private flushTimer = 0;
+    private flushTimer: ReturnType<typeof setTimeout> | undefined;
+    private retryTimer: ReturnType<typeof setTimeout> | undefined;
+    private presenceTimer: ReturnType<typeof setTimeout> | undefined;
+    private presenceDue = false;
+    private presenceAt = Number.NEGATIVE_INFINITY;
     private retry = 0;
     private closed = false;
-    private syncedDocs = new Set<DocId>();
+    /** An update was refused while paused: reconnect (a full resync) once the room takes messages again. */
+    private resync = false;
+    private readonly syncedDocs = new Set<DocId>();
+    private readonly docListeners: [Y.Doc, (u: Uint8Array, origin: unknown) => void][] = [];
 
     /** Precondition: `url` resolves to the room's WebSocket URL on the app's own origin, with a fresh ticket: it is
-     *  called for every (re)connection, since tickets last a minute. */
+     *  called for every (re)connection, since tickets last a minute. It throws `TicketRefused` when the user's sign-in
+     *  is what failed. */
     constructor(
         private readonly url: () => Promise<string>,
         private readonly on: RoomEvents,
@@ -43,19 +68,45 @@ export class RoomClient {
             [DOC_TEXT, this.text],
             [DOC_REVIEW, this.review],
         ] as const) {
-            doc.on('update', (u: Uint8Array, origin: unknown) => {
+            const listener = (u: Uint8Array, origin: unknown): void => {
                 if (origin !== this) this.queue(id, u);
-            });
+            };
+            doc.on('update', listener);
+            this.docListeners.push([doc, listener]);
         }
-        this.awareness.on('update', ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => {
-            if (origin === this) return;
-            const e = encoding.createEncoder();
-            encoding.writeUint8(e, DOC_REVIEW);
-            encoding.writeVarUint(e, MSG_AWARENESS);
-            encoding.writeVarUint8Array(e, encodeAwarenessUpdate(this.awareness, [...added, ...updated, ...removed]));
-            this.sendRaw(encoding.toUint8Array(e));
-        });
+        this.awareness.on('update', this.onAwareness);
         this.connect();
+    }
+
+    private readonly onAwareness = ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: unknown): void => {
+        // Remote states (applied here, or timed out by the awareness itself) are the room's to tell; only ours is sent.
+        if (origin === this || ![...added, ...updated, ...removed].includes(this.awareness.clientID)) return;
+        this.presenceDue = true;
+        this.schedulePresence();
+    };
+
+    private schedulePresence(): void {
+        if (this.presenceTimer !== undefined) return;
+        this.presenceTimer = setTimeout(
+            () => {
+                this.presenceTimer = undefined;
+                this.sendPresence();
+            },
+            Math.max(0, this.presenceAt + PRESENCE_MS - Date.now()),
+        );
+    }
+
+    /** Sends this client's presence if it changed since the last send and the room takes messages now. */
+    private sendPresence(): void {
+        const ws = this.ws;
+        if (!this.presenceDue || ws?.readyState !== WebSocket.OPEN || this.mode.mode === 'paused') return;
+        this.presenceDue = false;
+        this.presenceAt = Date.now();
+        const e = encoding.createEncoder();
+        encoding.writeUint8(e, DOC_REVIEW);
+        encoding.writeVarUint(e, MSG_AWARENESS);
+        encoding.writeVarUint8Array(e, encodeAwarenessUpdate(this.awareness, [this.awareness.clientID]));
+        ws.send(encoding.toUint8Array(e));
     }
 
     private connect(): void {
@@ -63,12 +114,23 @@ export class RoomClient {
         this.on.connection('connecting');
         this.url().then(
             url => this.openSocket(url),
-            () => this.retryLater(),
+            (e: unknown) => {
+                if (this.closed) return;
+                if (e instanceof TicketRefused && (e.status === 401 || e.status === 403)) {
+                    this.closed = true;
+                    this.on.connection('closed');
+                    this.on.signedOut();
+                } else this.retryLater();
+            },
         );
     }
 
+    /** Connects again after 0.5 s, doubling up to 30 s, each wait jittered down by up to half, so that the clients a
+     *  room restart dropped do not all come back at once. */
     private retryLater(): void {
-        if (!this.closed) setTimeout(() => this.connect(), Math.min(30_000, 500 * 2 ** this.retry++));
+        if (this.closed) return;
+        const wait = Math.min(30_000, 500 * 2 ** this.retry++) * (0.5 + Math.random() / 2);
+        this.retryTimer = setTimeout(() => this.connect(), wait);
     }
 
     private openSocket(url: string): void {
@@ -77,8 +139,13 @@ export class RoomClient {
         ws.binaryType = 'arraybuffer';
         this.ws = ws;
         ws.addEventListener('open', () => {
+            if (this.ws !== ws) return;
             this.retry = 0;
+            this.resync = false;
             this.syncedDocs.clear();
+            // The room's step 1 on this connection gets everything it lacks as our step 2, queued updates included.
+            this.pending.clear();
+            clearTimeout(this.flushTimer);
             this.on.connection('open');
             for (const [id, doc] of [
                 [DOC_TEXT, this.text],
@@ -91,18 +158,17 @@ export class RoomClient {
                 ws.send(encoding.toUint8Array(e));
             }
             if (this.awareness.getLocalState() !== null) {
-                const e = encoding.createEncoder();
-                encoding.writeUint8(e, DOC_REVIEW);
-                encoding.writeVarUint(e, MSG_AWARENESS);
-                encoding.writeVarUint8Array(e, encodeAwarenessUpdate(this.awareness, [this.awareness.clientID]));
-                ws.send(encoding.toUint8Array(e));
+                this.presenceDue = true;
+                this.sendPresence();
             }
         });
         ws.addEventListener('message', (m: MessageEvent) => {
+            if (this.ws !== ws) return;
             if (typeof m.data === 'string') this.control(m.data);
             else if (m.data instanceof ArrayBuffer) this.binary(new Uint8Array(m.data));
         });
         ws.addEventListener('close', () => {
+            if (this.ws !== ws) return;
             this.ws = null;
             this.on.connection('closed');
             // Others' presence is stale once we cannot hear them.
@@ -140,6 +206,7 @@ export class RoomClient {
                 this.on.backupDue();
                 break;
             case 'refused':
+                if (m.reason === 'paused') this.resync = true;
                 this.on.refused(m.reason);
                 break;
         }
@@ -176,24 +243,33 @@ export class RoomClient {
 
     private scheduleFlush(): void {
         clearTimeout(this.flushTimer);
+        if (this.closed) return;
         const m = this.mode;
         if (m.mode === 'live') return this.flush();
         const wait = m.mode === 'batched' ? m.intervalMs : Math.max(1000, m.until - Date.now());
-        this.flushTimer = window.setTimeout(() => {
+        this.flushTimer = setTimeout(() => {
             if (this.mode.mode === 'paused' && Date.now() >= this.mode.until) this.mode = { mode: 'live' };
             this.flush();
         }, wait);
     }
 
     private flush(): void {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN || this.mode.mode === 'paused') return;
+        const ws = this.ws;
+        if (!ws || ws.readyState !== WebSocket.OPEN || this.mode.mode === 'paused') return;
+        if (this.resync) {
+            // Reconnecting syncs both documents from their state vectors, the refused updates included.
+            this.resync = false;
+            ws.close();
+            return;
+        }
+        this.sendPresence();
         for (const [id, list] of this.pending) {
             if (!list.length) continue;
             const e = encoding.createEncoder();
             encoding.writeUint8(e, id);
             encoding.writeVarUint(e, MSG_SYNC);
             writeUpdate(e, Y.mergeUpdates(list));
-            this.ws.send(encoding.toUint8Array(e));
+            ws.send(encoding.toUint8Array(e));
         }
         this.pending.clear();
     }
@@ -207,10 +283,12 @@ export class RoomClient {
         this.sendRaw(JSON.stringify({ type: 'open', path, blob, text, commit }));
     }
 
+    /** Tells the room that `commit` now holds `files`: its new base. */
     committed(commit: string, files: readonly BaseFile[]): void {
         this.sendRaw(JSON.stringify({ type: 'committed', commit, files }));
     }
 
+    /** Tells the room that a WIP backup of its changes was pushed as `commit`. */
     backedUp(commit: string): void {
         this.sendRaw(JSON.stringify({ type: 'backed-up', commit }));
     }
@@ -220,9 +298,19 @@ export class RoomClient {
         return this.text.getMap<Y.Text>('files');
     }
 
+    /** Leaves the room for good: closes the socket (the room drops this client's presence with it) and releases every
+     *  timer and listener. Promises: no event is reported after it returns; calling it again does nothing. */
     close(): void {
         this.closed = true;
-        this.awareness.setLocalState(null);
-        this.ws?.close();
+        this.awareness.off('update', this.onAwareness);
+        clearTimeout(this.flushTimer);
+        clearTimeout(this.retryTimer);
+        clearTimeout(this.presenceTimer);
+        this.presenceTimer = undefined;
+        this.awareness.destroy();
+        for (const [doc, listener] of this.docListeners) doc.off('update', listener);
+        const ws = this.ws;
+        this.ws = null;
+        ws?.close();
     }
 }

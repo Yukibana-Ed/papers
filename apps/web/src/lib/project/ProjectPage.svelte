@@ -4,7 +4,7 @@
     import { GitHubError, commit, wipBackup } from '#lib/github/api.ts';
     import { githubToken, session as githubSession, type Viewer } from '#lib/github/token.ts';
     import type { User } from '#lib/model/types.ts';
-    import { RoomClient } from '#lib/room/client.ts';
+    import { RoomClient, TicketRefused } from '#lib/room/client.ts';
     import { syncReview } from '#lib/room/sync.svelte.ts';
     import { Session } from '#lib/session.svelte.ts';
     import Workbench from '#lib/shell/Workbench.svelte';
@@ -86,6 +86,7 @@
                         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await githubToken()}` },
                         body: JSON.stringify({ owner: p.owner, repo: p.repo, branch: p.branch }),
                     });
+                    if (res.status === 401 || res.status === 403) throw new TicketRefused(res.status);
                     if (!res.ok) throw new Error(`No ticket (${res.status})`);
                     const { ticket } = (await res.json()) as { ticket: string };
                     return `${proto}//${location.host}${roomPath}?ticket=${encodeURIComponent(ticket)}`;
@@ -96,7 +97,11 @@
                     },
                     base: () => {},
                     sync: m => {
-                        if (session) session.sync = m.mode;
+                        mode = m.mode;
+                        if (!session) return;
+                        // Said once, when it starts: the room refuses every message while paused.
+                        if (m.mode === 'paused' && session.sync !== 'paused') session.flash('Live sync paused for today');
+                        session.sync = m.mode;
                     },
                     synced: () => {
                         if (session || !welcome) return;
@@ -132,9 +137,14 @@
                             );
                     },
                     connection: state => {
-                        if (session && state !== 'connecting') session.sync = state === 'open' ? 'live' : 'offline';
+                        if (session && state !== 'connecting') session.sync = state === 'open' ? mode : 'offline';
                     },
-                    refused: (reason) => session?.flash(reason === 'paused' ? 'Live sync paused for today' : `Refused: ${reason}`),
+                    refused: (reason) => {
+                        if (reason !== 'paused') session?.flash(`Refused: ${reason}`);
+                    },
+                    signedOut: () => {
+                        location.href = `/auth/login?to=${encodeURIComponent(location.pathname + location.search)}`;
+                    },
                 });
                 room = r;
                 roomState = r;
@@ -148,6 +158,8 @@
         };
     });
 
+    /** The room's sync mode as it last said. */
+    let mode: 'live' | 'batched' | 'paused' = 'live';
     let welcome: { base: string | null; files: readonly BaseFile[] } | null = null;
     let roomState = $state<RoomClient | null>(null);
 

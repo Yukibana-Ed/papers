@@ -8,8 +8,6 @@ import type { RoomClient } from './client.ts';
  *  to a thread rewrites it whole (threads are small). Drafts stay local until posted. */
 export function syncReview(session: Session, room: RoomClient): () => void {
     const map: Y.Map<string> = room.review.getMap<string>('threads');
-    let fromRoom = false;
-
     const pull = (): void => {
         const local = new Map(session.threads.map(t => [t.id, t]));
         const next: Thread[] = [];
@@ -18,17 +16,15 @@ export function syncReview(session: Session, room: RoomClient): () => void {
             next.push(current && JSON.stringify(current) === json ? current : (JSON.parse(json) as Thread));
         }
         for (const t of session.threads) if (t.draft) next.push(t);
-        fromRoom = true;
         session.threads = next;
-        fromRoom = false;
     };
     map.observe(pull);
     if (map.size) pull();
 
     const stopPush = $effect.root(() => {
         $effect(() => {
+            // After a pull this writes nothing: every thread is already the JSON the map has.
             const threads = session.threads.filter(t => !t.draft);
-            if (fromRoom) return;
             room.review.transact(() => {
                 const ids = new Set<string>();
                 for (const t of threads) {
@@ -40,11 +36,14 @@ export function syncReview(session: Session, room: RoomClient): () => void {
             });
         });
 
-        // My presence: where my cursor is.
+        // My presence: where my cursor is, as one awareness change (the client throttles what it sends).
         $effect(() => {
             const c = session.cursor;
-            room.awareness.setLocalStateField('user', session.me);
-            room.awareness.setLocalStateField('cursor', { file: c.file, line: c.line });
+            const user = session.me;
+            const cursor = { file: c.file, line: c.line };
+            const now = room.awareness.getLocalState();
+            if (now?.['user'] === user && JSON.stringify(now['cursor']) === JSON.stringify(cursor)) return;
+            room.awareness.setLocalState({ user, cursor });
         });
     });
 
