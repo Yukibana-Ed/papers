@@ -1,7 +1,8 @@
-import type { editor as Editor, IDisposable, IPosition } from 'monaco-editor/editor/editor.api';
+import type { editor as Editor, IDisposable, IPosition, languages } from 'monaco-editor/editor/editor.api';
 import type { Anchor, Cursor, Lines, PlacedSuggestion, Presence, Suggestion, TextRange, Thread, User } from '#lib/model/types.ts';
 import type * as Y from 'yjs';
 import { applyTheme, followPageTheme, languageOf, modelUri, monaco, remeasureWhenFontsLoad } from './monaco.ts';
+import { LatexIndex, complete, type Offer } from '#lib/latex/complete.ts';
 import { FileSuggestions } from './suggestions.ts';
 import { TextBinding } from './y-binding.ts';
 
@@ -145,6 +146,60 @@ export class SourceEditor {
         e.addCommand(K.CtrlCmd | K.Shift | C.KeyZ, () => shown()?.redo(), 'ykSuggesting');
         this.stopRemeasure = remeasureWhenFontsLoad();
         this.stopTheme = followPageTheme();
+        this.disposables.push(this.latexCompletion());
+    }
+
+    /** The project's LaTeX facts, for completion: each file parsed again only when its model changed. */
+    private readonly latex = new LatexIndex();
+    private readonly latexSeen = new Map<string, number>();
+
+    /** Every path of the project, binary files included, for the paths that LaTeX completion offers. */
+    setProjectPaths(paths: readonly string[]): void {
+        this.latex.setPaths(paths);
+    }
+
+    /** LaTeX completion in the editor itself, from the project's files (no language server): commands, environments,
+     *  labels, citations, packages, classes and paths, on `\`, `{` and `,`. Synchronous over the index, which only
+     *  parses files that changed since it last looked (collaborators' edits change the models too). */
+    private latexCompletion(): IDisposable {
+        const KIND: Record<Offer['kind'], languages.CompletionItemKind> = {
+            command: monaco.languages.CompletionItemKind.Function,
+            environment: monaco.languages.CompletionItemKind.Module,
+            label: monaco.languages.CompletionItemKind.Reference,
+            citation: monaco.languages.CompletionItemKind.Reference,
+            file: monaco.languages.CompletionItemKind.File,
+            package: monaco.languages.CompletionItemKind.Module,
+            class: monaco.languages.CompletionItemKind.Class,
+        };
+        return monaco.languages.registerCompletionItemProvider('latex', {
+            triggerCharacters: ['\\', '{', ','],
+            provideCompletionItems: (model, position) => {
+                const file = this.fileOf(model);
+                if (file === null) return { suggestions: [] };
+                for (const [path, m] of this.models) {
+                    const v = m.getAlternativeVersionId();
+                    if (this.latexSeen.get(path) === v) continue;
+                    this.latexSeen.set(path, v);
+                    this.latex.update(path, m.getValue());
+                }
+                const line = model.getLineContent(position.lineNumber);
+                const found = complete(line.slice(0, position.column - 1), line.slice(position.column - 1), this.latex, file);
+                if (found === null) return { suggestions: [] };
+                const range = { startLineNumber: position.lineNumber, startColumn: found.start + 1, endLineNumber: position.lineNumber, endColumn: position.column };
+                return {
+                    suggestions: found.offers.map((o, i) => ({
+                        label: o.label,
+                        filterText: o.kind === 'command' ? o.label.slice(1) : o.label,
+                        insertText: o.insert,
+                        insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+                        kind: KIND[o.kind],
+                        detail: o.detail,
+                        sortText: String(i).padStart(5, '0'),
+                        range,
+                    })),
+                };
+            },
+        });
     }
 
     dispose(): void {
