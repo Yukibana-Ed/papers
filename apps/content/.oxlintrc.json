@@ -7,5 +7,12 @@
     /* `export {}` is how a .d.ts becomes a module, per SvelteKit's own template. */
     "unicorn/require-module-specifiers": "off"
   },
+  "overrides": [
+    {
+      /* Tests build partial platform objects for the functions under test. */
+      "files": ["tests/**"],
+      "rules": { "typescript/no-unsafe-type-assertion": "off" }
+    }
+  ],
   "ignorePatterns": ["build/**", ".svelte-kit/**", "static/**", "node_modules/**", "src/lib/lsp/vendor/**"]
 }

@@ -1,5 +1,6 @@
 import type { Cookies, RequestEvent } from '@sveltejs/kit';
 import { importKey, seal, unseal } from './seal.ts';
+import { workerPlatform } from './platform.ts';
 
 /** The signed-in browser: who it is, and the GitHub App refresh token, sealed in an httpOnly cookie. The Worker only
  *  exchanges codes and refresh tokens (it holds the client secret); the access token it gets back goes to the page,
@@ -31,8 +32,8 @@ export interface AuthEnv {
 
 /** The env's GitHub App and session key, or null where they are not configured (local development without them, a
  *  preview): the app then offers the demo only. */
-export function authEnv(event: RequestEvent): AuthEnv | null {
-    const env = event.platform?.env;
+export function authEnv(_event?: RequestEvent): AuthEnv | null {
+    const env = workerPlatform().env;
     if (!env?.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET || !env.SESSION_KEY) return null;
     return { GITHUB_CLIENT_ID: env.GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET: env.GITHUB_CLIENT_SECRET, SESSION_KEY: env.SESSION_KEY };
 }

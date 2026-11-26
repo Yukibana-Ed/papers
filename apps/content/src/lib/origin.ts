@@ -11,5 +11,8 @@ export function appOrigin(platform: App.Platform | undefined, dev: boolean): str
         const override: unknown = import.meta.env['VITE_APP_ORIGIN'];
         return typeof override === 'string' && override !== '' ? override : DEV_APP_ORIGIN;
     }
-    return platform?.env.APP_ORIGIN ?? DEV_APP_ORIGIN;
+    const v = platform?.env.APP_ORIGIN;
+    // Outside development a missing var is an error, never a quiet fallback to a local address.
+    if (!v) throw new Error('APP_ORIGIN is not set for this Worker (wrangler.jsonc vars)');
+    return v;
 }

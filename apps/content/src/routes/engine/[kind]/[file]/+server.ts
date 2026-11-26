@@ -1,10 +1,12 @@
 import { engineType } from '#lib/engine-files.ts';
 import { notFound, objectResponse } from '#lib/r2.ts';
 import { typstAssetKey } from '#lib/typst-assets.ts';
+import { workerPlatform } from '#lib/platform.ts';
 
 /** `/engine/typst/<file>`, `/engine/tinymist/<file>`, `/engine/typst-fonts/<file>`: the Typst compiler, language
  *  server and default fonts, from their pinned folders in the bucket. Only the files `TYPST_ASSETS` lists exist. */
-export async function GET({ params, platform }: { params: { kind: string; file: string }; platform?: App.Platform }): Promise<Response> {
+export async function GET({ params }: { params: { kind: string; file: string } }): Promise<Response> {
+    const platform: App.Platform | undefined = workerPlatform();
     const key = typstAssetKey(params.kind, params.file);
     if (platform === undefined || key === null) return notFound();
     const object = await platform.env.ASSETS_R2.get(key);

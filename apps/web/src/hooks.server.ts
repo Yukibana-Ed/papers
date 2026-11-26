@@ -5,6 +5,7 @@ import { appHeaders, scriptHash, withContentOrigin } from '#lib/headers.ts';
 import { authEnv } from '#lib/server/auth.ts';
 import { contentOrigin as contentOriginOf } from '#lib/server/content-origin.ts';
 import { checkTicket, roomName } from '#lib/server/room-ticket.ts';
+import { workerPlatform } from '#lib/server/platform.ts';
 
 /** The theme script's hash: it is inline (it must run before the first paint) and not SvelteKit's own. */
 const themeHash = scriptHash(THEME_BOOT);
@@ -18,7 +19,7 @@ async function room(event: RequestEvent): Promise<Response | null> {
     const m = /^\/room\/([^/]+)\/([^/]+)\/(.+)$/.exec(event.url.pathname);
     if (!m) return null;
     const [, owner = '', repo = '', branch = ''] = m;
-    const rooms = event.platform?.env.ROOM;
+    const rooms = workerPlatform().env.ROOM;
     const env = authEnv(event);
     if (!rooms || !env) return new Response('No rooms here', { status: 503 });
     if (event.request.headers.get('Upgrade') !== 'websocket') return new Response('Expected a WebSocket', { status: 426 });
@@ -35,7 +36,7 @@ export const handle: Handle = async ({ event, resolve }) => {
     const ws = await room(event);
     if (ws) return ws;
     const response = await resolve(event);
-    const contentOrigin = contentOriginOf(event.platform);
+    const contentOrigin = contentOriginOf(workerPlatform());
     for (const [name, value] of Object.entries(appHeaders())) response.headers.set(name, value);
     // SvelteKit writes the policy with the hashes of its own scripts; the content origin is known only at run time.
     const csp = response.headers.get('Content-Security-Policy');

@@ -1,10 +1,12 @@
 import { notFound, objectResponse } from '#lib/r2.ts';
 import { packageArchive, upstreamPackageUrl } from '#lib/typst-assets.ts';
+import { workerPlatform } from '#lib/platform.ts';
 
 /** `/typst-packages/preview/<name>-<version>.tar.gz`: a Typst Universe package, read through to packages.typst.org
  *  once and kept in the bucket after. A published version never changes (Typst Universe does not allow it), so the
  *  archive is cached as immutable; papers.lock pins its SHA-256 for reproducible builds. */
-export async function GET({ params, platform }: { params: { namespace: string; file: string }; platform?: App.Platform }): Promise<Response> {
+export async function GET({ params }: { params: { namespace: string; file: string } }): Promise<Response> {
+    const platform: App.Platform | undefined = workerPlatform();
     const p = packageArchive(params.namespace, params.file);
     if (platform === undefined || p === null) return notFound();
     const key = `typst-packages/${p.namespace}/${params.file}`;
