@@ -1,6 +1,6 @@
-/** The GitHub calls the app's Worker makes with a user's token. The token never leaves the Worker: the browser asks
- *  the Worker's /api routes, which call GitHub. Only the calls below exist, so a compromised page can do no more
- *  than they allow. */
+/** The GitHub calls of the app, with a user's short-lived access token. The page makes them directly against
+ *  api.github.com (our servers are not on the data path); the Worker makes only `viewer` and `repoInfo`, once, to
+ *  check who joins a room. Every function takes the token as an argument and keeps nothing. */
 
 const API = 'https://api.github.com';
 const UA = 'yukibana-papers';
