@@ -71,15 +71,24 @@ test.describe('words picked in the preview', () => {
 
     test('with a word selected, the keys move the selection as in an editor, and the source follows', async ({ page }) => {
         const frame = await preview(page);
-        const selected = (): Promise<string> => frame.locator('body').evaluate(() => (window.getSelection()?.toString() ?? '').trim());
+        // Exactly, spaces at the ends too: a step by a word leaves the selection tight on its words.
+        const selected = (): Promise<string> => frame.locator('body').evaluate(() => window.getSelection()?.toString() ?? '');
         const b = await textBox(page, frame, 'where most of them', 'most');
         await page.mouse.dblclick(b.x + b.width / 2, b.y + b.height / 2);
         await expect.poll(selected).toBe('most');
-        // By a word with Ctrl+Shift, by a character with Shift.
+        // By a word with Ctrl+Shift, again and again, by a character with Shift.
         await page.keyboard.press('Control+Shift+ArrowRight');
         await expect.poll(selected).toBe('most of');
         await expect.poll(() => selectedInSource(page)).toBe('most of');
         await page.keyboard.press('Control+Shift+ArrowRight');
+        await expect.poll(selected).toBe('most of them');
+        await page.keyboard.press('Control+Shift+ArrowRight');
+        await page.keyboard.press('Control+Shift+ArrowRight');
+        await expect.poll(async () => (await selected()).split(/\s+/).length).toBe(5);
+        expect((await selected()).startsWith('most of them ')).toBe(true);
+        expect(await selected()).toMatch(/\p{L}$/u);
+        await page.keyboard.press('Control+Shift+ArrowLeft');
+        await page.keyboard.press('Control+Shift+ArrowLeft');
         await expect.poll(selected).toBe('most of them');
         await page.keyboard.press('Control+Shift+ArrowLeft');
         await expect.poll(selected).toBe('most of');
@@ -93,6 +102,10 @@ test.describe('words picked in the preview', () => {
         await page.keyboard.press('Control+ArrowLeft');
         await expect.poll(selected).toBe('of');
         await expect.poll(() => selectedInSource(page)).toBe('of');
+        // Back past where the selection started: it goes over to the words before, and on.
+        await page.keyboard.press('Control+Shift+ArrowLeft');
+        await page.keyboard.press('Control+Shift+ArrowLeft');
+        await expect.poll(selected).toBe('where most of');
     });
 
     test('a selection follows its words when the preview is zoomed or its pane resized', async ({ page }) => {
