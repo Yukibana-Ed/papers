@@ -9,7 +9,7 @@ async function preview(page: Page): Promise<FrameLocator> {
     const frame = page.frameLocator('iframe.pv-frame');
     await expect(frame.locator('.pv-page .textLayer span').first()).toBeVisible({ timeout: 170_000 });
     // The sync to the word reads the document's text once the pages are laid out.
-    await page.waitForTimeout(1500);
+    await expect(frame.locator('.pv-pages[data-sync="word"]')).toBeAttached({ timeout: 60_000 });
     return frame;
 }
 

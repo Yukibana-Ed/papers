@@ -40,7 +40,7 @@ test.describe('sync to the word', () => {
     test('a click in the preview puts the caret on the character clicked', async ({ page }) => {
         const frame = await preview(page);
         // Wait for the sync to the word: it reads the document's text after the pages are laid out.
-        await page.waitForTimeout(1500);
+        await expect(frame.locator('.pv-pages[data-sync="word"]')).toBeAttached({ timeout: 60_000 });
         // The "u" of "struggle".
         const u = await charBox(page, frame, 'struggle', 3, 4);
         await page.mouse.click(u.x + u.width / 2, u.y + u.height / 2);
@@ -52,7 +52,7 @@ test.describe('sync to the word', () => {
 
     test('jumping from the source flashes the word under the caret, not its line', async ({ page }) => {
         const frame = await preview(page);
-        await page.waitForTimeout(1500);
+        await expect(frame.locator('.pv-pages[data-sync="word"]')).toBeAttached({ timeout: 60_000 });
         const word = await charBox(page, frame, 'struggle', 0, 8);
         // The caret into "struggle" in the source, from the preview, then back.
         await page.mouse.click(word.x + 2, word.y + word.height / 2);
@@ -73,7 +73,7 @@ test.describe('sync to the word', () => {
 
     test('a selection in the source is mirrored in the preview to the word', async ({ page }) => {
         const frame = await preview(page);
-        await page.waitForTimeout(1500);
+        await expect(frame.locator('.pv-pages[data-sync="word"]')).toBeAttached({ timeout: 60_000 });
         const word = await charBox(page, frame, 'struggle', 0, 8);
         await page.mouse.click(word.x + 2, word.y + word.height / 2);
         // Select the source line the click led to: it ends mid-way through a typeset line. (The keys go to the editor.)

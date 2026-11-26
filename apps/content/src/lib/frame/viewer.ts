@@ -132,6 +132,7 @@ export class Viewer {
     /** Reads the shown build's text and aligns it with the sources, for `#precise`. A newer build or map replaces it. */
     async #makePrecise(): Promise<void> {
         this.#precise = null;
+        delete this.#column.dataset['sync'];
         const sync = this.#sync;
         if (sync === null) return;
         const words = docWords(await this.pageTexts());
@@ -139,6 +140,8 @@ export class Viewer {
         this.#words = words;
         for (const p of this.#pages) if (p.drawn !== 0) this.#refine(p);
         this.#precise = preciseMap(sync, words, this.#sources, this.#format);
+        // For browser tests: the sync to the word is ready.
+        this.#column.dataset['sync'] = 'word';
         this.#drawOverlays();
         // Development only (gone from builds): the maps, for the sync-accuracy probe to measure.
         if (import.meta.env.DEV) Object.assign(window, { papersSync: { coarse: sync, precise: this.#precise, words, sources: this.#sources } });
