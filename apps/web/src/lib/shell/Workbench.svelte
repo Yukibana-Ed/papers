@@ -347,6 +347,7 @@
         ...s.branchNames.filter((b) => b !== s.branch).map((b) => ({ id: `br-${b}`, name: `Switch to ${b}`, run: () => s.switchBranch(b) })),
         { id: 'newbranch', name: 'New branch', run: () => (s.popover = 'branch') },
         ...s.order.map((f) => ({ id: `f-${f}`, name: f, kind: 'file' as const, run: () => openFile(f) })),
+        { id: 'print', name: 'Print', kbd: 'Ctrl+P', run: () => preview?.print() },
         { id: 'zoomin', name: 'Zoom in', kbd: 'Ctrl+=', run: () => s.zoomBy(0.1) },
         { id: 'zoomout', name: 'Zoom out', kbd: 'Ctrl+-', run: () => s.zoomBy(-0.1) },
         { id: 'theme-light', name: 'Light theme', run: () => setTheme('light') },
@@ -377,8 +378,8 @@
     }
 
     /** The shortcuts the content frame may forward: the frame runs untrusted content, so a forwarded key can only open
-     *  or move things, never commit, accept, delete or change the document. */
-    const FRAME_SAFE: ReadonlySet<string> = new Set(['palette', 'jump', 'outline', 'files', 'comments', 'zoomin', 'zoomout']);
+     *  or move things (or ask the frame to print what it shows), never commit, accept, delete or change the document. */
+    const FRAME_SAFE: ReadonlySet<string> = new Set(['palette', 'jump', 'outline', 'files', 'comments', 'zoomin', 'zoomout', 'print']);
 
     function onFrameKey(m: Extract<FrameMessage, { type: 'key' }>): void {
         const id = commandFor({ ...m, mac: MAC });
@@ -549,6 +550,7 @@
             <button type="button" class="yk-icon-btn icon-xs" onclick={() => s.zoomBy(-0.1)} {...tip('Zoom out', 'Ctrl+-')}><Icon name="minus" size={14} /></button>
             <span class="muted zoom-n">{Math.round(s.scale * 100)}%</span>
             <button type="button" class="yk-icon-btn icon-xs" onclick={() => s.zoomBy(0.1)} {...tip('Zoom in', 'Ctrl+=')}><Icon name="plus" size={14} /></button>
+            <button type="button" class="yk-icon-btn icon-xs" disabled={s.build.pages === 0} onclick={() => preview?.print()} {...tip('Print', 'Ctrl+P', 'the PDF')}><Icon name="printer" size={14} /></button>
             <button
                 type="button"
                 class="backend"

@@ -38,6 +38,7 @@ export function commandFor(k: Chord): string | null {
     if (!k.shift && !k.alt && key === 'k') return 'palette';
     if (k.shift && key === 'p') return 'palette';
     if (!k.shift && !k.alt && key === 's') return 'commit';
+    if (!k.shift && !k.alt && key === 'p') return 'print';
     if (k.alt && k.code === 'KeyS') return typesWithAlt(k, 's') ? null : 'suggest';
     if (k.alt && k.code === 'KeyM') return typesWithAlt(k, 'm') ? null : 'comment';
     if (!k.shift && key === 'j') return 'jump';

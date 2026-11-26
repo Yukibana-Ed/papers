@@ -105,7 +105,9 @@ export type AppMessage =
     /** A JSON-RPC message for `server`: a request, a notification, or the response to one of the server's requests. */
     | { readonly type: 'lsp'; readonly server: LanguageServer; readonly message: unknown }
     /** Try again after a `service` failure: the frame starts the failed part afresh and builds. */
-    | { readonly type: 'retry' };
+    | { readonly type: 'retry' }
+    /** Print the shown build through the browser's print dialog; nothing when no build is shown. */
+    | { readonly type: 'print' };
 
 /** The language servers the frame can run. They read user content, so they run on the content origin; the editor, on
  *  the app's, talks to them through the frame. */
@@ -294,6 +296,7 @@ function appFieldsMatch(x: Record<string, unknown>): boolean {
         case 'lsp':
             return oneOf(x['server'], 'tinymist') && 'message' in x;
         case 'retry':
+        case 'print':
             return true;
         default:
             return false;
