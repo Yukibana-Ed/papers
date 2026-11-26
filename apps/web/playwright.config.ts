@@ -19,7 +19,10 @@ export default defineConfig({
     forbidOnly: Boolean(process.env['CI']),
     retries: process.env['CI'] ? 1 : 0,
     reporter: process.env['CI'] ? [['list'], ['html', { open: 'never' }]] : 'list',
-    timeout: 60_000,
+    // A build with the real engine takes seconds alone, and much longer when every worker builds at once.
+    timeout: process.env['E2E_ENGINE'] ? 180_000 : 60_000,
+    // The engine's first build fetches it and TeX Live; done once, before the tests (e2e/warm-engine.ts).
+    ...(process.env['E2E_ENGINE'] ? { globalSetup: './e2e/warm-engine.ts' } : {}),
     use: { baseURL: BASE ?? APP, trace: 'off', screenshot: 'only-on-failure' },
     projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } }],
     webServer:
@@ -33,7 +36,8 @@ export default defineConfig({
                       timeout: 120_000,
                   },
                   {
-                      command: `pnpm exec wrangler dev --port 4174 --ip 127.0.0.1 --local --var APP_ORIGIN:${APP}`,
+                      // With E2E_ENGINE, the engine and TeX Live come from the deployed content origin (the local bucket is empty).
+                      command: `pnpm exec wrangler dev --port 4174 --ip 127.0.0.1 --local --var APP_ORIGIN:${APP}${process.env['E2E_ENGINE'] ? ' --var ASSETS_FALLBACK:https://user-content-papers.yukibana.run' : ''}`,
                       cwd: '../content',
                       url: `${CONTENT}/`,
                       reuseExistingServer: !process.env['CI'],

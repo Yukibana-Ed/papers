@@ -151,8 +151,18 @@ jobs:
         working-directory: apps/web
         run: pnpm exec playwright install --with-deps chromium
 
+      # The engine and TeX Live come from the deployed content origin (ASSETS_FALLBACK in playwright.config.ts) into the
+      # local Worker's cache, kept between runs; a new engine release or snapshot (wrangler.jsonc) starts it afresh.
+      - name: Cache the engine and TeX Live
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/content/.wrangler/state
+          key: engine-cache-${{ hashFiles('apps/content/wrangler.jsonc') }}
+
       - name: Browser tests
         working-directory: apps/web
+        env:
+          E2E_ENGINE: '1'
         run: pnpm exec playwright test --trace off
 
       - name: Upload the report
