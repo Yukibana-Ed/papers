@@ -1,4 +1,4 @@
-import { HELLO, PROTOCOL_VERSION, isFrameMessage, isWelcome, type AppMessage, type FrameMessage } from '@yukibana/papers-frame-protocol';
+import { HELLO, PROTOCOL_VERSION, isFrameMessage, isReady, isWelcome, type AppMessage, type FrameMessage } from '@yukibana/papers-frame-protocol';
 
 /** The app's end of the content frame's channel.
  *
@@ -10,7 +10,10 @@ export class FrameClient {
     private port: MessagePort | null = null;
     private queue: AppMessage[] = [];
     private readonly onWindowMessage = (e: MessageEvent): void => {
-        if (e.origin !== this.origin || e.source !== this.frame.contentWindow || !isWelcome(e.data)) return;
+        if (e.origin !== this.origin || e.source !== this.frame.contentWindow) return;
+        // The frame's code runs after its load event may have fired: it says when it is ready to be greeted.
+        if (isReady(e.data)) return this.hello();
+        if (!isWelcome(e.data)) return;
         const port = e.ports[0];
         if (!port) return;
         this.port?.close();

@@ -152,6 +152,8 @@
 
     /** A click in the preview: open its source at the word clicked, selected. */
     function onJump(at: SourcePoint, word: string | null): void {
+        // The frame may point into files the build made (paper.bbl): only project files open.
+        if (!(at.file in s.files)) return;
         if (narrow()) s.narrowPane = 'source';
         const text = editor?.lineText(at.file, at.line) ?? '';
         const i = word ? text.indexOf(word) : -1;
@@ -165,6 +167,7 @@
 
     /** The preview selection's toolbar. */
     function onAction(action: SelectionAction, lines: SourceLines, text: string): void {
+        if (!(lines.file in s.files)) return;
         s.openFile(lines.file);
         setTimeout(() => {
             editor?.selectLines(lines);

@@ -70,9 +70,8 @@ function pair(initial: string) {
     a.getText('t').insert(0, initial);
     const ma = new FakeModel(initial);
     const mb = new FakeModel(initial);
-    new TextBinding(ma as never, a.getText('t'));
-    new TextBinding(mb as never, b.getText('t'));
-    return { ma, mb, a, b };
+    const bindings = [new TextBinding(ma as never, a.getText('t')), new TextBinding(mb as never, b.getText('t'))];
+    return { ma, mb, a, b, bindings };
 }
 
 describe('TextBinding', () => {

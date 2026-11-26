@@ -1,2 +1,2 @@
-# Stores text files with LF, and checks them out with the platform's line ending.
-* text=auto
+# Text files are stored and checked out with LF on every platform (see oxfmt.config.mts).
+* text=auto eol=lf
