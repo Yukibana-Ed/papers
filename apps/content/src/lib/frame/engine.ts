@@ -1,5 +1,6 @@
 import type { Engine, FileContents } from '@yukibana/papers-frame-protocol';
 import type { BusyTexRunner as Runner } from 'texlyre-busytex';
+import { ASSETS } from '#lib/asset-path.ts';
 
 /** What one build produced. `pdf` and `synctex` are set iff `ok`. */
 export interface BuildOutput {
@@ -12,8 +13,8 @@ export interface BuildOutput {
 }
 
 /** Where the engine's files and the TeX Live store are served, on this origin. */
-const ENGINE_BASE = '/engine';
-const TL_ENDPOINT = '/tl/';
+const ENGINE_BASE = `${ASSETS}/engine`;
+const TL_ENDPOINT = `${ASSETS}/tl/`;
 
 const DRIVERS = { pdflatex: 'pdftex_bibtex8', xelatex: 'xetex_bibtex8_dvipdfmx', lualatex: 'luahbtex_bibtex8' } as const;
 

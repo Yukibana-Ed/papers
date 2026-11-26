@@ -19,7 +19,9 @@ interface Rpc {
     readonly error?: unknown;
 }
 
-const WASM = '/engine/tinymist/tinymist_bg.wasm';
+import { ASSETS } from '#lib/asset-path.ts';
+
+const WASM = `${ASSETS}/engine/tinymist/tinymist_bg.wasm`;
 
 /** To the frame. A worker's postMessage takes no target origin (the rule is for windows). */
 function post(message: unknown): void {
