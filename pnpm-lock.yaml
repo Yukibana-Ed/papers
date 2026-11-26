@@ -230,6 +230,9 @@ catalogs:
     '@yukibana/papers-tex':
       specifier: workspace:*
       version: workspace:*
+    dockview:
+      specifier: 8.6.1
+      version: 8.6.1
     esbuild:
       specifier: 0.28.2
       version: 0.28.2
@@ -448,6 +451,9 @@ importers:
       '@yukibana/papers-templates':
         specifier: 'catalog:'
         version: link:../../packages/templates
+      dockview:
+        specifier: 'catalog:'
+        version: 8.6.1
       lib0:
         specifier: 'catalog:'
         version: 0.2.120
@@ -1988,6 +1994,12 @@ packages:
 
   devalue@5.9.4:
     resolution: {integrity: sha512-sPAT4pztbu6586/hrhOnMKS17IJrvg12mXiSPSS3W5qDeN2RGgvZ0diZCm31dBbnevfVmujNO3IM2wrS4Y2Rhg==}
+
+  dockview-core@8.9.0:
+    resolution: {integrity: sha512-qsXM+9wFik5WSEBq8x4KP041v19iM6cgSKVFrQpIgkJSXTM00+zEb66hI1kG3e+O7L4IKUfSziMUyZrofwetlg==}
+
+  dockview@8.6.1:
+    resolution: {integrity: sha512-2WZyTw+Wln7ZX7er4XhH6S9i3InfdbdQZZo/tK26GdQudKn913ctbRN2tkZgXCN9mToGSd5aj8ANp1Lid/MMEQ==}
 
   dompurify@3.4.15:
     resolution: {integrity: sha512-EUBjM+B+lkDE41iE82DDSCfkoPGfXx8IxFxPMjNzm/Uk4xDet77rTN9wqlxlVg71kK7XGuUMv6wUxJUwwv+Xyw==}
@@ -3791,6 +3803,12 @@ snapshots:
   detect-libc@2.1.2: {}
 
   devalue@5.9.4: {}
+
+  dockview-core@8.9.0: {}
+
+  dockview@8.6.1:
+    dependencies:
+      dockview-core: 8.9.0
 
   dompurify@3.4.15:
     optionalDependencies:

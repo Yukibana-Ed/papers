@@ -78,7 +78,7 @@ export async function select(page: Page, file: string, l1: number, c1: number, l
 /** Turns suggestion mode on with its header button, and gives the editor the focus back. */
 export async function suggest(page: Page): Promise<void> {
     await page.getByRole('button', { name: 'Suggest', exact: true }).click();
-    await expect(page.locator('.yk-dock-actions').getByText('Suggesting')).toBeVisible();
+    await expect(page.locator('.dock-after').getByText('Suggesting')).toBeVisible();
 }
 
 /** The language server's status as the session has it. */

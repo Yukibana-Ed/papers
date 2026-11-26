@@ -89,18 +89,18 @@ test.describe('problems', () => {
         await page.keyboard.press('Control+Shift+Y');
         const row = page.locator('.prob-row').first();
         await row.click();
-        await expect(page.locator('.yk-dock-tab[aria-selected="true"]')).toContainText('method.tex');
+        await expect(page.locator('.dv-tab[aria-selected="true"]:has(.file-tab)')).toContainText('method.tex');
         await expect(page.locator('.monaco-editor .line-numbers.active-line-number')).toContainText('9');
         // Enter on a focused row does the same.
-        await page.locator('.yk-dock-tab', { hasText: 'intro.tex' }).click();
+        await page.locator('.dv-tab', { hasText: 'intro.tex' }).click();
         await row.focus();
         await page.keyboard.press('Enter');
-        await expect(page.locator('.yk-dock-tab[aria-selected="true"]')).toContainText('method.tex');
+        await expect(page.locator('.dv-tab[aria-selected="true"]:has(.file-tab)')).toContainText('method.tex');
         // Back to the other file, then F8 goes to the next problem.
-        await page.locator('.yk-dock-tab', { hasText: 'intro.tex' }).click();
+        await page.locator('.dv-tab', { hasText: 'intro.tex' }).click();
         await page.locator('.monaco-editor .view-lines').click();
         await page.keyboard.press('F8');
-        await expect(page.locator('.yk-dock-tab[aria-selected="true"]')).toContainText('method.tex');
+        await expect(page.locator('.dv-tab[aria-selected="true"]:has(.file-tab)')).toContainText('method.tex');
     });
 
     test('a build service that did not load is not shown as a problem with the paper', async ({ page }) => {

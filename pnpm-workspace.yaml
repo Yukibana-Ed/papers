@@ -40,6 +40,7 @@ catalog:
   '@yukibana/papers-runner': workspace:*
   '@yukibana/papers-tex': workspace:*
   '@yukibana/papers-sandbox': workspace:*
+  dockview: 8.6.1
   esbuild: 0.28.2
   happy-dom: 21.0.4
   lib0: 0.2.120

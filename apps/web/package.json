@@ -39,6 +39,7 @@
     "@yukibana/papers-room-protocol": "catalog:",
     "@yukibana/papers-runner": "catalog:",
     "@yukibana/papers-templates": "catalog:",
+    "dockview": "catalog:",
     "lib0": "catalog:",
     "markdown-it": "catalog:",
     "prosemirror-commands": "catalog:",

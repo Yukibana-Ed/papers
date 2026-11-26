@@ -35,13 +35,13 @@ button {
 .app {
     height: 100%;
     display: grid;
-    grid-template-columns: 44px 0 minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: 44px 0 minmax(0, 1fr);
     grid-template-rows: 40px minmax(0, 1fr);
-    grid-template-areas: 'bar bar bar bar' 'rail panel source preview';
+    grid-template-areas: 'bar bar bar' 'rail panel main';
     background: var(--yk-bg);
 }
 .app.rail-open {
-    grid-template-columns: 44px 300px minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: 44px 300px minmax(0, 1fr);
 }
 
 /* --- header ------------------------------------------------------------------------------------------------------ */
@@ -685,41 +685,157 @@ button {
     min-width: 0;
 }
 
-/* --- panes ---------------------------------------------------------------------------------------------------------- */
-.pane {
-    display: flex;
-    flex-direction: column;
+/* --- the dock: file tabs and the preview (shell/dock.svelte.ts) ----------------------------------------------------- */
+.dock {
+    grid-area: main;
+    position: relative;
     min-width: 0;
     min-height: 0;
 }
-.pane-source {
-    grid-area: source;
-    background: var(--yk-surface);
-    border-right: 1px solid var(--yk-line);
+/* dockview, themed as in Yukibana Light (its app.css): the design system's dock bar, drawn on dockview's tabs. */
+.dockview-theme-yukibana {
+    --dv-overlay-z-index: 999;
+    --dv-tab-font-size: inherit;
+    --dv-border-radius: 0px;
+    --dv-tab-margin: 0;
+    --dv-spacing-padding: 0px;
+    --dv-tab-border-radius: 0px;
+    --dv-sash-border-radius: 0px;
+    --dv-dropdown-border-radius: 0.35rem;
+    --dv-tab-close-icon-size: inherit;
+    --dv-floating-group-border: none;
+    --dv-active-sash-transition-duration: 0.1s;
+    --dv-active-sash-transition-delay: 0.3s;
+    /* The editor's colour: the dock's groups and the current tab are filled with it (palette.ts EDITOR has it as hex). */
+    --dv-group-view-background-color: var(--yk-code-bg);
+    --dv-tabs-and-actions-container-background-color: var(--yk-code-bar);
+    --dv-tabs-and-actions-container-height: 34px;
+    --dv-tabs-and-actions-container-font-size: var(--yk-font-size-sm);
+    --dv-activegroup-visiblepanel-tab-background-color: var(--yk-code-bg);
+    --dv-activegroup-hiddenpanel-tab-background-color: transparent;
+    --dv-inactivegroup-visiblepanel-tab-background-color: var(--yk-code-bg);
+    --dv-inactivegroup-hiddenpanel-tab-background-color: transparent;
+    --dv-activegroup-visiblepanel-tab-color: var(--yk-ink);
+    --dv-activegroup-hiddenpanel-tab-color: var(--yk-soft);
+    --dv-inactivegroup-visiblepanel-tab-color: var(--yk-ink);
+    --dv-inactivegroup-hiddenpanel-tab-color: var(--yk-soft);
+    --dv-tab-divider-color: transparent;
+    --dv-separator-border: var(--yk-line);
+    --dv-paneview-header-border-color: var(--yk-line);
+    --dv-sash-color: transparent;
+    --dv-active-sash-color: var(--yk-line-strong);
+    --dv-drag-over-background-color: color-mix(in srgb, var(--yk-info) 18%, transparent);
+    --dv-drag-over-border-color: var(--yk-info);
+    --dv-drag-over-border: 1px solid var(--yk-info);
+    --dv-icon-hover-background-color: var(--yk-line);
+    --dv-tabs-container-scrollbar-color: var(--yk-line-strong);
+    --dv-scrollbar-background-color: var(--yk-line-strong);
+    --dv-context-menu-background-color: var(--yk-sunken);
+    --dv-context-menu-color: var(--yk-ink);
+    --dv-dnd-compass-color: var(--yk-info);
+    --dv-edge-dock-indicator-color: var(--yk-info);
+    height: 100%;
 }
-.pane-preview {
-    grid-area: preview;
+
+/*
+ * dockview gives its shell its default theme's class, which sets
+ * `color-scheme: dark`; the tokens' `light-dark()` follows color-scheme, so
+ * the dock would stay dark in the light theme. It inherits the page's.
+ */
+.yk-root .dv-shell,
+.yk-root .dockview-theme-yukibana {
+    color-scheme: inherit;
+}
+
+/*
+ * The tab bar, as the design system's dock (the package's `.yk-dock`, css/base/dock.css;
+ * Light's tabs are dockview's, so the same rules are drawn here): a bar a
+ * little darker than the editor with a hairline along its foot, short
+ * dividers between tabs, the current tab of each group filled with the
+ * editor's colour (the variables above) over the hairline, and a full 2px
+ * line under it, green in the group you are typing in and grey in the
+ * others. The hairline is a shadow inside the bar, not a border, so the
+ * current tab's fill covers it and the bar is as tall as it was.
+ */
+.dockview-theme-yukibana .dv-tabs-and-actions-container {
+    box-shadow: inset 0 -1px 0 var(--yk-line);
+}
+
+.dockview-theme-yukibana .dv-tab {
+    padding: 0;
+}
+
+/* The short dividers: dockview's own are off (--dv-tab-divider-color), these are a third of the bar shorter at each end. */
+.dockview-theme-yukibana .dv-tabs-container .dv-tab:not(:first-child)::before {
+    content: '';
+    position: absolute;
+    top: 0.6rem;
+    bottom: 0.6rem;
+    left: 0;
+    width: 1px;
+    background-color: var(--yk-line);
+    pointer-events: none;
+}
+.dockview-theme-yukibana .dv-tabs-container .dv-tab.dv-active-tab::before,
+.dockview-theme-yukibana .dv-tabs-container .dv-tab.dv-active-tab + .dv-tab::before {
+    background-color: transparent;
+}
+
+.dockview-theme-yukibana .dv-tab.dv-active-tab {
+    box-shadow: inset 0 -2px 0 var(--yk-line-strong);
+}
+.dockview-theme-yukibana .dv-active-group .dv-tab.dv-active-tab {
+    box-shadow: inset 0 -2px 0 var(--yk-accent);
+}
+.dockview-theme-yukibana .dv-groupview + .dv-groupview,
+.dockview-theme-yukibana .dv-view + .dv-view .dv-groupview {
+    border-left: 1px solid var(--yk-line);
+}
+.dock-panel {
     position: relative;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
 }
-.yk-dock {
-    min-height: 34px;
-    flex: none;
+.dock-editor {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--yk-surface);
 }
-.yk-dock-tab {
-    font-size: var(--yk-font-size-sm);
+.dock-tab {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    padding: 0 14px;
+    white-space: nowrap;
+    cursor: pointer;
 }
-/* The close button follows its tab and sits over the tab's right padding, so the tab's fill and line run under it. */
-.yk-dock > .yk-dock-tab {
-    padding-right: 30px;
+/* A file's tab: the whole of it is the file's (a middle click anywhere closes it), up to its close button. */
+.dock-tab:has(.tab-x) {
+    padding: 0 6px 0 0;
+}
+.file-tab {
+    display: inline-flex;
+    align-items: center;
+    align-self: stretch;
+    gap: 6px;
+    min-width: 0;
+    padding-left: 14px;
+}
+.file-tab-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .tab-x {
     display: inline-grid;
     place-items: center;
-    align-self: center;
-    position: relative;
+    flex: none;
     width: 16px;
     height: 16px;
-    margin: 0 8px 0 -24px;
+    margin-left: 6px;
     padding: 0;
     border: 0;
     border-radius: 4px;
@@ -728,9 +844,8 @@ button {
     color: var(--yk-soft);
     cursor: pointer;
 }
-.yk-dock-tab:hover + .tab-x,
-.yk-dock-tab[aria-selected='true'] + .tab-x,
-.tab-x:hover,
+.dv-tab:hover .tab-x,
+.dv-active-tab .tab-x,
 .tab-x:focus-visible {
     opacity: 1;
 }
@@ -738,31 +853,58 @@ button {
     background: var(--yk-sunken);
     color: var(--yk-ink);
 }
-/* The dividers between tabs, which the design system draws between adjacent tabs: here a close button is between. */
-.yk-dock > .tab-x + .yk-dock-tab::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 9px;
-    bottom: 9px;
-    width: 1px;
-    background: var(--yk-line);
-}
-.yk-dock > .yk-dock-tab[aria-selected='true'] + .tab-x + .yk-dock-tab::before {
-    opacity: 0;
-}
 .tab-dot {
     width: 6px;
     height: 6px;
     border-radius: 50%;
     background: var(--yk-warn);
 }
-.yk-dock-tab:hover .tab-dot,
-.yk-dock-tab:has(+ .tab-x:hover) .tab-dot,
-.yk-dock-tab[aria-selected='true'] .tab-dot {
+/* The dot makes room for the close button where that shows. */
+.dv-tab:hover .tab-dot,
+.dv-active-tab .tab-dot {
     display: none;
 }
-.yk-dock .yk-chip .yk-icon {
+/* The list of the tabs that do not fit in a narrow group's bar. */
+.dockview-theme-yukibana .dv-tabs-overflow-container {
+    border: 1px solid var(--yk-line);
+    border-radius: var(--yk-radius-md);
+    background: var(--yk-surface);
+    box-shadow: 0 16px 40px -20px oklch(0% 0 0 / 0.45);
+}
+.dockview-theme-yukibana .dv-tabs-overflow-container .dv-tab {
+    height: 30px;
+    box-shadow: none;
+}
+.dockview-theme-yukibana .dv-tabs-overflow-container .dv-tab::before {
+    content: none;
+}
+.dockview-theme-yukibana .dv-tabs-overflow-container .dv-active-tab {
+    background: var(--yk-sunken);
+}
+/* What stands after a group's tabs (the preview's document) and at the end of its bar (zoom, where it is built). */
+.dock-before,
+.dock-after {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    font-size: var(--yk-font-size-sm);
+}
+.dock-before > * {
+    align-self: stretch;
+}
+.dock-after {
+    gap: 2px;
+    padding: 0 6px;
+}
+.dock-after:empty,
+.dock-before:empty {
+    display: none;
+}
+/* The preview's menus hang from the top of its panel, under the bar their buttons are in. */
+.dock-preview > .popover {
+    top: 4px;
+}
+.dock-after .yk-chip .yk-icon {
     width: 11px;
     height: 11px;
 }
@@ -868,10 +1010,6 @@ button {
 }
 
 /* --- preview ---------------------------------------------------------------------------------------------------------- */
-.pv-bar {
-    position: relative;
-    z-index: 10;
-}
 .pv-doc {
     display: inline-flex;
     align-items: center;
@@ -1106,18 +1244,9 @@ button {
     .app,
     .app.rail-open {
         grid-template-columns: 44px 0 minmax(0, 1fr);
-        grid-template-areas: 'bar bar bar' 'rail panel main';
     }
     .app.rail-open {
         grid-template-columns: 44px 260px minmax(0, 1fr);
-    }
-    .pane-source,
-    .pane-preview {
-        grid-area: main;
-    }
-    .narrow-source .pane-preview,
-    .narrow-preview .pane-source {
-        visibility: hidden;
     }
     .narrow-only {
         display: inline-flex;
