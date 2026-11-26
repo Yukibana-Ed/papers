@@ -152,6 +152,10 @@
         },
         acceptSuggestion: (id) => editor?.acceptSuggestion(id),
         rejectSuggestion: (id) => editor?.rejectSuggestion(id),
+        discussSuggestion(id, body) {
+            const place = editor?.suggestionPlace(id);
+            if (place) s.comment(place.file, place.quote, place.range, body);
+        },
     };
 
     async function jumpOther(): Promise<void> {

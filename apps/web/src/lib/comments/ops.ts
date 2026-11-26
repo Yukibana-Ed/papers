@@ -8,6 +8,9 @@ export interface CommentOps {
     acceptReplacement(threadId: string, commentId: string): void;
     acceptSuggestion(id: string): void;
     rejectSuggestion(id: string): void;
+    /** Starts a team thread on a suggestion's text with `body` as its first comment: suggestions are discussed as
+     *  threads anchored where the suggestion is. */
+    discussSuggestion(id: string, body: string): void;
     /** Starts a thread on the editor's selection. */
     newComment(): void;
 }

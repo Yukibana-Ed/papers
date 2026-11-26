@@ -87,7 +87,8 @@
                 {/if}
             </div>
         {/if}
-        {#if !flat && !c.resolved}
+        <!-- The thread's own reply field is at its bottom; here, replying to one reply starts a sub-thread. -->
+        {#if !flat && !c.resolved && !isRoot}
             <div class="cm-actions">
                 <button
                     type="button"
@@ -96,7 +97,7 @@
                         e.stopPropagation();
                         replying = true;
                     }}
-                    {...tip('Reply', null, isRoot ? null : 'starts a sub-thread')}>Reply</button
+                    {...tip('Reply', null, 'starts a sub-thread')}>Reply</button
                 >
             </div>
         {/if}
