@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { RoomCore, type Peer } from './core.ts';
+import { connectionExpired } from './limits.ts';
 import type { Identity } from './protocol.ts';
 import { RoomStore } from './store.ts';
 
@@ -71,7 +72,7 @@ export class Room extends DurableObject<Env> {
         const core = this.room();
         const { 0: client, 1: server } = new WebSocketPair();
         this.ctx.acceptWebSocket(server);
-        server.serializeAttachment(JSON.stringify(identity));
+        server.serializeAttachment(JSON.stringify({ ...identity, since: Date.now() }));
         const peer = this.peerOf(server, identity);
         this.peers.set(server, peer);
         core.connect(peer);
@@ -79,10 +80,19 @@ export class Room extends DurableObject<Env> {
         return new Response(null, { status: 101, webSocket: client });
     }
 
+    /** Closes `ws` once it has lasted MAX_CONNECTION_MS; returns whether it did. */
+    private expire(ws: WebSocket): boolean {
+        if (!connectionExpired(ws.deserializeAttachment(), Date.now())) return false;
+        ws.close(4000, 'Reconnect');
+        this.webSocketClose(ws);
+        return true;
+    }
+
     override webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
         const core = this.room();
         const peer = this.peers.get(ws);
         if (!peer) return ws.close(1008, 'Unknown connection');
+        if (this.expire(ws)) return;
         core.receive(peer, typeof message === 'string' ? message : new Uint8Array(message));
     }
 
@@ -97,7 +107,10 @@ export class Room extends DurableObject<Env> {
     }
 
     override async alarm(): Promise<void> {
-        const anyone = this.room().tick();
+        const core = this.room();
+        // Deleting from a Map while iterating it is safe: the deleted entries are skipped.
+        for (const ws of this.peers.keys()) this.expire(ws);
+        const anyone = core.tick();
         if (anyone || this.peers.size > 0) await this.ctx.storage.setAlarm(Date.now() + TICK_MS);
     }
 }
