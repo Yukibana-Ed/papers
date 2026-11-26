@@ -15,5 +15,13 @@
     "vars": {
         // The one origin allowed to frame this one (frame-ancestors) and to talk to it (postMessage).
         "APP_ORIGIN": "https://papers.yukibana.dev",
+        // Which engine release /engine/* serves, and which TeX Live snapshot /tl/* resolves names in: folders of the
+        // bucket that .github/workflows/assets.yml fills. Changing either is a deploy; old folders stay for old pages.
+        "ENGINE_VERSION": "1.4.1",
+        "TL_SNAPSHOT": "2026",
     },
+
+    // The engine (busytex.wasm is 32 MB, above the Workers static asset limit) and the TeX Live store: immutable
+    // objects, brotli-compressed, served by src/routes/engine and src/routes/tl. Created by the deploy workflow.
+    "r2_buckets": [{ "binding": "ASSETS_R2", "bucket_name": "yukibana-papers-assets" }],
 }

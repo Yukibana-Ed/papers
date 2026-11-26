@@ -1,0 +1,14 @@
+{
+    "$schema": "../../node_modules/wrangler/config-schema.json",
+
+    // The rooms: one Durable Object per branch of a repository, with its SQLite storage. No route: only the app's
+    // Worker reaches it, through its Durable Object binding, after checking who is connecting.
+    "name": "yukibana-papers-room",
+    "main": "src/worker.ts",
+    "compatibility_date": "2026-10-01",
+    "workers_dev": false,
+    "preview_urls": false,
+    "observability": { "enabled": true },
+    "durable_objects": { "bindings": [{ "name": "ROOM", "class_name": "Room" }] },
+    "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+}

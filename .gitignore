@@ -16,3 +16,9 @@
 # SvelteKit's generated files and the Workers' builds.
 .svelte-kit/
 /apps/*/build/
+
+# Local agent worktrees.
+/.claude/
+# The engine's release assets and a local TeX Live store, for the content frame's dev server.
+/apps/content/.engine/
+/apps/content/.tlstore/

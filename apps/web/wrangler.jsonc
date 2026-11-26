@@ -15,5 +15,11 @@
     "vars": {
         // Where this app embeds the compile and preview frame from.
         "CONTENT_ORIGIN": "https://user-content-papers.yukibana.run",
+        // The GitHub App users sign in with (its client ID is public). Empty: sign-in is off and only the demo works.
+        "GITHUB_CLIENT_ID": "",
     },
+
+    // The rooms, one Durable Object per branch, defined by apps/room (deployed first). Preview versions of this Worker
+    // bind the same rooms: a preview edits real sessions.
+    "durable_objects": { "bindings": [{ "name": "ROOM", "class_name": "Room", "script_name": "yukibana-papers-room" }] },
 }

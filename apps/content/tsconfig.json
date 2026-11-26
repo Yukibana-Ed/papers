@@ -8,5 +8,5 @@
     "checkJs": false,
     "types": ["$app/types", "vite/client"]
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte", "tests/**/*.ts", "vite.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.svelte", "tests/**/*.ts", "scripts/**/*.ts", "vite.config.ts", "dev-assets.ts"]
 }

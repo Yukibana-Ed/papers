@@ -1,5 +1,5 @@
-# Deploys both Workers from main: the content origin first (user-content-papers.yukibana.run), then the app
-# (papers.yukibana.dev), so a new app never embeds a frame older than it expects. A failed deploy is re-run ("Re-run
+# Deploys the three Workers from main: the rooms (no route), the content origin (user-content-papers.yukibana.run), then
+# the app (papers.yukibana.dev), so a new app never talks to a room or a frame older than it expects. A failed deploy is re-run ("Re-run
 # jobs" on its run); a run whose commit is older than the last successful deploy's refuses, so a re-run of an old run
 # cannot put an old Worker back. The run's title, "Deploy <sha>", is how that guard finds the last commit deployed.
 #
@@ -8,8 +8,12 @@
 #
 # The secrets are on the `production` environment (Settings, Environments):
 #   CLOUDFLARE_API_TOKEN    a token that can deploy the yukibana-papers and yukibana-papers-content Workers and add
-#                           their custom domains in the yukibana.dev and yukibana.run zones
+#                           their custom domains in the yukibana.dev and yukibana.run zones, and create the R2 bucket
+#                           yukibana-papers-assets (Workers R2 Storage: Edit)
 #   CLOUDFLARE_ACCOUNT_ID   the Cloudflare account they are in
+# The app's own secrets are Worker secrets, set once in Cloudflare (Workers, yukibana-papers, Settings, Variables and
+# Secrets) and not touched here: GITHUB_CLIENT_SECRET (the GitHub App's client secret) and SESSION_KEY (32 random bytes,
+# base64). GITHUB_CLIENT_ID is a plain var in apps/web/wrangler.jsonc. Without them the app serves the demo only.
 name: Deploy
 run-name: Deploy ${{ github.sha }}
 
@@ -70,6 +74,29 @@ jobs:
 
       - name: Build
         run: pnpm run build
+
+      # The bucket the content origin serves the engine and TeX Live from (wrangler.jsonc `r2_buckets`): a deploy fails
+      # when a binding names a bucket that does not exist. Created once; afterwards wrangler reports that it exists. It
+      # stays empty until the Assets workflow fills it, and the frame cannot compile before that.
+      - name: Create the assets bucket
+        working-directory: apps/content
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if pnpm exec wrangler r2 bucket info yukibana-papers-assets >/dev/null 2>&1; then
+            echo "The bucket exists."
+          else
+            pnpm exec wrangler r2 bucket create yukibana-papers-assets
+          fi
+
+      # The rooms first: the app binds their Durable Object class by script name, and a new app may expect a new room.
+      - name: Deploy the rooms
+        working-directory: apps/room
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler deploy --message "Deploy $COMMIT"
 
       - name: Deploy the content origin
         working-directory: apps/content
