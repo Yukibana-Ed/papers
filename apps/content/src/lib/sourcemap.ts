@@ -21,6 +21,8 @@ export function syncTexMap(sync: SyncTex): SourceMap {
 /** A run of text on a page, as the PDF's text layer has it: its string and its box (PDF points, top-left origin). */
 export interface PageText {
     readonly page: number;
+    /** Its index among the page's text items, which is its span's index in the text layer. */
+    readonly run?: number;
     readonly str: string;
     readonly x: number;
     readonly y: number;

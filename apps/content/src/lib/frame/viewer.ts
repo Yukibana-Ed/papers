@@ -3,7 +3,16 @@ import { getDocument, GlobalWorkerOptions, TextLayer, type PDFDocumentLoadingTas
 // oxlint-disable-next-line import/default
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type { PreviewMark, PreviewPresence, SourceLines, SourcePoint } from '@yukibana/papers-frame-protocol';
-import { docWords, preciseMap, type PreciseMap } from '#lib/precise.ts';
+import { docWords, preciseMap, refineWords, type DocWord, type PreciseMap } from '#lib/precise.ts';
+
+/** A character of the text layer: its page, its run (span index) and offset there, and its middle in page points. */
+interface CharAt {
+    readonly page: number;
+    readonly run: number;
+    readonly offset: number;
+    readonly x: number;
+    readonly y: number;
+}
 import { mergeLineRects, type Rect } from '#lib/rects.ts';
 import type { PageText, SourceMap } from '#lib/sourcemap.ts';
 import type { PageBox } from '@yukibana/papers-tex';
@@ -73,6 +82,8 @@ export class Viewer {
     #sync: SourceMap | null = null;
     /** The sync to the word, over `#sync`, once the shown build's text is read; null until then or without sources. */
     #precise: PreciseMap | null = null;
+    /** The shown build's words, whose boxes the drawn text layers refine. */
+    #words: DocWord[] = [];
     #sources: ReadonlyMap<string, string> = new Map();
     #format: 'latex' | 'typst' = 'latex';
     #pages: PageView[] = [];
@@ -125,6 +136,8 @@ export class Viewer {
         if (sync === null) return;
         const words = docWords(await this.pageTexts());
         if (this.#sync !== sync) return;
+        this.#words = words;
+        for (const p of this.#pages) if (p.drawn !== 0) this.#refine(p);
         this.#precise = preciseMap(sync, words, this.#sources, this.#format);
         this.#drawOverlays();
         // Development only (gone from builds): the maps, for the sync-accuracy probe to measure.
@@ -136,12 +149,16 @@ export class Viewer {
         const out: PageText[] = [];
         for (const [i, p] of this.#pages.entries()) {
             const content = await p.proxy.getTextContent();
+            // `run` counts the items with a string, empty or not, as PDF.js's text layer numbers its spans (`data-run`).
+            let run = -1;
             for (const item of content.items) {
-                if (!('str' in item) || !item.str) continue;
+                if (!('str' in item)) continue;
+                run++;
+                if (!item.str) continue;
                 const transform: unknown[] = item.transform;
                 const e = Number(transform[4] ?? 0);
                 const f = Number(transform[5] ?? 0);
-                out.push({ page: i + 1, str: item.str, x: e, y: p.height - f, width: item.width, height: item.height });
+                out.push({ page: i + 1, run, str: item.str, x: e, y: p.height - f, width: item.width, height: item.height });
             }
         }
         return out;
@@ -274,6 +291,9 @@ export class Viewer {
             text.className = 'textLayer';
             const layer = new TextLayer({ textContentSource: await proxy.getTextContent(), container: text, viewport: vp });
             await layer.render();
+            // Each span knows its item (spans for empty items are not in the page, so the order alone does not say).
+            layer.textDivs.forEach((d, i) => (d.dataset['run'] = String(i)));
+
             const end = document.createElement('div');
             end.className = 'endOfContent';
             text.append(end);
@@ -286,6 +306,7 @@ export class Viewer {
             view.text = text;
             if (selecting) text.classList.add('selecting');
             view.drawn = scale;
+            this.#refine(view);
         })();
         view.rendering = run;
         return run.catch(() => undefined);
@@ -332,24 +353,16 @@ export class Viewer {
             p.decor.replaceChildren();
         }
         const s = this.scale;
+        // To the word where the range has columns and the sync to the word places both ends; else its lines.
         const paint = (lines: SourceLines, cls: string): void => {
-            for (const [n, rects] of this.#linesBoxes(lines)) {
+            for (const [n, rects] of this.#exactBoxes(lines) ?? this.#linesBoxes(lines)) {
                 const page = this.#pages[n - 1];
                 if (page === undefined) continue;
                 for (const r of rects) page.marks.append(box(r, s, `pv-hl ${cls}`, 1.5));
             }
         };
         for (const m of this.#marks) paint(m, `pv-hl-${m.kind}`);
-        if (this.#mirror !== null) {
-            const exact = this.#exactBoxes(this.#mirror);
-            if (exact === null) paint(this.#mirror, 'pv-hl-mirror');
-            else
-                for (const [n, rects] of exact) {
-                    const page = this.#pages[n - 1];
-                    if (page === undefined) continue;
-                    for (const r of rects) page.marks.append(box(r, s, 'pv-hl pv-hl-mirror', 1.5));
-                }
-        }
+        if (this.#mirror !== null) paint(this.#mirror, 'pv-hl-mirror');
         if (this.#cursor !== null) {
             const at = this.#firstBox(this.#cursor);
             const page = at === null ? undefined : this.#pages[at.page - 1];
@@ -512,6 +525,10 @@ export class Viewer {
             this.#selectLineAt(e.clientX, e.clientY);
             return;
         }
+        if (e.detail === 2) {
+            this.#trimSelection();
+            return;
+        }
         const down = this.#pointerDown;
         this.#pointerDown = null;
         if (down !== null && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;
@@ -654,7 +671,7 @@ export class Viewer {
             this.#events.selection(null, '', null);
             return;
         }
-        const lines = this.#linesOf(first, last);
+        const lines = this.#linesOf(first, last, range);
         this.#events.selection(lines, selection?.toString() ?? '', this.#dragging ? null : this.#toolbarAnchor(first, last));
     }
 
@@ -681,17 +698,19 @@ export class Viewer {
     }
 
     /** The source lines between the first and the last line of a selection, by backward search at each one's middle. */
-    #linesOf(first: { page: PageView; rect: Rect }, last: { page: PageView; rect: Rect }): SourceLines | null {
+    #linesOf(first: { page: PageView; rect: Rect }, last: { page: PageView; rect: Rect }, range: Range | null): SourceLines | null {
         const sync = this.#sync;
         if (sync === null) return null;
         const s = this.scale;
-        // To the character, when the sync to the word places both ends: the first character inside the first line's
-        // rectangle, the last inside the last one's (the rectangles are padded by a pixel and grown by their leading).
+        // To the character, when the sync to the word places both ends: the selection's first and last characters that
+        // are not blank (a double click takes the space after a word too), each at the middle of its own glyph box.
         const precise = this.#precise;
-        if (precise !== null) {
-            const mid = (r: Rect): number => (r.y + r.height / 2) / s;
-            const a = precise.pointToSource(this.#pages.indexOf(first.page) + 1, (first.rect.x + 2) / s, mid(first.rect));
-            const b = precise.pointToSource(this.#pages.indexOf(last.page) + 1, (last.rect.x + last.rect.width - 2) / s, mid(last.rect));
+        const ends = range === null ? null : this.#ends(range);
+        if (precise !== null && ends !== null) {
+            const source = (e: { page: number; run: number; offset: number; x: number; y: number }): ReturnType<PreciseMap['charToSource']> =>
+                (e.run >= 0 ? precise.charToSource(e.page, e.run, e.offset) : null) ?? precise.pointToSource(e.page, e.x, e.y);
+            const a = source(ends.first);
+            const b = source(ends.last);
             if (a !== null && b !== null && a.file === b.file && (a.line < b.line || (a.line === b.line && a.column <= b.column))) {
                 // Exclusive end: after the last character, or after the whole word where the source spells it otherwise.
                 const startColumn = a.exact ? a.column : a.start;
@@ -708,6 +727,65 @@ export class Viewer {
         return { file: a.file, startLine: Math.min(a.line, b.line), endLine: Math.max(a.line, b.line) };
     }
 
+    /** Gives the shown build's words on `view`'s page the boxes its text layer draws them in. */
+    #refine(view: PageView): void {
+        const n = this.#pages.indexOf(view) + 1;
+        if (n === 0 || this.#words.length === 0) return;
+        const page = view.el.getBoundingClientRect();
+        const s = this.scale;
+        const spans = new Map<number, HTMLElement>();
+        for (const el of view.text.querySelectorAll<HTMLElement>('span[data-run]')) spans.set(Number(el.dataset['run']), el);
+        refineWords(this.#words, n, (run, from, to) => {
+            const node = spans.get(run)?.firstChild;
+            if (!(node instanceof Text) || to > node.length) return null;
+            const r = document.createRange();
+            r.setStart(node, from);
+            r.setEnd(node, to);
+            const b = r.getBoundingClientRect();
+            if (b.width === 0) return null;
+            return { page: n, x: (b.left - page.left) / s, y: (b.top - page.top) / s, width: b.width / s, height: b.height / s };
+        });
+        // Marks drawn from the shares before are redrawn on the glyphs.
+        if (this.#precise !== null) this.#drawOverlays();
+    }
+
+    /** The first and the last character of `range` that are not blank: each with its page number, its text run (the
+     *  index of its span among the page's text spans, -1 if not in one) and offset there, and the middle of its glyph box
+     *  in page points; null when the range holds no such character in the pages. */
+    #ends(range: Range): { first: CharAt; last: CharAt } | null {
+        const chars = textChars(this.#column, range);
+        const first = chars.find(c => !/\s/.test(c.node.data[c.offset] ?? ' '));
+        const last = chars.findLast(c => !/\s/.test(c.node.data[c.offset] ?? ' '));
+        if (first === undefined || last === undefined) return null;
+        const at = (c: { node: Text; offset: number }): CharAt | null => {
+            const pageEl = c.node.parentElement?.closest('.pv-page');
+            if (!(pageEl instanceof HTMLElement)) return null;
+            const run = Number(c.node.parentElement?.dataset['run'] ?? -1);
+            const r = document.createRange();
+            r.setStart(c.node, c.offset);
+            r.setEnd(c.node, c.offset + 1);
+            const b = r.getBoundingClientRect();
+            const p = pageEl.getBoundingClientRect();
+            const s = this.scale;
+            return { page: Number(pageEl.dataset['page']), run, offset: c.offset, x: (b.left + b.width / 2 - p.left) / s, y: (b.top + b.height / 2 - p.top) / s };
+        };
+        const a = at(first);
+        const b = at(last);
+        return a === null || b === null ? null : { first: a, last: b };
+    }
+
+    /** A double click selects a word, and the browser takes the space after it too: the selection is cut back to the
+     *  word, so the preview highlights it and the editor mirrors exactly it. */
+    #trimSelection(): void {
+        const selection = window.getSelection();
+        if (selection === null || selection.rangeCount === 0 || selection.isCollapsed) return;
+        const chars = textChars(this.#column, selection.getRangeAt(0));
+        const first = chars.find(c => !/\s/.test(c.node.data[c.offset] ?? ' '));
+        const last = chars.findLast(c => !/\s/.test(c.node.data[c.offset] ?? ' '));
+        if (first === undefined || last === undefined) return;
+        selection.setBaseAndExtent(first.node, first.offset, last.node, last.offset + 1);
+    }
+
     /** The current selection's source lines, if it is in the pages. */
     selectionLines(): { lines: SourceLines; text: string } | null {
         const selection = window.getSelection();
@@ -721,7 +799,7 @@ export class Viewer {
         const a = rectOf(firstPage?.sel.firstElementChild ?? null);
         const b = rectOf(lastPage?.sel.lastElementChild ?? null);
         if (firstPage === undefined || lastPage === undefined || a === null || b === null) return null;
-        const lines = this.#linesOf({ page: firstPage, rect: a }, { page: lastPage, rect: b });
+        const lines = this.#linesOf({ page: firstPage, rect: a }, { page: lastPage, rect: b }, selection.rangeCount > 0 ? selection.getRangeAt(0) : null);
         return lines === null ? null : { lines, text: selection.toString() };
     }
 
@@ -755,4 +833,17 @@ function wordAt(x: number, y: number): string | null {
     while (b < text.length && /[\p{L}\p{N}]/u.test(text[b] ?? '')) b++;
     const w = text.slice(a, b);
     return w === '' ? null : w;
+}
+
+/** The characters of the text nodes in `root` that `range` covers, in document order, as (text node, offset) pairs. */
+function textChars(root: Node, range: Range): { node: Text; offset: number }[] {
+    const out: { node: Text; offset: number }[] = [];
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
+        if (!(n instanceof Text) || !range.intersectsNode(n)) continue;
+        const from = n === range.startContainer ? range.startOffset : 0;
+        const to = n === range.endContainer ? range.endOffset : n.length;
+        for (let i = from; i < to; i++) out.push({ node: n, offset: i });
+    }
+    return out;
 }
