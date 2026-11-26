@@ -33,9 +33,10 @@ export class RoomClient {
     private closed = false;
     private syncedDocs = new Set<DocId>();
 
-    /** Precondition: `url` is the room's WebSocket URL on the app's own origin. */
+    /** Precondition: `url` resolves to the room's WebSocket URL on the app's own origin, with a fresh ticket: it is
+     *  called for every (re)connection, since tickets last a minute. */
     constructor(
-        private readonly url: string,
+        private readonly url: () => Promise<string>,
         private readonly on: RoomEvents,
     ) {
         for (const [id, doc] of [
@@ -60,7 +61,19 @@ export class RoomClient {
     private connect(): void {
         if (this.closed) return;
         this.on.connection('connecting');
-        const ws = new WebSocket(this.url);
+        this.url().then(
+            url => this.openSocket(url),
+            () => this.retryLater(),
+        );
+    }
+
+    private retryLater(): void {
+        if (!this.closed) setTimeout(() => this.connect(), Math.min(30_000, 500 * 2 ** this.retry++));
+    }
+
+    private openSocket(url: string): void {
+        if (this.closed) return;
+        const ws = new WebSocket(url);
         ws.binaryType = 'arraybuffer';
         this.ws = ws;
         ws.addEventListener('open', () => {
@@ -98,7 +111,7 @@ export class RoomClient {
                 [...this.awareness.getStates().keys()].filter(id => id !== this.awareness.clientID),
                 this,
             );
-            if (!this.closed) setTimeout(() => this.connect(), Math.min(30_000, 500 * 2 ** this.retry++));
+            this.retryLater();
         });
     }
 
