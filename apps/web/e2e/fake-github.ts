@@ -7,8 +7,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
  *
  *  Who asks is in the token: `e2e:<login>`. A repository's `readers` may read but not push.
  *
- *  Test control: `PUT /__repos/<owner>/<repo>` with `{ files, readers? }` makes (or replaces) a repository with one
- *  commit on `main`; `POST` there with `{ files, message?, author? }` adds a commit that sets those files, as a push
+ *  Test control: `PUT /__repos/<owner>/<repo>` with `{ files, readers?, refuse? }` makes (or replaces) a repository with
+ *  one commit on `main` (commits to it are refused with the message `refuse`, when given); `POST` there with `{ files, message?, author? }` adds a commit that sets those files, as a push
  *  from a clone would; `GET /__repos/<owner>/<repo>` gives its commits (newest first) and current files.
  *
  *  Run: `node e2e/fake-github.ts [port]` (default 4175). */
@@ -22,6 +22,8 @@ interface Commit {
 
 interface Repo {
     readonly readers: readonly string[];
+    /** Why commits are refused, as a branch rule would say it; undefined when they are taken. */
+    readonly refuse: string | undefined;
     readonly commits: Commit[];
 }
 
@@ -55,7 +57,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
             const b = await body(req);
             const files = new Map(Object.entries((field(b, 'files') ?? {}) as Record<string, string>).map(([p, text]) => [p, Buffer.from(text)]));
             const readers = (field(b, 'readers') ?? []) as string[];
-            repos.set(name, { readers, commits: [{ oid: sha1(`${name}\0${Math.random()}`), message: 'Initial commit', author: name.split('/')[0] ?? '', files }] });
+            const refuse = field(b, 'refuse');
+            repos.set(name, {
+                readers,
+                refuse: typeof refuse === 'string' ? refuse : undefined,
+                commits: [{ oid: sha1(`${name}\0${Math.random()}`), message: 'Initial commit', author: name.split('/')[0] ?? '', files }],
+            });
             return send(res, 200, {});
         }
         const repo = repos.get(name);
@@ -91,6 +98,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         if (repo === undefined || head === undefined || field(branch, 'branchName') !== 'main')
             return send(res, 200, { errors: [{ message: 'Could not resolve to a Repository' }] });
         if (repo.readers.includes(login)) return send(res, 200, { errors: [{ message: 'Resource not accessible by integration' }] });
+        if (repo.refuse !== undefined) return send(res, 200, { errors: [{ message: repo.refuse }] });
         if (field(input, 'expectedHeadOid') !== head.oid)
             return send(res, 200, { errors: [{ message: `Expected branch to point to "${String(field(input, 'expectedHeadOid'))}" but it did not` }] });
         const files = new Map(head.files);

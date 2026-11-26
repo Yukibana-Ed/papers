@@ -29,8 +29,8 @@ export async function signedIn(page: Page, login: string, api: Record<string, An
 
 /** Makes (or replaces) repository `name` (`owner/repo`) on the stand-in GitHub, with `files` (path → text) in one
  *  commit on `main`; `readers` may read it but not push. */
-export async function makeRepo(name: string, files: Record<string, string>, readers: readonly string[] = []): Promise<void> {
-    const r = await fetch(`${E2E_GITHUB}/__repos/${name}`, { method: 'PUT', body: JSON.stringify({ files, readers }) });
+export async function makeRepo(name: string, files: Record<string, string>, readers: readonly string[] = [], refuse?: string): Promise<void> {
+    const r = await fetch(`${E2E_GITHUB}/__repos/${name}`, { method: 'PUT', body: JSON.stringify({ files, readers, refuse }) });
     if (!r.ok) throw new Error(`fake GitHub answered ${r.status}`);
 }
 
