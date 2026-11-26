@@ -19,7 +19,7 @@ interface Measured {
     readonly ms: number;
 }
 
-test('glyph boxes are within half a pixel of the ink', async ({ page }) => {
+test('glyph boxes lie on the ink', async ({ page }) => {
     test.setTimeout(240_000);
     await openDemo(page);
     const frame = page.frameLocator('iframe.pv-frame');
@@ -118,6 +118,9 @@ test('glyph boxes are within half a pixel of the ink', async ({ page }) => {
     console.log(`glyphs: ${JSON.stringify(measured)}`);
     expect(measured.edges).toBeGreaterThan(200);
     expect(measured.wordsWithGlyphs / measured.words).toBeGreaterThan(0.98);
-    // Errors are in PDF points: a quarter of a point is half a device pixel at the 2x a dense screen draws at.
-    expect(measured.p99).toBeLessThan(0.25);
+    // Errors are in PDF points. The measure itself resolves a quarter of a point (a pixel at 4x, and how dark a pixel
+    // counts as ink differs between machines' rasterisers), so: typically well inside that, and never a device pixel
+    // off at the 2x a dense screen draws at.
+    expect(measured.median).toBeLessThan(0.125);
+    expect(measured.p99).toBeLessThan(0.5);
 });
