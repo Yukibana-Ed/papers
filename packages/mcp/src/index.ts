@@ -7,7 +7,10 @@ import { folderFiles, outline, readProject, type Project, type ProjectDocument }
 
 /** Builds one document of the project in `projectDir`, however the host decides (sandbox, toolchain), in `workDir`
  *  (a copy of the project, whose paths the engine writes into the SyncTeX file). */
-export type ProjectBuilder = (projectDir: string, document: ProjectDocument) => Promise<{ readonly result: BuildResult; readonly workDir: string }>;
+export type ProjectBuilder = (
+    projectDir: string,
+    document: ProjectDocument,
+) => Promise<{ readonly result: BuildResult; readonly workDir: string; readonly output?: string | null }>;
 
 export interface PapersServerOptions {
     /** The project's folder: the only folder the tools read or write. */
@@ -50,7 +53,7 @@ const text = (value: unknown): { content: { type: 'text'; text: string }[] } => 
  *  between source lines and PDF positions. Connect it to a transport (stdio for `papers mcp`). */
 export function createPapersServer(o: PapersServerOptions): McpServer {
     const server = new McpServer({ name: 'yukibana-papers', version: o.version ?? '0.0.0' });
-    const builds = new Map<string, { readonly result: BuildResult; readonly workDir: string }>();
+    const builds = new Map<string, { readonly result: BuildResult; readonly workDir: string; readonly output?: string | null }>();
     const project = (): Project => readProject(folderFiles(o.projectDir));
     const documentOf = (p: Project, root: string | undefined): ProjectDocument => {
         const doc = root === undefined ? p.documents[0] : p.documents.find(d => d.root === root);
@@ -117,11 +120,11 @@ export function createPapersServer(o: PapersServerOptions): McpServer {
         return text(outline(p.files, documentOf(p, document)));
     });
 
-    const summary = (r: BuildResult): unknown => ({
+    const summary = (r: BuildResult, output: string | null | undefined): unknown => ({
         ok: r.ok,
         pages: r.pages,
         seconds: Math.round(r.ms) / 1000,
-        pdf: r.pdf,
+        pdf: output ?? r.pdf,
         steps: r.steps.map(s => `${s.program} (${s.code ?? 'killed'}, ${Math.round(s.ms)} ms)`),
         diagnostics: r.diagnostics.filter(d => d.severity !== 'info'),
         boxes: r.diagnostics.filter(d => d.severity === 'info').length,
@@ -134,7 +137,7 @@ export function createPapersServer(o: PapersServerOptions): McpServer {
             const doc = documentOf(project(), document);
             const b = await o.build(o.projectDir, doc);
             builds.set(doc.root, b);
-            return text(summary(b.result));
+            return text(summary(b.result, b.output));
         },
     );
 

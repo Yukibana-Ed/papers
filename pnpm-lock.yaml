@@ -194,7 +194,19 @@ catalogs:
     '@yukibana/papers-frame-protocol':
       specifier: workspace:*
       version: workspace:*
+    '@yukibana/papers-lsp':
+      specifier: workspace:*
+      version: workspace:*
+    '@yukibana/papers-mcp':
+      specifier: workspace:*
+      version: workspace:*
     '@yukibana/papers-project':
+      specifier: workspace:*
+      version: workspace:*
+    '@yukibana/papers-runner':
+      specifier: workspace:*
+      version: workspace:*
+    '@yukibana/papers-sandbox':
       specifier: workspace:*
       version: workspace:*
     esbuild:
@@ -290,9 +302,6 @@ importers:
 
   .:
     devDependencies:
-      esbuild:
-        specifier: 'catalog:'
-        version: 0.28.2
       node:
         specifier: runtime:24.22.1
         version: runtime:24.22.1
@@ -433,9 +442,30 @@ importers:
 
   packages/cli:
     devDependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: 'catalog:'
+        version: 1.32.2(supports-color@10.2.2)(zod@4.6.7)
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
+      '@yukibana/papers-compiler':
+        specifier: 'catalog:'
+        version: link:../compiler
+      '@yukibana/papers-lsp':
+        specifier: 'catalog:'
+        version: link:../lsp
+      '@yukibana/papers-mcp':
+        specifier: 'catalog:'
+        version: link:../mcp
+      '@yukibana/papers-project':
+        specifier: 'catalog:'
+        version: link:../project
+      '@yukibana/papers-runner':
+        specifier: 'catalog:'
+        version: link:../runner
+      '@yukibana/papers-sandbox':
+        specifier: 'catalog:'
+        version: link:../sandbox
       esbuild:
         specifier: 'catalog:'
         version: 0.28.2

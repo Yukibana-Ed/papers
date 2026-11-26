@@ -1,0 +1,36 @@
+{
+  "private": true,
+  "name": "@yukibana/papers-cli",
+  "version": "0.0.0-dev",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./lib/index.js"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p .",
+    "lint": "oxlint --type-aware --deny-warnings"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "catalog:",
+    "@types/node": "catalog:",
+    "@yukibana/papers-compiler": "catalog:",
+    "@yukibana/papers-lsp": "catalog:",
+    "@yukibana/papers-mcp": "catalog:",
+    "@yukibana/papers-project": "catalog:",
+    "@yukibana/papers-runner": "catalog:",
+    "@yukibana/papers-sandbox": "catalog:",
+    "esbuild": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "bin": {
+    "papers": "./lib/index.js"
+  },
+  "files": [
+    "lib",
+    "native"
+  ]
+}

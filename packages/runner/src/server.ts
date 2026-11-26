@@ -55,6 +55,15 @@ function text(data: RawData): string {
     return (Buffer.isBuffer(data) ? data : Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data)).toString('utf8');
 }
 
+/** Removes a folder, retrying while a process that just ended still holds it; leaves it if it cannot. Never throws. */
+function removeFolder(dir: string): void {
+    try {
+        rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    } catch {
+        // Left for the next start of the server; it holds nothing secret beyond the user's own project.
+    }
+}
+
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 /** A pairing code: 8 characters a person can read out, about 40 bits. */
@@ -213,7 +222,7 @@ export async function startRunner(o: RunnerOptions): Promise<Runner> {
                 case 'hello':
                     return;
                 case 'project':
-                    rmSync(dir, { recursive: true, force: true });
+                    removeFolder(dir);
                     mkdirSync(dir, { recursive: true });
                     sizes.clear();
                     for (const [p, body] of Object.entries(m.files)) if (!write(p, body)) return;
@@ -259,7 +268,7 @@ export async function startRunner(o: RunnerOptions): Promise<Runner> {
         });
         ws.on('close', () => {
             lsp?.close();
-            void busy.finally(() => rmSync(dir, { recursive: true, force: true }));
+            void busy.finally(() => setTimeout(() => removeFolder(dir), 500));
         });
     };
 

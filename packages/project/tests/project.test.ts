@@ -2,19 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { ConfigError, formatLock, memoryFiles, outline, parseConfig, parseLock, readProject } from '../src/index.ts';
 
 const PAPER = {
-    'paper.tex': String.raw`% !TEX program = pdflatex
-\documentclass{article}
-\usepackage[backend=biber]{biblatex}
-\addbibresource{refs.bib}
-\graphicspath{{figures/}}
-\begin{document}
-\input{sections/intro}
-\section{Results}
-\includegraphics{plot}
-\includegraphics{missing}
-\printbibliography
-\end{document}
-`,
+    // One string per line: a multi-line template literal would take the checkout's line endings into the source.
+    'paper.tex': [
+        '% !TEX program = pdflatex',
+        String.raw`\documentclass{article}`,
+        String.raw`\usepackage[backend=biber]{biblatex}`,
+        String.raw`\addbibresource{refs.bib}`,
+        String.raw`\graphicspath{{figures/}}`,
+        String.raw`\begin{document}`,
+        String.raw`\input{sections/intro}`,
+        String.raw`\section{Results}`,
+        String.raw`\includegraphics{plot}`,
+        String.raw`\includegraphics{missing}`,
+        String.raw`\printbibliography`,
+        String.raw`\end{document}`,
+        '',
+    ].join('\n'),
     'sections/intro.tex': '\\section{Introduction}\n% \\input{commented}\n\\subsection{The \\emph{why}}\n',
     'refs.bib': '@book{a, title={A}}\n',
     'figures/plot.pdf': '%PDF',

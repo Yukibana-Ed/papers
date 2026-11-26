@@ -9,15 +9,18 @@ import { findTexBin } from './tex.ts';
 const texBin = findTexBin();
 
 const FILES: Record<string, string> = {
-    'paper/main.tex': String.raw`\documentclass{article}
-\begin{document}
-\section{Intro}\label{s}
-See Section~\ref{s} and \cite{knuth}.
-\input{body}
-\bibliographystyle{plain}
-\bibliography{refs}
-\end{document}
-`,
+    // One string per line: a multi-line template literal would take the checkout's line endings into the source.
+    'paper/main.tex': [
+        String.raw`\documentclass{article}`,
+        String.raw`\begin{document}`,
+        String.raw`\section{Intro}\label{s}`,
+        String.raw`See Section~\ref{s} and \cite{knuth}.`,
+        String.raw`\input{body}`,
+        String.raw`\bibliographystyle{plain}`,
+        String.raw`\bibliography{refs}`,
+        String.raw`\end{document}`,
+        '',
+    ].join('\n'),
     'paper/body.tex': 'Body text on its own line.\n',
     'paper/refs.bib': '@book{knuth, author={Donald Knuth}, title={The TeXbook}, year={1984}, publisher={Addison-Wesley}}\n',
 };
