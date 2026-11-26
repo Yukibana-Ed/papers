@@ -1,5 +1,6 @@
 <script lang="ts">
     import { dialogFocus } from '#lib/ui/focus.ts';
+    import { commandFor } from './commands.ts';
     import { keepInView } from '#lib/ui/place.ts';
     import { chooseTheme, readTheme } from '@yukibana/design/theme';
     import type { FrameMessage, SelectionAction, SourceLines, SourcePoint } from '@yukibana/papers-frame-protocol';
@@ -85,7 +86,7 @@
         const ed = editor;
         if (!ed) return;
         untrack(() => {
-            if (lines !== null && lines.file in s.files) {
+            if (lines !== null && Object.hasOwn(s.files, lines.file)) {
                 asPreview(() => ed.selectLines(lines, false));
                 previewSelected = true;
             } else if (previewSelected) {
@@ -276,7 +277,7 @@
 
     function onJump(at: SourcePoint, word: string | null): void {
         // The frame may point into files the build made (paper.bbl): only project files open.
-        if (!(at.file in s.files)) return;
+        if (!Object.hasOwn(s.files, at.file)) return;
         if (narrow()) s.narrowPane = 'source';
         s.openFile(at.file);
         clearTimeout(focusAfterJump);
@@ -300,7 +301,7 @@
 
     /** The preview selection's toolbar. */
     function onAction(action: SelectionAction, lines: SourceLines, text: string): void {
-        if (!(lines.file in s.files)) return;
+        if (!Object.hasOwn(s.files, lines.file)) return;
         s.openFile(lines.file);
         setTimeout(() => {
             editor?.selectLines(lines);
@@ -340,27 +341,7 @@
         { id: 'theme-system', name: 'System theme', run: () => setTheme('system') },
     ]);
 
-    /** The command for a key, as the header's tooltips name them; null for keys that are not ours. */
-    function commandFor(k: { key: string; code: string; ctrl: boolean; shift: boolean; alt: boolean }): string | null {
-        const key = k.key.toLowerCase();
-        if (k.key === 'F8' && !k.ctrl && !k.alt) return k.shift ? 'problem-prev' : 'problem-next';
-        if (!k.ctrl) return null;
-        if (!k.shift && !k.alt && key === 'k') return 'palette';
-        if (k.shift && key === 'p') return 'palette';
-        if (!k.shift && !k.alt && key === 's') return 'commit';
-        if (k.alt && k.code === 'KeyS') return 'suggest';
-        if (k.alt && k.code === 'KeyM') return 'comment';
-        if (!k.shift && key === 'j') return 'jump';
-        // Ctrl+W is the browser's own in most of them, which never pass it on; Ctrl+Alt+W always reaches the page.
-        if (!k.shift && k.code === 'KeyW') return 'close-tab';
-        if (k.shift && key === 'o') return 'outline';
-        if (k.shift && key === 'e') return 'files';
-        if (k.shift && key === 'm') return 'comments';
-        if (k.shift && key === 'y') return 'problems';
-        if (key === '=' || key === '+') return 'zoomin';
-        if (key === '-') return 'zoomout';
-        return null;
-    }
+    const MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 
     function runKey(id: string): void {
         if (id === 'palette') s.palette = !s.palette;
@@ -371,8 +352,12 @@
     }
 
     function onKeydown(e: KeyboardEvent): void {
-        const id = commandFor({ key: e.key, code: e.code, ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey, alt: e.altKey });
+        // AltGr is Ctrl+Alt to the browser on Windows: it types a character, it is no shortcut.
+        if (e.getModifierState('AltGraph')) return;
+        const id = commandFor({ key: e.key, code: e.code, ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey, alt: e.altKey, mac: MAC });
         if (!id) return;
+        // In a comment's editor Ctrl+K makes a link; the palette is Ctrl+Shift+P there.
+        if (id === 'palette' && !e.shiftKey && e.target instanceof Element && e.target.closest('.ProseMirror')) return;
         e.preventDefault();
         e.stopPropagation();
         runKey(id);
@@ -405,7 +390,7 @@
     const FRAME_SAFE: ReadonlySet<string> = new Set(['palette', 'jump', 'outline', 'files', 'comments', 'zoomin', 'zoomout']);
 
     function onFrameKey(m: Extract<FrameMessage, { type: 'key' }>): void {
-        const id = commandFor(m);
+        const id = commandFor({ ...m, mac: MAC });
         if (id && FRAME_SAFE.has(id)) runKey(id);
         // Ctrl+S from the preview opens the commit popover; committing takes a key press in the app itself.
         else if (id === 'commit' && s.popover !== 'commit' && s.uncommitted) s.popover = 'commit';
