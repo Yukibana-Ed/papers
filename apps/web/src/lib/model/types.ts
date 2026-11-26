@@ -97,6 +97,8 @@ export interface Anchor {
     readonly startLine: number;
     readonly endLine: number;
     readonly startColumn: number;
+    /** Exclusive, on `endLine`, 1-based. */
+    readonly endColumn: number;
 }
 
 export interface Cursor {

@@ -76,7 +76,8 @@ test.describe('sync to the word', () => {
         await page.waitForTimeout(1500);
         const word = await charBox(page, frame, 'struggle', 0, 8);
         await page.mouse.click(word.x + 2, word.y + word.height / 2);
-        // Select the source line the caret is on: it ends mid-way through a typeset line.
+        // Select the source line the click led to: it ends mid-way through a typeset line. (The keys go to the editor.)
+        await page.locator('.monaco-editor .view-lines').getByText('where most of them struggle.').click();
         await page.keyboard.press('Home');
         await page.keyboard.press('Shift+End');
         const mirror = frame.locator('.pv-hl-mirror').first();

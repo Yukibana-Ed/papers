@@ -7,7 +7,11 @@ import type { PageText, SourceMap } from '#lib/sourcemap.ts';
 export interface DocWord {
     readonly key: string;
     readonly text: string;
-    readonly parts: readonly PageBox[];
+    /** First from shares of its run's width; the viewer replaces them with the text layer's own boxes once a page's
+     *  text layer is drawn (`refineWords`), as glyphs are not all the same width. */
+    readonly parts: PageBox[];
+    /** Where its first part's characters are in the text layer: the page, the run (its span) and the offset there. */
+    readonly at?: { readonly page: number; readonly run: number; readonly offset: number };
 }
 
 /** A source position, 1-based line, 0-based column. */
@@ -38,6 +42,9 @@ export interface PreciseMap {
     range(start: SourceAt, end: SourceAt): PageBox[] | null;
     /** The source of the word under (`x`, `y`) on `page`, to the character where the source spells it as shown. */
     pointToSource(page: number, x: number, y: number): SourceHit | null;
+    /** The source of character `offset` of text run `run` on `page` (a text-layer span and an offset in its text):
+     *  exact where geometry is not, since a run's glyphs are not all the same width. */
+    charToSource(page: number, run: number, offset: number): SourceHit | null;
 }
 
 const WORD = /[\p{L}\p{N}]+/gu;
@@ -45,7 +52,7 @@ const WORD = /[\p{L}\p{N}]+/gu;
 /** The document's words in reading order, from the text layer's runs: each run's width shared out by its characters.
  *  A word that ends its run with a hyphen and goes on at the start of the next line is joined to that next word. */
 export function docWords(texts: readonly PageText[]): DocWord[] {
-    const out: { key: string; text: string; parts: PageBox[]; hyphen: boolean; y: number }[] = [];
+    const out: { key: string; text: string; parts: PageBox[]; hyphen: boolean; y: number; at?: { page: number; run: number; offset: number } }[] = [];
     for (const t of texts) {
         if (!t.str || t.width <= 0) continue;
         const per = t.width / t.str.length;
@@ -64,10 +71,25 @@ export function docWords(texts: readonly PageText[]): DocWord[] {
             }
             const after = t.str.slice(i + m[0].length);
             const hyphen = k === matches.length - 1 && /^[-‐‑]\s*$/.test(after);
-            out.push({ key: keyOf(m[0]), text: m[0], parts: [box], hyphen, y: top });
+            const at = t.run === undefined ? undefined : { page: t.page, run: t.run, offset: i };
+            out.push({ key: keyOf(m[0]), text: m[0], parts: [box], hyphen, y: top, ...(at === undefined ? {} : { at }) });
         });
     }
-    return out.map(w => ({ key: w.key, text: w.text, parts: w.parts }));
+    return out.map(w => {
+        const word: DocWord = w.at === undefined ? { key: w.key, text: w.text, parts: w.parts } : { key: w.key, text: w.text, parts: w.parts, at: w.at };
+        return word;
+    });
+}
+
+/** Replaces the boxes of `page`'s one-part words with `boxOf(run, from, to)`: the box of characters [`from`, `to`)
+ *  of text run `run`, in PDF points from the page's top-left, or null where it cannot say. Hyphenated words keep their
+ *  shares. */
+export function refineWords(words: readonly DocWord[], page: number, boxOf: (run: number, from: number, to: number) => PageBox | null): void {
+    for (const w of words) {
+        if (w.at === undefined || w.at.page !== page || w.parts.length !== 1) continue;
+        const box = boxOf(w.at.run, w.at.offset, w.at.offset + w.text.length);
+        if (box !== null) w.parts[0] = box;
+    }
 }
 
 /** How many lines either side of the one in question take part in its alignment: a paragraph's source lines and
@@ -198,7 +220,7 @@ export function preciseMap(coarse: SourceMap, words: readonly DocWord[], sources
     };
 
     /** The source of document word `hit` (under (`x`, `y`) on `page`) if the alignment around `file`'s `line` pairs it. */
-    function pairedAt(file: string, line: number, hit: number, word: DocWord, page: number, x: number, y: number): SourceHit | null {
+    function pairedAt(file: string, line: number, hit: number, word: DocWord, k: number | null): SourceHit | null {
         const pairs = pairsAround(file, line);
         for (const [ti, di] of pairs) {
             if (di !== hit) continue;
@@ -206,15 +228,21 @@ export function preciseMap(coarse: SourceMap, words: readonly DocWord[], sources
             if (token === undefined) return null;
             let column = token.start;
             const exact = sameSpelling(token, word) && word.parts.length === 1;
-            if (exact) {
-                // The character under the point, by its share of the word's width.
-                const part = word.parts.find(p => p.page === page && y >= p.y && y <= p.y + p.height) ?? word.parts[0];
-                if (part !== undefined) {
-                    const k = Math.floor(((x - part.x) / part.width) * word.text.length);
-                    column += Math.min(word.text.length - 1, Math.max(0, k));
-                }
-            }
+            if (exact && k !== null) column += Math.min(word.text.length - 1, Math.max(0, k));
             return { file, line: token.line, column, start: token.start, length: token.end - token.start, exact };
+        }
+        return null;
+    }
+
+    /** The source of document word `hit` (whose box holds (`x`, `y`) on `page`), and of its character `k` if known:
+     *  first through the line the coarse map points at, then through every line with a word of the same key. */
+    function sourceOf(hit: number, word: DocWord, k: number | null, page: number, x: number, y: number): SourceHit | null {
+        const near = coarse.backward(page, x, y);
+        const candidates: { file: string; line: number }[] = near === null ? [] : [{ file: near.file, line: near.line }];
+        for (const [file] of sources) for (const t of tokens(file)) if (t.key === word.key) candidates.push({ file, line: t.line });
+        for (const c of candidates) {
+            const found = pairedAt(c.file, c.line, hit, word, k);
+            if (found !== null) return found;
         }
         return null;
     }
@@ -264,15 +292,18 @@ export function preciseMap(coarse: SourceMap, words: readonly DocWord[], sources
             });
             const word = words[hit];
             if (word === undefined || gap > 3) return null;
-            // The line the coarse map points at first, then every line with a word of the same key.
-            const near = coarse.backward(page, x, y);
-            const candidates: { file: string; line: number }[] = near === null ? [] : [{ file: near.file, line: near.line }];
-            for (const [file] of sources) for (const t of tokens(file)) if (t.key === word.key) candidates.push({ file, line: t.line });
-            for (const c of candidates) {
-                const found = pairedAt(c.file, c.line, hit, word, page, x, y);
-                if (found !== null) return found;
-            }
-            return null;
+            // The character under the point, by its share of the word's width.
+            const part = word.parts.length === 1 ? word.parts[0] : undefined;
+            const k = part === undefined ? null : Math.floor(((x - part.x) / part.width) * word.text.length);
+            return sourceOf(hit, word, k, page, x, y);
+        },
+
+        charToSource(page, run, offset) {
+            const hit = words.findIndex(w => w.at !== undefined && w.at.page === page && w.at.run === run && offset >= w.at.offset && offset < w.at.offset + w.text.length);
+            const word = words[hit];
+            const box = word?.parts[0];
+            if (word === undefined || word.at === undefined || box === undefined) return null;
+            return sourceOf(hit, word, word.parts.length === 1 ? offset - word.at.offset : null, box.page, box.x + box.width / 2, box.y + box.height / 2);
         },
     };
 }

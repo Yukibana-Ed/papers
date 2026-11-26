@@ -275,7 +275,7 @@ export class SourceEditor {
         const out: Record<string, Anchor> = {};
         for (const t of this.threads) {
             const r = this.anchorOf(t.id);
-            if (r) out[t.id] = { startLine: r.startLineNumber, endLine: r.endLineNumber, startColumn: r.startColumn };
+            if (r) out[t.id] = { startLine: r.startLineNumber, endLine: r.endLineNumber, startColumn: r.startColumn, endColumn: r.endColumn };
         }
         this.on.anchors(out);
     }
@@ -489,11 +489,18 @@ export class SourceEditor {
         };
     }
 
-    /** Selects whole lines (a selection made in the preview), so a comment can be made on them. */
+    /** Selects what a selection made in the preview came from, so a comment can be made on it: the exact text when it
+     *  has columns, else whole lines. */
     selectLines(lines: Lines): void {
         const m = this.models.get(lines.file);
         if (!m) return;
         const end = Math.min(lines.endLine, m.getLineCount());
+        if (lines.startColumn !== undefined && lines.endColumn !== undefined) {
+            this.reveal(lines.file, lines.startLine, lines.startColumn, {
+                select: { startLineNumber: lines.startLine, startColumn: lines.startColumn, endLineNumber: end, endColumn: lines.endColumn },
+            });
+            return;
+        }
         this.reveal(lines.file, lines.startLine, 1, {
             select: {
                 startLineNumber: lines.startLine,
