@@ -29,13 +29,20 @@ export function outsideWorkDir(cwd: string): Error {
     return new Error(`the sandbox runs programs only inside its work folder, not in ${cwd}`);
 }
 
+/** The start of `now`'s UTC day, in seconds: the build's date. Builds of one day are byte-identical, and `	oday` is
+ *  today (an epoch of 0 printed January 1, 1970). */
+export function buildDate(now = Date.now()): string {
+    const d = new Date(now);
+    return String(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / 1000);
+}
+
 /** The variables every confined run gets, so TeX writes its caches into the work folder and nothing else. */
 export function texEnv(workDir: string, sep: string): Record<string, string> {
     return {
         TEXMFVAR: `${workDir}${sep}.texmf-var`,
         TEXMFCONFIG: `${workDir}${sep}.texmf-var`,
         TEXMFHOME: `${workDir}${sep}texmf`,
-        SOURCE_DATE_EPOCH: '0',
+        SOURCE_DATE_EPOCH: buildDate(),
         FORCE_SOURCE_DATE: '1',
     };
 }

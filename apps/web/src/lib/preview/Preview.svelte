@@ -1,6 +1,7 @@
 <script lang="ts">
     import type { FrameMessage, PreviewMark, SelectionAction, SourceLines, SourcePoint } from '@yukibana/papers-frame-protocol';
     import type { Session } from '#lib/session.svelte.ts';
+    import { RunnerClient } from '#lib/runner/client.ts';
     import { FrameClient } from './frame-client.ts';
 
     /** The preview: the content frame, fed with the session's files and told where the cursor is. Everything it
@@ -72,6 +73,7 @@
         client.send({ type: 'project', files: { ...session.assets, ...sent }, root: session.root, engine: engineOf(session.root) });
         client.send({ type: 'theme', dark: session.dark });
         client.send({ type: 'zoom', zoom: session.zoom });
+        client.send({ type: 'builder', builder: session.builder === 'computer' ? 'external' : 'browser' });
     }
 
     $effect(() => {
@@ -135,6 +137,49 @@
 
     $effect(() => {
         client?.send({ type: 'theme', dark: session.dark });
+    });
+
+    // --- Build on this computer ---------------------------------------------------------------------------------------
+
+    let runner: RunnerClient | null = null;
+    let runnerTimer = 0;
+
+    /** Connects to `papers serve` with a paired token; the builder menu calls it. */
+    export function connectComputer(token: string): void {
+        runner?.close();
+        runner = new RunnerClient(token, {
+            ready: (info) => {
+                session.computer = info;
+                session.builder = 'computer';
+            },
+            status: () => (session.build = { ...session.build, status: 'compiling' }),
+            built: (b) => {
+                client?.send({ type: 'output', ok: b.ok, pdf: b.pdf, synctex: b.synctex, ms: b.ms, diagnostics: b.diagnostics.map((d) => ({ file: d.file ?? session.root, line: d.line ?? 1, severity: d.severity === 'error' ? 'error' : 'warning', message: d.message })) });
+            },
+            closed: (reason) => {
+                runner = null;
+                session.computer = null;
+                session.builder = 'browser';
+                session.flash(reason);
+            },
+        });
+    }
+
+    $effect(() => {
+        client?.send({ type: 'builder', builder: session.builder === 'computer' ? 'external' : 'browser' });
+    });
+
+    // On this computer: the files and a build, shortly after every change.
+    $effect(() => {
+        if (session.builder !== 'computer') return;
+        const files = { ...session.assets, ...session.files };
+        const root = session.root;
+        clearTimeout(runnerTimer);
+        runnerTimer = window.setTimeout(() => {
+            if (!runner || !root) return;
+            session.build = { ...session.build, status: 'compiling' };
+            runner.build(files, root);
+        }, 400);
     });
 
     /** Shows `at`, always, with a flash. */
