@@ -45,3 +45,15 @@ test('without the preview frame, the editor works and the Typst language server 
     await expect.poll(() => languageServer(page), { timeout: 40_000 }).toMatchObject({ status: 'failed', detail: 'the preview frame cannot be reached' });
     await expect(page.locator('[data-lsp="failed"]')).toBeVisible();
 });
+
+test('a LaTeX paper does not load the Typst language server; opening a Typst file does', async ({ page }) => {
+    const asked: string[] = [];
+    page.on('request', r => {
+        if (/tinymist/.test(r.url())) asked.push(r.url());
+    });
+    await openDemo(page);
+    await page.waitForTimeout(3000);
+    expect(asked).toEqual([]);
+    await caretAt(page, 'brief/findings.typ', 1, 1);
+    await expect.poll(() => asked.length, { timeout: 30_000 }).toBeGreaterThan(0);
+});
