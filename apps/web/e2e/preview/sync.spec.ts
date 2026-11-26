@@ -89,11 +89,11 @@ test.describe('sync to the word', () => {
         const mirror = frame.locator('.pv-hl-mirror').first();
         await expect(mirror).toBeAttached();
         // Mirrored to the word, the highlight ends where the source line does, short of the typeset line's end.
-        const widths = await frame.locator('.pv-hl-mirror').evaluateAll(els => els.map(e => e.getBoundingClientRect().width));
         const line = await frame
             .locator('.textLayer span', { hasText: 'struggle' })
             .first()
             .evaluate(el => el.getBoundingClientRect().width);
-        expect(Math.min(...widths)).toBeLessThan(line);
+        // The mirror is redrawn as the selection settles: wait for the narrow one.
+        await expect.poll(async () => Math.min(...(await frame.locator('.pv-hl-mirror').evaluateAll(els => els.map(e => e.getBoundingClientRect().width))))).toBeLessThan(line);
     });
 });
