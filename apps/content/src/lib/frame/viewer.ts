@@ -864,7 +864,8 @@ export class Viewer {
             const page = this.#pages.indexOf(e.page) + 1;
             const y = (e.rect.y + e.rect.height * 0.7) / s;
             const hit = sync.backward(page, (edge === 'start' ? e.rect.x + 4 : e.rect.x + e.rect.width - 4) / s, y);
-            if (hit === null) return null;
+            // Text is never a line of markup alone: an argument read ahead (a beamer frame) is typeset at its end.
+            if (hit === null || MARKUP_ONLY.test((this.#sources.get(hit.file) ?? '').split('\n')[hit.line - 1] ?? '')) return null;
             const height = e.rect.height / s;
             return sync.segments(hit.file, hit.line, false).some(b => b.page === page && y >= b.y - height && y <= b.y + b.height + height) ? hit : null;
         };
@@ -962,6 +963,9 @@ export class Viewer {
         void this.#task?.destroy();
     }
 }
+
+/** A source line that is commands and environment names only (LaTeX), with nothing a page would show as text. */
+const MARKUP_ONLY = /^\s*(?:\\(?:begin|end)\{[^}]*\}|\\[A-Za-z@]+\*?|[[\]{}\s])*(?:%.*)?$/;
 
 /** An absolutely placed element over `r` (in page units times `scale`), grown by `pad` CSS pixels on every side. */
 function box(r: Rect, scale: number, cls: string, pad: number): HTMLDivElement {

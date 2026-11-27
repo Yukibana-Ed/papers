@@ -1,5 +1,6 @@
 import { expect, test, type FrameLocator, type Page } from '@playwright/test';
 import { caretAt, state } from '../editor/helpers.ts';
+import { SLIDES } from '../fixtures/slides.ts';
 import { TABLE_PAPER } from '../fixtures/table-paper.ts';
 import { openPaper } from '../typst-paper.ts';
 
@@ -142,5 +143,59 @@ test.describe('matching source and preview', () => {
         await page.mouse.move(to.x, to.y, { steps: 4 });
         await page.mouse.up();
         await expect.poll(async () => (await state(page)).selection).toMatch(/^email of T12 in the confirmatory run[\s\S]*classic Outlook \(bottom\)?,?$/);
+    });
+});
+
+test.describe('a beamer frame, which SyncTeX knows only by its end', () => {
+    test.skip(!process.env['E2E_ENGINE'], 'needs the TeX engine (E2E_ENGINE=1)');
+
+    /** The viewport box of `text` in the preview, scrolled into view. */
+    async function boxOf(page: Page, frame: FrameLocator, text: string): Promise<{ x: number; y: number; width: number; height: number }> {
+        const iframe = await page.locator('iframe.pv-frame').boundingBox();
+        if (iframe === null) throw new Error('no frame');
+        const span = frame.locator('.textLayer span', { hasText: text }).first();
+        await span.evaluate(el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
+        const r = await span.evaluate((el, t) => {
+            const node = el.firstChild;
+            const i = (node?.textContent ?? '').indexOf(t);
+            if (node === null || i < 0) throw new Error('text not in run');
+            const range = document.createRange();
+            range.setStart(node, i);
+            range.setEnd(node, i + t.length);
+            const b = range.getBoundingClientRect();
+            return { x: b.left, y: b.top, width: b.width, height: b.height };
+        }, text);
+        return { ...r, x: r.x + iframe.x, y: r.y + iframe.y };
+    }
+
+    test('text selected on a slide is selected in the frame, not its \\end{frame}', async ({ page }) => {
+        await openPaper(page, SLIDES, { format: 'latex', engine: 'pdflatex', root: 'slides.tex' });
+        const frame = page.frameLocator('iframe.pv-frame');
+        await expect(frame.locator('.pv-pages[data-sync]')).toBeAttached({ timeout: 170_000 });
+        await frame.locator('.pv-page[data-page="2"]').evaluate(el => el.scrollIntoView({ block: 'start', behavior: 'instant' }));
+
+        // A whole line, by a triple click: it ends on a question mark.
+        const audience = await boxOf(page, frame, 'audience');
+        await page.mouse.click(audience.x + audience.width / 2, audience.y + audience.height / 2, { clickCount: 3 });
+        await expect.poll(async () => (await state(page)).selection).toMatch(/^What should the audience remember tomorrow\??$/);
+
+        // A word, by a double click.
+        const remember = await boxOf(page, frame, 'remember');
+        await page.mouse.dblclick(remember.x + remember.width / 2, remember.y + remember.height / 2);
+        await expect.poll(async () => (await state(page)).selection).toBe('remember');
+
+        // Part of an item, by a drag.
+        await frame.locator('.pv-page[data-page="1"]').evaluate(el => el.scrollIntoView({ block: 'start', behavior: 'instant' }));
+        const from = await boxOf(page, frame, 'talk');
+        const to = await boxOf(page, frame, 'rest');
+        await page.mouse.move(from.x + 0.5, from.y + from.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(to.x + to.width - 0.5, to.y + to.height / 2, { steps: 6 });
+        await page.mouse.up();
+        await expect.poll(async () => (await state(page)).selection).toBe('talk carries the rest');
+
+        // And from the source: the caret in the body shows on its slide.
+        await page.locator('.monaco-editor .view-lines').getByText('What should the audience').click();
+        await expect(frame.locator('.pv-page[data-page="2"] .pv-locator')).toBeAttached();
     });
 });

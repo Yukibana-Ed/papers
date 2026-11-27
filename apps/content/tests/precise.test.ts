@@ -150,3 +150,24 @@ describe("words the line's own place does not show", () => {
         expect(far.locate({ file: 'prose.tex', line: 9, column: at })).toBeNull();
     });
 });
+
+describe('text read ahead as an argument', () => {
+    // A beamer frame: the coarse map knows its body only by the line of `\\end{frame}`.
+    const source = ['\\begin{frame}{Take-away}', '\\begin{block}{In one sentence}', 'What should the audience remember tomorrow?', '', '', '', '\\end{block}', '\\end{frame}'].join(
+        '\n',
+    );
+    const texts: PageText[] = [
+        { page: 1, str: 'Take-away', x: 0, y: 20, width: 9, height: 10 },
+        { page: 1, str: 'In one sentence', x: 0, y: 60, width: 15, height: 10 },
+        { page: 1, str: 'What should the audience remember tomorrow?', x: 0, y: 74, width: 43, height: 10 },
+    ];
+    const slide = { page: 1, x: 0, y: 0, width: 200, height: 100 };
+    const frame: SourceMap = { segments: (_file, line) => (line === 8 ? [slide] : []), backward: () => ({ file: 'slides.tex', line: 8 }) };
+    const slides = preciseMap(frame, docWords(texts), new Map([['slides.tex', source]]), 'latex');
+
+    it('places a word of the body on the slide, and a click on it in the body', () => {
+        expect(slides.locate({ file: 'slides.tex', line: 3, column: 16 })).toMatchObject({ page: 1, x: 16, y: 65.5 });
+        expect(slides.pointToSource(1, 5.5, 70)).toMatchObject({ file: 'slides.tex', line: 3, column: 5, exact: true });
+        expect(slides.range({ file: 'slides.tex', line: 3, column: 0 }, { file: 'slides.tex', line: 3, column: 42 })).toHaveLength(6);
+    });
+});

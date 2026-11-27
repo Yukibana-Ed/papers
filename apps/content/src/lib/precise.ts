@@ -109,6 +109,26 @@ export function refineWords(words: readonly DocWord[], page: number, boxOf: (run
  *  typeset lines rarely break at the same places. */
 const CONTEXT = 3;
 
+/** How many lines after one the coarse map does not know are looked at for the line that typeset it. */
+const READ_AHEAD = 200;
+
+/** The first line after `line` (1-based) of the LaTeX `source` that closes an environment `line` is in and that
+ *  `known` accepts, within `READ_AHEAD` lines; null when there is none before the document's own end. */
+export function closingLine(source: string, line: number, known: (line: number) => boolean): number | null {
+    const lines = source.split('\n');
+    let depth = 0;
+    for (let next = line + 1; next <= Math.min(lines.length, line + READ_AHEAD); next++) {
+        let closes = false;
+        for (const m of (lines[next - 1] ?? '').replace(/(?<!\\)%.*$/, '').matchAll(/\\(begin|end)\{([^}]*)\}/g)) {
+            if (m[1] === 'begin') depth++;
+            else if (m[2] === 'document') return null;
+            else if (--depth < 0) closes = true;
+        }
+        if (closes && known(next)) return next;
+    }
+    return null;
+}
+
 /** How many words in a row a search over the whole document needs to agree on. */
 const FAR_RUN = 3;
 
@@ -191,7 +211,15 @@ export function preciseMap(coarse: SourceMap, words: readonly DocWord[], sources
         const worded = new Set<number>();
         for (const t of tokens(file)) if (t.line >= from && t.line <= to) worded.add(t.line);
         const bands: PageBox[] = [];
-        for (const l of worded) bands.push(...coarse.segments(file, l, false));
+        for (const l of worded) {
+            const own = coarse.segments(file, l, false);
+            bands.push(...own);
+            if (own.length > 0) continue;
+            // A line the coarse map does not know was read ahead as an argument (a beamer frame's body, by its
+            // `\end{frame}`): its words show where the end of an environment around it does.
+            const end = format === 'latex' ? closingLine(sources.get(file) ?? '', l, next => coarse.segments(file, next, false).length > 0) : null;
+            if (end !== null) bands.push(...coarse.segments(file, end, false));
+        }
         if (bands.length === 0) return [];
         const out: number[] = [];
         words.forEach((w, i) => {
