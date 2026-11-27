@@ -1,10 +1,10 @@
 import { baseKeymap, chainCommands, exitCode, setBlockType, toggleMark, wrapIn } from 'prosemirror-commands';
 import { history, redo, undo } from 'prosemirror-history';
-import { InputRule, inputRules, textblockTypeInputRule, wrappingInputRule } from 'prosemirror-inputrules';
+import { InputRule, inputRules, wrappingInputRule } from 'prosemirror-inputrules';
 import { keymap } from 'prosemirror-keymap';
-import type { MarkType, Node as PMNode } from 'prosemirror-model';
+import type { MarkType, Node as PMNode, NodeType } from 'prosemirror-model';
 import { liftListItem, sinkListItem, splitListItem, wrapInList } from 'prosemirror-schema-list';
-import { EditorState, type Command, type Plugin } from 'prosemirror-state';
+import { EditorState, TextSelection, type Command, type Plugin, type Transaction } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
 import { parseMarkdown, safeHref, schema, toMarkdown } from './markdown.ts';
 
@@ -21,15 +21,62 @@ function markRule(pattern: RegExp, mark: MarkType): InputRule {
     });
 }
 
-/** Typing Markdown in the rich editor makes what it would render: `**b**`, `*i*`, `` `c` ``, `> `, `- `, `1. `, ```` ``` ````,
- *  `$x$`. */
+/** What an input rule sees in place of a line break (or any other inline node) in the text before the caret. */
+const BREAK = '￼';
+
+/** The line the caret ends: its text and where it starts, when the selection is a caret at the end of a `type` block.
+ *  In a paragraph a line starts after a line break, in a code block after a newline. */
+function lineAtEnd(state: EditorState, type: NodeType): { text: string; from: number; first: boolean } | null {
+    const { $from, empty } = state.selection;
+    if (!empty || $from.parent.type !== type || $from.parentOffset !== $from.parent.content.size) return null;
+    const all = $from.parent.textBetween(0, $from.parentOffset, undefined, BREAK);
+    const cut = Math.max(all.lastIndexOf(BREAK), all.lastIndexOf('\n')) + 1;
+    return { text: all.slice(cut), from: $from.start() + cut, first: cut === 0 };
+}
+
+/** Starts a code block from the line that ends at the caret, when that line is ```` ``` ```` and an optional language.
+ *  The lines before it stay a paragraph of their own. Returns null for any other line. */
+function openFence(state: EditorState): Transaction | null {
+    const line = lineAtEnd(state, S['paragraph']);
+    const m = line && /^```([^\s`]*)$/.exec(line.text);
+    if (!line || !m) return null;
+    const end = state.selection.from;
+    const tr = state.tr;
+    if (line.first) return tr.delete(line.from, end).setBlockType(line.from, line.from, S['code_block'], { params: m[1] });
+    // The line break before the fence goes with it, and the paragraph ends there.
+    tr.delete(line.from - 1, end).split(line.from - 1);
+    return tr.setBlockType(line.from + 1, line.from + 1, S['code_block'], { params: m[1] });
+}
+
+/** Enter on a ```` ``` ```` line: opens a code block from a paragraph, or closes the code block the caret is in. */
+const fenceOnEnter: Command = (state, dispatch) => {
+    const opened = openFence(state);
+    if (opened) {
+        dispatch?.(opened.scrollIntoView());
+        return true;
+    }
+    const line = lineAtEnd(state, S['code_block']);
+    if (!line || line.text !== '```' || line.first) return false;
+    if (dispatch) {
+        const { $from } = state.selection;
+        const tr = state.tr.delete(line.from - 1, $from.pos);
+        const after = tr.mapping.map($from.after());
+        tr.insert(after, S['paragraph'].create());
+        dispatch(tr.setSelection(TextSelection.create(tr.doc, after + 1)).scrollIntoView());
+    }
+    return true;
+};
+
+/** Typing Markdown in the rich editor makes what it would render: `**b**`, `*i*`, `` `c` ``, `> `, `- `, `1. `, `$x$`, and
+ *  ```` ```lang ```` followed by a space (Enter does the same, through the keymap). Emphasis, code and math stay within a
+ *  line: a line break is never part of what a rule replaces. */
 function rules(): Plugin {
     const items = [
-        markRule(/\*\*([^*\s][^*]*[^*\s]|[^*\s])\*\*$/, M['strong']),
-        markRule(/(?<![*\w])\*([^*\s][^*]*[^*\s]|[^*\s])\*$/, M['em']),
-        markRule(/(?<![_\w])_([^_\s][^_]*[^_\s]|[^_\s])_$/, M['em']),
-        markRule(/`([^`]+)`$/, M['code']),
-        new InputRule(/(?<![\w$\\])\$([^$\s](?:[^$]*[^$\s])?)\$$/, (state, match, start, end) => {
+        markRule(/\*\*([^*\s￼][^*￼]*[^*\s￼]|[^*\s￼])\*\*$/, M['strong']),
+        markRule(/(?<![*\w])\*([^*\s￼][^*￼]*[^*\s￼]|[^*\s￼])\*$/, M['em']),
+        markRule(/(?<![_\w])_([^_\s￼][^_￼]*[^_\s￼]|[^_\s￼])_$/, M['em']),
+        markRule(/(?<!`)`([^`￼]+)`$/, M['code']),
+        new InputRule(/(?<![\w$\\])\$([^$\s￼](?:[^$￼]*[^$\s￼])?)\$$/, (state, match, start, end) => {
             const tex = match[1];
             return tex === undefined ? null : state.tr.replaceWith(start, end, S['math_inline'].create({ tex }));
         }),
@@ -41,7 +88,7 @@ function rules(): Plugin {
             m => ({ order: Number(m[1]) }),
             (m, node) => node.childCount + Number(node.attrs['order']) === Number(m[1]),
         ),
-        textblockTypeInputRule(/^```$/, S['code_block']),
+        new InputRule(/```[^\s`]*\s$/, state => openFence(state)),
     ];
     return inputRules({ rules: items });
 }
@@ -122,7 +169,7 @@ export function createRichEditor(host: HTMLElement, o: RichEditorOptions): Edito
                 'Mod-k': commands.link,
                 'Mod-Enter': submit,
                 Escape: cancel,
-                Enter: splitListItem(S['list_item']),
+                Enter: chainCommands(fenceOnEnter, splitListItem(S['list_item'])),
                 'Shift-Enter': chainCommands(exitCode, (st, dispatch) => {
                     dispatch?.(st.tr.replaceSelectionWith(S['hard_break'].create()).scrollIntoView());
                     return true;
