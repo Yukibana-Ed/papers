@@ -6,6 +6,17 @@ const COMMIT = 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00';
 /** Opens a Typst paper made of `files` (root `main.typ`) as a guest: the template gallery is mocked with one Typst
  *  template holding them, and the paper is opened from it. Resolves once the workbench is open; the build follows. */
 export async function openTypstPaper(page: Page, files: Readonly<Record<string, string | Uint8Array>>): Promise<void> {
+    await openPaper(page, files, { format: 'typst', engine: 'typst', root: 'main.typ' });
+}
+
+/** Opens a paper made of `files` as a guest, built as `kind` says: the template gallery is mocked with one template
+ *  holding them, and the paper is opened from it. Resolves once the workbench is open; the build follows.
+ *  Precondition: `files` has `kind.root`. */
+export async function openPaper(
+    page: Page,
+    files: Readonly<Record<string, string | Uint8Array>>,
+    kind: { readonly format: 'latex' | 'typst'; readonly engine: 'pdflatex' | 'xelatex' | 'lualatex' | 'typst'; readonly root: string },
+): Promise<void> {
     await page.route('https://api.github.com/repos/Yukibana-Ed/papers-templates/commits/main', route => route.fulfill({ body: COMMIT }));
     await page.route(`https://raw.githubusercontent.com/Yukibana-Ed/papers-templates/${COMMIT}/**`, route => {
         const path = decodeURIComponent(new URL(route.request().url()).pathname.split(`/${COMMIT}/`)[1] ?? '');
@@ -16,12 +27,12 @@ export async function openTypstPaper(page: Page, files: Readonly<Record<string, 
                     templates: [
                         {
                             id: 'typst-paper',
-                            name: 'Typst paper',
+                            name: 'Test paper',
                             description: 'A paper for a test.',
                             category: 'paper',
-                            format: 'typst',
-                            engine: 'typst',
-                            root: 'main.typ',
+                            format: kind.format,
+                            engine: kind.engine,
+                            root: kind.root,
                             licence: '0BSD',
                             thumbnail: 'thumbnail.png',
                             fields: {},
@@ -38,7 +49,7 @@ export async function openTypstPaper(page: Page, files: Readonly<Record<string, 
     });
     await page.goto('/new');
     await page
-        .getByRole('button', { name: /Typst paper/ })
+        .getByRole('button', { name: /Test paper/ })
         .first()
         .click();
     await page.getByRole('button', { name: 'Open here' }).click();
