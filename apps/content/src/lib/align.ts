@@ -291,10 +291,8 @@ export function typstTokens(source: string): SourceToken[] {
 
 /** Pairs of indices (source token, document word) where the two sequences agree: a longest common subsequence of
  *  their keys, keeping only pairs a neighbour confirms (the token before or after is paired with the word just before
- *  or after) or whose key appears once on each side. With `minRun` above 1, only pairs in runs of at least that many
- *  consecutive pairs (for a search over a whole document, where a lone word proves little). Promises: both indices
- *  strictly increase along the result. */
-export function align(source: readonly { key: string }[], doc: readonly { key: string }[], minRun = 1): [number, number][] {
+ *  or after) or whose key appears once on each side, or once on each side between the nearest such pairs around it. Promises: both indices strictly increase along the result. */
+export function align(source: readonly { key: string }[], doc: readonly { key: string }[]): [number, number][] {
     const n = source.length;
     const m = doc.length;
     if (n === 0 || m === 0) return [];
@@ -318,29 +316,30 @@ export function align(source: readonly { key: string }[], doc: readonly { key: s
         } else if ((t[(i + 1) * w + j] ?? 0) >= (t[i * w + j + 1] ?? 0)) i++;
         else j++;
     }
-    if (minRun > 1) {
-        // Runs of pairs adjacent on both sides; keep those long enough.
-        const keep: [number, number][] = [];
-        let run: [number, number][] = [];
-        const flush = (): void => {
-            if (run.length >= minRun) keep.push(...run);
-            run = [];
-        };
-        for (const p of pairs) {
-            const last = run.at(-1);
-            if (last !== undefined && (p[0] !== last[0] + 1 || p[1] !== last[1] + 1)) flush();
-            run.push(p);
-        }
-        flush();
-        return keep;
-    }
-    const count = (list: readonly { key: string }[], key: string): number => list.reduce((a, x) => a + (x.key === key ? 1 : 0), 0);
-    return pairs.filter(([a, b], k) => {
+    const count = (list: readonly { key: string }[], key: string, from = 0, to = list.length): number => {
+        let c = 0;
+        for (let k = from; k < to; k++) if (list[k]?.key === key) c++;
+        return c;
+    };
+    const sure = pairs.map(([a, b], k) => {
         const prev = pairs[k - 1];
         const next = pairs[k + 1];
         const confirmed = (prev !== undefined && prev[0] === a - 1 && prev[1] === b - 1) || (next !== undefined && next[0] === a + 1 && next[1] === b + 1);
         if (confirmed) return true;
         const key = source[a]?.key ?? '';
         return count(source, key) === 1 && count(doc, key) === 1;
+    });
+    // Between two pairs that are sure, a key that either side has once there can only be that pair.
+    return pairs.filter(([a], k) => {
+        if (sure[k]) return true;
+        const before = pairs[sure.lastIndexOf(true, k)];
+        const afterAt = sure.indexOf(true, k);
+        const after = afterAt < 0 ? undefined : pairs[afterAt];
+        const key = source[a]?.key ?? '';
+        return (
+            (before !== undefined || after !== undefined) &&
+            count(source, key, before === undefined ? 0 : before[0] + 1, after === undefined ? n : after[0]) === 1 &&
+            count(doc, key, before === undefined ? 0 : before[1] + 1, after === undefined ? m : after[1]) === 1
+        );
     });
 }

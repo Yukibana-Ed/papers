@@ -109,6 +109,66 @@ export function refineWords(words: readonly DocWord[], page: number, boxOf: (run
  *  typeset lines rarely break at the same places. */
 const CONTEXT = 3;
 
+/** How many words in a row a search over the whole document needs to agree on. */
+const FAR_RUN = 3;
+
+/** `sorted` (increasing integers) cut into its runs of consecutive numbers. */
+function runsOf(sorted: readonly number[]): number[][] {
+    const out: number[][] = [];
+    for (const i of sorted) {
+        const run = out.at(-1);
+        if (run !== undefined && run.at(-1) === i - 1) run.push(i);
+        else out.push([i]);
+    }
+    return out;
+}
+
+/** Pairs (index into `keys`, index into `words`) for the stretches of `keys` that `words` shows: at least `FAR_RUN`
+ *  keys in a row equal to words in a row none of which is in `used`, where those words' keys appear in a row nowhere
+ *  else in `words`. The longest such stretch is taken first; a key is paired at most once.
+ *  Precondition: `starts` has, for each key, the indices of the words of that key, increasing.
+ *  Promises: a stretch the document shows in two places is not paired with either. */
+function soleRuns(
+    keys: readonly string[],
+    words: readonly { readonly key: string }[],
+    starts: ReadonlyMap<string, readonly number[]>,
+    used: ReadonlySet<number>,
+): [number, number][] {
+    const out: [number, number][] = [];
+    /** How many keys from `a` on equal the words from `d` on. */
+    const length = (a: number, d: number, most: number): number => {
+        let n = 0;
+        while (n < most && a + n < keys.length && keys[a + n] === words[d + n]?.key) n++;
+        return n;
+    };
+    const taken = new Set<number>();
+    const search = (from: number, to: number): void => {
+        if (to - from < FAR_RUN) return;
+        let best: { a: number; d: number; n: number } | null = null;
+        for (let a = from; a + FAR_RUN <= to; a++) {
+            for (const d of starts.get(keys[a] ?? '') ?? []) {
+                const n = length(a, d, to - a);
+                if (n >= FAR_RUN && (best === null || n > best.n)) best = { a, d, n };
+            }
+        }
+        if (best === null) return;
+        const { a, d, n } = best;
+        const places = (starts.get(keys[a] ?? '') ?? []).filter(e => length(a, e, n) === n).length;
+        let free = true;
+        for (let k = 0; k < n; k++) free &&= !used.has(d + k) && !taken.has(d + k);
+        if (places === 1 && free) {
+            for (let k = 0; k < n; k++) {
+                out.push([a + k, d + k]);
+                taken.add(d + k);
+            }
+        }
+        search(from, a);
+        search(a + n, to);
+    };
+    search(0, keys.length);
+    return out.toSorted((x, y) => x[0] - y[0]);
+}
+
 /** A `PreciseMap` over `coarse`, for a build whose document shows `words` and whose sources are `sources` (path →
  *  text). Only the files of the build's `format` take part (`.tex` for LaTeX, `.typ` for Typst): a project may hold
  *  both, and the other kind's words must not pair with this document's. */
@@ -126,8 +186,12 @@ export function preciseMap(coarse: SourceMap, words: readonly DocWord[], sources
 
     /** The document words on the typeset lines that show `file`'s lines `from`..`to`, in reading order. */
     const wordsShowing = (file: string, from: number, to: number): number[] => {
+        // Only where lines with words show: the coarse map puts a whole paragraph on the line that ends it too, and
+        // a blank line after the paragraph before would bring that paragraph's words in.
+        const worded = new Set<number>();
+        for (const t of tokens(file)) if (t.line >= from && t.line <= to) worded.add(t.line);
         const bands: PageBox[] = [];
-        for (let l = from; l <= to; l++) bands.push(...coarse.segments(file, l, false));
+        for (const l of worded) bands.push(...coarse.segments(file, l, false));
         if (bands.length === 0) return [];
         const out: number[] = [];
         words.forEach((w, i) => {
@@ -137,6 +201,20 @@ export function preciseMap(coarse: SourceMap, words: readonly DocWord[], sources
             if (bands.some(b => b.page === first.page && mid >= b.y && mid <= b.y + b.height)) out.push(i);
         });
         return out;
+    };
+
+    let byKey: Map<string, number[]> | null = null;
+    /** The indices of the document's words, by key. */
+    const wordsOfKey = (): Map<string, number[]> => {
+        if (byKey === null) {
+            byKey = new Map();
+            for (const [i, w] of words.entries()) {
+                const list = byKey.get(w.key);
+                if (list === undefined) byKey.set(w.key, [i]);
+                else list.push(i);
+            }
+        }
+        return byKey;
     };
 
     const cache = new Map<string, Map<number, number>>();
@@ -163,24 +241,22 @@ export function preciseMap(coarse: SourceMap, words: readonly DocWord[], sources
             if (s !== undefined && d !== undefined) pairs.set(s, d);
         }
         // The unpaired tokens around `line` (a footnote's text sits in its paragraph's source but at the foot of
-        // the page), as one run: looked for in the whole document, among the words that share a key with it, and
-        // paired only in runs of three or more.
+        // the page) are looked for in the whole document, where a word alone proves nothing: only three or more
+        // tokens in a row that the document shows as words in a row, in one place only, are paired.
         const lone = src.filter(i => !pairs.has(i));
         if (lone.some(i => all[i]?.line === line)) {
-            const keys = new Set(lone.map(i => all[i]?.key ?? ''));
             const used = new Set(pairs.values());
-            const anywhere: number[] = [];
-            words.forEach((w, i) => {
-                if (keys.has(w.key) && !used.has(i)) anywhere.push(i);
-            });
-            for (const [a, b] of align(
-                lone.map(i => all[i] ?? { key: '' }),
-                anywhere.map(i => words[i] ?? { key: '' }),
-                3,
-            )) {
-                const s = lone[a];
-                const d = anywhere[b];
-                if (s !== undefined && d !== undefined) pairs.set(s, d);
+            for (const run of runsOf(lone)) {
+                if (run.length < FAR_RUN) continue;
+                for (const [a, d] of soleRuns(
+                    run.map(i => all[i]?.key ?? ''),
+                    words,
+                    wordsOfKey(),
+                    used,
+                )) {
+                    const s = run[a];
+                    if (s !== undefined) pairs.set(s, d);
+                }
             }
         }
         cache.set(id, pairs);

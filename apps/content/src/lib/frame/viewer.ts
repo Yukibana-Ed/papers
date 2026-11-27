@@ -543,20 +543,29 @@ export class Viewer {
 
     // --- navigation ----------------------------------------------------------------------------------------------------
 
-    /** Shows `at`. `follow` scrolls only when its line is outside the view; `jump` always brings it to a third of the
-     *  view's height, and flashes it; `stay` scrolls nothing. In every mode the locator bar moves there. */
+    /** Shows `at`. `follow` scrolls only when it is outside the view, and then to the nearest place that shows it;
+     *  `jump` always brings it to a third of the view's height, and flashes it; `stay` scrolls nothing. In every mode the locator bar moves there. */
     reveal(at: SourcePoint, mode: 'follow' | 'jump' | 'stay'): void {
         this.#cursor = at;
         this.#drawOverlays();
         if (mode === 'stay') return;
-        const b = this.#firstBox(at);
-        const page = b === null ? undefined : this.#pages[b.page - 1];
-        if (b === null || page === undefined) return;
         const s = this.scale;
-        const top = page.el.offsetTop + b.y * s;
-        const bottom = top + b.height * s;
         const view = this.#scroller;
-        const inView = top >= view.scrollTop + 24 && bottom <= view.scrollTop + view.clientHeight - 24;
+        const span = (b: PageBox): { top: number; bottom: number } | null => {
+            const page = this.#pages[b.page - 1];
+            return page === undefined ? null : { top: page.el.offsetTop + b.y * s, bottom: page.el.offsetTop + (b.y + b.height) * s };
+        };
+        const seen = (v: { top: number; bottom: number }): boolean => v.top >= view.scrollTop + 24 && v.bottom <= view.scrollTop + view.clientHeight - 24;
+        // Its word where the sync to the word places it. Else its line, which may show in several places: one of them
+        // in view is enough to follow it, and none is a reason to go to the nearest, not the first.
+        const exact = at.column === undefined ? null : (this.#precise?.locate({ file: at.file, line: at.line, column: at.column - 1 }) ?? null);
+        const spans = (exact === null ? (this.#sync?.segments(at.file, at.line) ?? []) : [exact]).map(span).filter(v => v !== null);
+        const middle = view.scrollTop + view.clientHeight / 2;
+        const away = (v: { top: number; bottom: number }): number => Math.abs((v.top + v.bottom) / 2 - middle);
+        const nearest = mode === 'jump' ? spans[0] : spans.toSorted((p, q) => away(p) - away(q))[0];
+        if (nearest === undefined) return;
+        const top = nearest.top;
+        const inView = spans.some(seen);
         // A glide only when someone can see it: a hidden page gets no animation frames to glide in.
         const behavior = document.visibilityState === 'visible' ? 'smooth' : 'instant';
         if (mode === 'jump' || !inView) view.scrollTo({ top: top - view.clientHeight / 3, behavior });
@@ -835,12 +844,14 @@ export class Viewer {
         // To the character, when the sync to the word places both ends: the selection's first and last characters that
         // are not blank (a double click takes the space after a word too), each at the middle of its own glyph box.
         const precise = this.#precise;
-        const ends = range === null ? null : this.#ends(range);
-        if (precise !== null && ends !== null) {
-            const source = (e: { page: number; run: number; offset: number; x: number; y: number }): ReturnType<PreciseMap['charToSource']> =>
-                (e.run >= 0 ? precise.charToSource(e.page, e.run, e.offset) : null) ?? precise.pointToSource(e.page, e.x, e.y);
-            const a = source(ends.first);
-            const b = source(ends.last);
+        const source = (e: CharAt | undefined): ReturnType<PreciseMap['charToSource']> =>
+            e === undefined || precise === null ? null : ((e.run >= 0 ? precise.charToSource(e.page, e.run, e.offset) : null) ?? precise.pointToSource(e.page, e.x, e.y));
+        if (precise !== null && range !== null) {
+            // An end on a bracket or a comma is no word's: the selection's first and last letters stand in for it.
+            const ends = this.#ends(range, /\S/u);
+            const words = this.#ends(range, /[\p{L}\p{N}]/u);
+            const a = source(ends?.first) ?? source(words?.first);
+            const b = source(ends?.last) ?? source(words?.last);
             if (a !== null && b !== null && a.file === b.file && (a.line < b.line || (a.line === b.line && a.column <= b.column))) {
                 // Exclusive end: after the last character, or after the whole word where the source spells it otherwise.
                 const startColumn = a.exact ? a.column : a.start;
@@ -848,12 +859,19 @@ export class Viewer {
                 return { file: a.file, startLine: a.line, endLine: b.line, startColumn: startColumn + 1, endColumn: endColumn + 1 };
             }
         }
-        const at = (e: { page: PageView; rect: Rect }, edge: 'start' | 'end'): { file: string; line: number } | null =>
-            sync.backward(this.#pages.indexOf(e.page) + 1, (edge === 'start' ? e.rect.x + 4 : e.rect.x + e.rect.width - 4) / s, (e.rect.y + e.rect.height * 0.7) / s);
-        const a = at(first, 'start');
-        const b = at(last, 'end');
-        if (a === null) return null;
-        if (b === null || b.file !== a.file) return { file: a.file, startLine: a.line, endLine: a.line };
+        // Else its lines, where the map agrees with itself: a line it gives for a point must show at that point.
+        const at = (e: { page: PageView; rect: Rect }, edge: 'start' | 'end'): { file: string; line: number } | null => {
+            const page = this.#pages.indexOf(e.page) + 1;
+            const y = (e.rect.y + e.rect.height * 0.7) / s;
+            const hit = sync.backward(page, (edge === 'start' ? e.rect.x + 4 : e.rect.x + e.rect.width - 4) / s, y);
+            if (hit === null) return null;
+            const height = e.rect.height / s;
+            return sync.segments(hit.file, hit.line, false).some(b => b.page === page && y >= b.y - height && y <= b.y + b.height + height) ? hit : null;
+        };
+        const a = at(first, 'start') ?? at(last, 'end');
+        const b = at(last, 'end') ?? a;
+        if (a === null || b === null) return null;
+        if (b.file !== a.file) return { file: a.file, startLine: a.line, endLine: a.line };
         return { file: a.file, startLine: Math.min(a.line, b.line), endLine: Math.max(a.line, b.line) };
     }
 
@@ -879,13 +897,13 @@ export class Viewer {
         if (this.#precise !== null) this.#drawOverlays();
     }
 
-    /** The first and the last character of `range` that are not blank: each with its page number, its text run (the
+    /** The first and the last character of `range` that are of `kind` (a pattern for one character): each with its page number, its text run (the
      *  index of its span among the page's text spans, -1 if not in one) and offset there, and the middle of its glyph box
-     *  in page points; null when the range holds no such character in the pages. */
-    #ends(range: Range): { first: CharAt; last: CharAt } | null {
+     *  in page points; null when the range holds no such character in the pages. Precondition: `kind` is not global. */
+    #ends(range: Range, kind: RegExp): { first: CharAt; last: CharAt } | null {
         const chars = textChars(this.#column, range);
-        const first = chars.find(c => !/\s/.test(c.node.data[c.offset] ?? ' '));
-        const last = chars.findLast(c => !/\s/.test(c.node.data[c.offset] ?? ' '));
+        const first = chars.find(c => kind.test(c.node.data[c.offset] ?? ' '));
+        const last = chars.findLast(c => kind.test(c.node.data[c.offset] ?? ' '));
         if (first === undefined || last === undefined) return null;
         const at = (c: { node: Text; offset: number }): CharAt | null => {
             const pageEl = c.node.parentElement?.closest('.pv-page');

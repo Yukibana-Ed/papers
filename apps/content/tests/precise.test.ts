@@ -101,3 +101,52 @@ describe('with glyph boxes', () => {
         expect(exact.locate({ file: 'main.tex', line: 1, column: 12 })).toMatchObject({ x: 10, y: 34 - 8.5, width: 1 });
     });
 });
+
+describe("words the line's own place does not show", () => {
+    // Page 1 is prose with "of" three times; page 2 has a table whose rows are a source line each and end in "of"
+    // between two numbers that come from macros, and a footnote set away from its paragraph.
+    const band = (page: number, y: number): { page: number; x: number; y: number; width: number; height: number } => ({ page, x: 0, y: y - 10, width: 200, height: 13 });
+    const texts: PageText[] = [
+        { page: 1, str: 'A list of words of little weight of its own', x: 0, y: 20, width: 43, height: 10 },
+        { page: 2, str: 'T03 hiding 58 of 67', x: 0, y: 20, width: 19, height: 10 },
+        { page: 2, str: 'T04 revealing 59 of 68', x: 0, y: 34, width: 22, height: 10 },
+        { page: 2, str: 'T05 hiding 60 of 67', x: 0, y: 48, width: 19, height: 10 },
+        { page: 2, str: 'Prose with a note', x: 0, y: 80, width: 17, height: 10 },
+        { page: 2, str: 'kept at the foot here', x: 0, y: 300, width: 21, height: 10 },
+        { page: 2, str: 'said twice over again', x: 0, y: 320, width: 21, height: 10 },
+        { page: 2, str: 'said twice over again', x: 0, y: 340, width: 21, height: 10 },
+    ];
+    const table = ['T03 & hiding & \\A{} of \\B{} \\\\', 'T04 & revealing & \\A{} of \\B{} \\\\', 'T05 & hiding & \\A{} of \\B{} \\\\'].join('\n');
+    const prose = ['Prose with a note\\footnote{kept at the foot here}', '', '', '', '', '', '', '', 'Other\\footnote{said twice over again}'].join('\n');
+    const lines: SourceMap = {
+        segments: (file, line) => (file === 'table.tex' ? [band(2, 6 + line * 14)] : line === 1 ? [band(2, 80)] : []),
+        backward: () => null,
+    };
+    const far = preciseMap(
+        lines,
+        docWords(texts),
+        new Map([
+            ['table.tex', table],
+            ['prose.tex', prose],
+        ]),
+        'latex',
+    );
+
+    it("pairs a row's word with its own row, never with the same word elsewhere", () => {
+        const of = (table.split('\n')[1] ?? '').indexOf(' of ') + 1;
+        expect(far.locate({ file: 'table.tex', line: 2, column: of })).toMatchObject({ page: 2, y: 25.5 });
+        for (let line = 1; line <= 3; line++) {
+            for (let column = 0; column < 40; column++) expect(far.locate({ file: 'table.tex', line, column })?.page ?? 2).toBe(2);
+        }
+    });
+
+    it('finds words set elsewhere when the document has them in a row in one place', () => {
+        const at = (prose.split('\n')[0] ?? '').lastIndexOf('foot');
+        expect(far.locate({ file: 'prose.tex', line: 1, column: at })).toMatchObject({ page: 2, x: 12, width: 1 });
+    });
+
+    it('says nothing about words the document has in a row in two places', () => {
+        const at = (prose.split('\n')[8] ?? '').indexOf('twice');
+        expect(far.locate({ file: 'prose.tex', line: 9, column: at })).toBeNull();
+    });
+});
