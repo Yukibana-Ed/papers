@@ -3,17 +3,22 @@ import { describe, expect, it } from 'vitest';
 import { Selection } from 'prosemirror-state';
 import { createRichEditor } from '#lib/comments/editor.ts';
 
-const KEYS: Record<string, { key: string; shift?: boolean }> = {
+const KEYS: Record<string, { key: string; shift?: boolean; ctrl?: boolean }> = {
     '\n': { key: 'Enter' },
     '\r': { key: 'Enter', shift: true },
     '←': { key: 'ArrowLeft' },
     '→': { key: 'ArrowRight' },
     '↑': { key: 'ArrowUp' },
     '↓': { key: 'ArrowDown' },
+    '⌫': { key: 'Backspace' },
+    '⇥': { key: 'Tab' },
+    '⇤': { key: 'Tab', shift: true },
+    '⎀': { key: 'a', ctrl: true },
 };
 
 /** Types `text` one character at a time through the view's text-input hook, as the browser does for keys; a newline is
- *  Enter, a carriage return is Shift+Enter and an arrow is that arrow key. */
+ *  Enter, a carriage return is Shift+Enter, an arrow is that arrow key, ⌫ is Backspace, ⇥ and ⇤ are Tab and Shift+Tab,
+ *  and ⎀ is Ctrl+A. */
 function typeInto(text: string): { html: () => string; markdown: () => string } {
     const host = document.createElement('div');
     document.body.append(host);
@@ -23,7 +28,7 @@ function typeInto(text: string): { html: () => string; markdown: () => string } 
         const { from, to } = view.state.selection;
         const key = KEYS[ch];
         if (key !== undefined) {
-            const event = new KeyboardEvent('keydown', { key: key.key, shiftKey: key.shift ?? false });
+            const event = new KeyboardEvent('keydown', { key: key.key, shiftKey: key.shift ?? false, ctrlKey: key.ctrl ?? false });
             const handled = view.someProp('handleKeyDown', f => f(view, event));
             // What the browser does with a left or right arrow the editor leaves alone: one position over.
             const step = ch === '←' ? -1 : ch === '→' ? 1 : 0;
@@ -33,6 +38,8 @@ function typeInto(text: string): { html: () => string; markdown: () => string } 
                 // At either end of the comment there is nowhere to go, and the browser changes nothing.
                 if (next.from !== from) view.dispatch(view.state.tr.setSelection(next));
             }
+            // And with a Backspace that no command took: the character before the caret goes.
+            if (!handled && ch === '⌫' && from > 0) view.dispatch(view.state.tr.delete(from - 1, from));
             continue;
         }
         const handled = view.someProp('handleTextInput', f => f(view, from, to, ch, () => view.state.tr.insertText(ch, from, to)));
@@ -51,7 +58,7 @@ describe('the rich editor', () => {
     });
 
     it('keeps line breaks out of inline code', () => {
-        const e = typeInto('hello\r```c++\rint a;\r`');
+        const e = typeInto('hello\r`c++\rint a;\r`');
         expect(e.html()).not.toContain('\ufffc');
         expect(e.html()).not.toContain('<code>');
         expect(e.html().match(/<br/g)).toHaveLength(3);
@@ -96,5 +103,48 @@ describe('the rich editor', () => {
     it('keeps the arrows for moving inside a code block', () => {
         expect(typeInto('```\nx←y').markdown()).toBe('```\nyx\n```');
         expect(typeInto('a\n```\nx↑').html()).toBe('<p>a</p><pre><code>x</code></pre>');
+    });
+
+    it('opens a code block on Shift+Enter too, and takes the rest of the paragraph into it', () => {
+        expect(typeInto('a\r```c\rx').markdown()).toBe('a\n\n```c\nx\n```');
+        expect(typeInto('x\ry←←←```\n').markdown()).toBe('```\nx\ny\n```');
+    });
+
+    it('closes a code block with a fence line on Shift+Enter, on its first line, and with a third Enter', () => {
+        expect(typeInto('```\nx\r```\ry').markdown()).toBe('```\nx\n```\n\ny');
+        expect(typeInto('```c\n```\ny').markdown()).toBe('```c\n\n```\n\ny');
+        expect(typeInto('```\nx\n\n\ny').markdown()).toBe('```\nx\n```\n\ny');
+        expect(typeInto('```\nx\n\ny').markdown()).toBe('```\nx\n\ny\n```');
+    });
+
+    it('keeps the indentation of the line on Enter in a code block, and Tab moves lines in and out', () => {
+        expect(typeInto('```\n⇥a\nb').markdown()).toBe('```\n    a\n    b\n```');
+        expect(typeInto('```\n⇥a⇤').markdown()).toBe('```\na\n```');
+        expect(typeInto('```\na\nb⎀⇥').markdown()).toBe('```\n    a\n    b\n```');
+    });
+
+    it('makes a code block a paragraph again with Backspace at its start, lines kept', () => {
+        expect(typeInto('```c\n⌫x').html()).toBe('<p>x</p>');
+        expect(typeInto('```\na\nb←←←⌫').html()).toBe('<p>a<br>b</p>');
+    });
+
+    it('joins a paragraph into the code block before it, and removes it when it is empty', () => {
+        expect(typeInto('```\na↓⌫b').markdown()).toBe('```\nab\n```');
+        expect(typeInto('```\na↓yz←←⌫').markdown()).toBe('```\nayz\n```');
+    });
+
+    it('takes the paragraph an arrow made away again when the caret leaves it empty', () => {
+        expect(typeInto('```\na↓←').html()).toBe('<pre><code>a</code></pre>');
+        expect(typeInto('```\na↑→').html()).toBe('<pre><code>a</code></pre>');
+        expect(typeInto('```\na↓y←←').html()).toBe('<pre><code>a</code></pre><p>y</p>');
+    });
+
+    it('selects the code block first with Ctrl+A', () => {
+        expect(typeInto('a\n```\nb⎀Q').html()).toBe('<p>a</p><pre><code>Q</code></pre>');
+    });
+
+    it('leaves the caret outside inline code after Backspace from outside, and ends the code at a line break', () => {
+        expect(typeInto('a `bc`⌫x').markdown()).toBe('a `b`x');
+        expect(typeInto('a `bc`←\rx').html()).toBe('<p>a <code>bc</code><br>x</p>');
     });
 });
