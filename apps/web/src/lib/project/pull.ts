@@ -20,7 +20,7 @@ export interface Pull {
 }
 
 /** Makes `text` read `to`, as one change spanning where they differ. */
-function setText(text: Y.Text, to: string): void {
+export function setText(text: Y.Text, to: string): void {
     const from = text.toJSON();
     let start = 0;
     while (start < from.length && start < to.length && from[start] === to[start]) start++;

@@ -77,9 +77,10 @@ export class RoomClient {
 
     /** Precondition: `url` resolves to the room's WebSocket URL on the app's own origin, with a fresh ticket: it is
      *  called for every (re)connection, since tickets last a minute. It throws `TicketRefused` when the user's sign-in
-     *  is what failed. */
+     *  is what failed. With a null `url` the client is of no room: it never connects, its documents are this page's
+     *  alone (what a project runs on while its room cannot be reached), and what it would tell a room goes nowhere. */
     constructor(
-        private readonly url: () => Promise<string>,
+        private readonly url: (() => Promise<string>) | null,
         private readonly on: RoomEvents,
     ) {
         for (const [id, doc] of [
@@ -87,7 +88,7 @@ export class RoomClient {
             [DOC_REVIEW, this.review],
         ] as const) {
             const listener = (u: Uint8Array, origin: unknown): void => {
-                if (origin !== this) this.queue(id, u);
+                if (origin !== this && this.url !== null) this.queue(id, u);
             };
             doc.on('update', listener);
             this.docListeners.push([doc, listener]);
@@ -134,7 +135,7 @@ export class RoomClient {
     }
 
     private connect(): void {
-        if (this.closed) return;
+        if (this.closed || this.url === null) return;
         this.on.connection('connecting');
         this.url().then(
             url => this.openSocket(url),
