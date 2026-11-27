@@ -10,7 +10,7 @@ test.describe('keys pressed in the preview frame', () => {
         const frame = page.frameLocator('iframe.pv-frame');
         await frame.locator('body').click({ position: { x: 20, y: 20 } });
         await page.keyboard.press('Control+S');
-        await expect(page.locator('.pop-commit')).toBeVisible();
+        await expect(page.locator('.commit-pop')).toBeVisible();
         await frame.locator('body').click({ position: { x: 20, y: 20 } });
         await page.keyboard.press('Control+S');
         await page.waitForTimeout(500);
