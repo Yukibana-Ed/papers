@@ -74,7 +74,7 @@ export type AppMessage =
     /** Which file compiles: the frame builds it now and after every later change. */
     | { readonly type: 'root'; readonly root: string; readonly engine: Engine }
     /** Show this source position. `follow`: move only if it is off-screen (the cursor moved); `jump`: always, and flash. */
-    | { readonly type: 'reveal'; readonly at: SourcePoint; readonly mode: 'follow' | 'jump' }
+    | { readonly type: 'reveal'; readonly at: SourcePoint; readonly mode: 'follow' | 'jump' | 'stay' }
     /** The selection made in the source, shown in the preview in place of any selection made there; null when the
      *  source's selection is gone, which clears both. */
     | { readonly type: 'mirror'; readonly lines: SourceLines | null }
@@ -267,7 +267,7 @@ function appFieldsMatch(x: Record<string, unknown>): boolean {
         case 'root':
             return isString(x['root']) && oneOf(x['engine'], 'pdflatex', 'xelatex', 'lualatex', 'typst');
         case 'reveal':
-            return isPoint(x['at']) && oneOf(x['mode'], 'follow', 'jump');
+            return isPoint(x['at']) && oneOf(x['mode'], 'follow', 'jump', 'stay');
         case 'mirror':
             return x['lines'] === null || isLines(x['lines']);
         case 'marks':

@@ -138,10 +138,10 @@
         if (root) client?.send({ type: 'root', root, engine: e });
     });
 
-    // The preview follows the cursor, gliding only when the spot is off-screen.
+    // The preview follows the cursor, gliding only when the spot is off-screen; a cursor it placed itself moves nothing.
     $effect(() => {
         const c = session.cursor;
-        if (c.file) client?.send({ type: 'reveal', at: { file: c.file, line: c.line, column: c.col }, mode: 'follow' });
+        if (c.file) client?.send({ type: 'reveal', at: { file: c.file, line: c.line, column: c.col }, mode: session.cursorFrom === 'preview' ? 'stay' : 'follow' });
     });
 
     $effect(() => {

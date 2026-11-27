@@ -19,6 +19,8 @@ describe('guards', () => {
         expect(isFrameMessage({ type: 'jump', at: { file: 'a.tex', line: 1 }, word: null })).toBe(true);
         expect(isFrameMessage({ type: 'selection', lines: null, text: '' })).toBe(true);
         expect(isAppMessage({ type: 'lsp-start', server: 'tinymist' })).toBe(true);
+        for (const mode of ['follow', 'jump', 'stay']) expect(isAppMessage({ type: 'reveal', at: { file: 'a.tex', line: 1 }, mode })).toBe(true);
+        expect(isAppMessage({ type: 'reveal', at: { file: 'a.tex', line: 1 }, mode: 'leap' })).toBe(false);
         expect(isAppMessage({ type: 'lsp-stop', server: 'tinymist' })).toBe(true);
     });
 

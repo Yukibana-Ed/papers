@@ -160,4 +160,35 @@ test.describe('a click in the preview', () => {
         });
         expect(ms).toBeLessThan(100);
     });
+
+    test('never scrolls the preview, even at the edge of its view', async ({ page }) => {
+        const frame = await preview(page);
+        await expect(page.locator('.pv-spin')).toHaveCount(0, { timeout: 120_000 });
+        await expect(frame.locator('.pv-pages[data-sync]')).toBeAttached({ timeout: 60_000 });
+        const scroller = frame.locator('.pv-pages').locator('..');
+        const scrollTop = (): Promise<number> => scroller.evaluate(el => el.scrollTop);
+        for (const edge of ['top', 'bottom'] as const) {
+            // The word's line against the edge of the view, half cut off by it.
+            await frame
+                .locator('.textLayer span', { hasText: 'struggle' })
+                .first()
+                .evaluate((span, at) => {
+                    const view = span.closest('.pv-pages')?.parentElement;
+                    if (!view) throw new Error('no view');
+                    const r = span.getBoundingClientRect();
+                    const v = view.getBoundingClientRect();
+                    view.scrollTo({ top: view.scrollTop + (at === 'top' ? r.top + r.height / 2 - v.top : r.bottom - r.height / 2 - v.bottom), behavior: 'instant' });
+                }, edge);
+            const before = await scrollTop();
+            // The caret elsewhere first, so that the click moves it.
+            await page.locator('.monaco-editor .view-lines').click({ position: { x: 40, y: 8 } });
+            const word = await charBox(page, frame, 'struggle', 0, 8);
+            await page.mouse.click(word.x + word.width / 2, word.y + (edge === 'top' ? word.height * 0.75 : word.height * 0.25));
+            await expect.poll(async () => (await state(page)).caret?.line).toBe(3);
+            await expect(page.locator('.monaco-editor.focused')).toBeAttached();
+            // A glide would have started by now.
+            await page.waitForTimeout(400);
+            expect(await scrollTop()).toBe(before);
+        }
+    });
 });
