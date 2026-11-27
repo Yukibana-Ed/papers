@@ -17,8 +17,8 @@ export const schema = new Schema({
             code: true,
             defining: true,
             attrs: { params: { default: '' } },
-            parseDOM: [{ tag: 'pre', preserveWhitespace: 'full' }],
-            toDOM: () => ['pre', ['code', 0]],
+            parseDOM: [{ tag: 'pre', preserveWhitespace: 'full', getAttrs: dom => ({ params: dom.getAttribute('data-lang') ?? '' }) }],
+            toDOM: node => ['pre', node.attrs['params'] ? { 'data-lang': String(node.attrs['params']) } : {}, ['code', 0]],
         },
         bullet_list: { group: 'block', content: 'list_item+', attrs: { tight: { default: true } }, parseDOM: [{ tag: 'ul' }], toDOM: () => ['ul', 0] },
         ordered_list: {

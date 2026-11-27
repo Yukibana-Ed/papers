@@ -41,7 +41,7 @@ describe('the rich editor', () => {
 
     it('opens a code block from a fence line on Enter, with its language, and closes it on a fence line', () => {
         const e = typeInto('hello\r```c++\nint a;\n```\nafter');
-        expect(e.html()).toContain('<p>hello</p><pre');
+        expect(e.html()).toContain('<p>hello</p><pre data-lang="c++">');
         expect(e.html()).toContain('int a;</code></pre><p>after</p>');
         expect(e.markdown()).toBe('hello\n\n```c++\nint a;\n```\n\nafter');
     });
