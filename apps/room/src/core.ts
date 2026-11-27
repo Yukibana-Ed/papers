@@ -40,6 +40,9 @@ export function visibleIds(text: Y.Text): IdSet {
 
 /** Compact a document's update log once it is this long. */
 const COMPACT_AFTER = 200;
+/** How long the day's byte counter may be ahead of its stored copy. A room that hibernates within it undercounts by
+ *  what arrived in that time: the budget is a guard against runaway use, not an account. */
+const USAGE_SAVE_MS = 10_000;
 
 /** Whether `data` is a Yjs message that would change the text document (a sync step 2 or an update to it); false for
  *  anything else, malformed messages included (those are refused later, as invalid). */
@@ -73,6 +76,14 @@ export class RoomCore {
     private lastMode: SyncMode = { mode: 'live' };
     /** Every committed file's character ids together: deletions of these are the ones worth recording. */
     private baseIds = new IdSet();
+    /** What the store holds, kept here so that a message costs no reads and only the writes that say something new:
+     *  the length of each document's update log, whether the text has changes no backup holds (`meta.dirty`), and the
+     *  byte counter as last stored with when. */
+    private readonly logged = new Map<DocId, number>();
+    /** The login each client id writes as (`writers` in the store). */
+    private readonly writers: Map<number, string>;
+    private dirty: boolean;
+    private usageSaved: { day: string; bytes: number; at: number };
 
     constructor(
         private readonly store: RoomStore,
@@ -85,7 +96,9 @@ export class RoomCore {
             [DOC_TEXT, this.text],
             [DOC_REVIEW, this.review],
         ] as const) {
-            for (const u of store.updates(id)) Y.applyUpdate(doc, u, 'storage');
+            const log = store.updates(id);
+            for (const u of log) Y.applyUpdate(doc, u, 'storage');
+            this.logged.set(id, log.length);
             doc.on('update', (update: Uint8Array, origin: unknown) => this.onUpdate(id, update, origin));
         }
         this.text.on('afterTransaction', (tr: Y.Transaction) => this.recordAuthors(tr));
@@ -98,8 +111,13 @@ export class RoomCore {
             encoding.writeVarUint8Array(msg, encodeAwarenessUpdate(this.awareness, changed));
             this.broadcast(encoding.toUint8Array(msg), origin);
         });
+        this.dirty = store.getMeta('dirty') === '1';
+        this.writers = new Map(store.authors().writers);
         const day = dayOf(now());
-        this.meter = new UsageMeter(limits, { day, bytes: store.usage(day, 'bytes') }, now());
+        store.pruneUsage(day);
+        const bytes = store.usage(day, 'bytes');
+        this.usageSaved = { day, bytes, at: now() };
+        this.meter = new UsageMeter(limits, { day, bytes }, now());
     }
 
     private docOf(id: DocId): Y.Doc {
@@ -122,8 +140,9 @@ export class RoomCore {
         const login = p.identity.login;
         const writers: [number, string][] = [];
         for (const [client, clock] of tr.afterState) {
-            if (clock > (tr.beforeState.get(client) ?? 0) && this.store.writer(client) === null) {
+            if (clock > (tr.beforeState.get(client) ?? 0) && !this.writers.has(client)) {
                 this.store.addWriter(client, login);
+                this.writers.set(client, login);
                 writers.push([client, login]);
             }
         }
@@ -173,14 +192,34 @@ export class RoomCore {
     private onUpdate(id: DocId, update: Uint8Array, origin: unknown): void {
         if (origin === 'storage') return;
         this.store.appendUpdate(id, update, this.now());
-        if (id === DOC_TEXT) this.store.setMeta('dirty', '1');
-        if (this.store.updateCount(id) > COMPACT_AFTER) this.store.compact(id, Y.encodeStateAsUpdate(this.docOf(id)), this.now());
+        if (id === DOC_TEXT && !this.dirty) {
+            this.store.setMeta('dirty', '1');
+            this.dirty = true;
+        }
+        const logged = (this.logged.get(id) ?? 0) + 1;
+        this.logged.set(id, logged);
+        if (logged > COMPACT_AFTER) this.compact(id);
         const msg = encoding.createEncoder();
         encoding.writeUint8(msg, id);
         encoding.writeVarUint(msg, MSG_SYNC);
         encoding.writeVarUint(msg, messageYjsUpdate);
         encoding.writeVarUint8Array(msg, update);
         this.broadcast(encoding.toUint8Array(msg), origin);
+    }
+
+    /** Makes `id`'s log one update. */
+    private compact(id: DocId): void {
+        this.store.compact(id, Y.encodeStateAsUpdate(this.docOf(id)), this.now());
+        this.logged.set(id, 1);
+    }
+
+    /** Stores the day's byte counter if it changed: at once with `now`, else once it is `USAGE_SAVE_MS` old. */
+    private saveUsage(now: boolean): void {
+        const { day, bytes } = this.meter.counter;
+        const t = this.now();
+        if (day === this.usageSaved.day && (bytes === this.usageSaved.bytes || (!now && t - this.usageSaved.at < USAGE_SAVE_MS))) return;
+        this.store.setUsage(day, 'bytes', bytes);
+        this.usageSaved = { day, bytes, at: t };
     }
 
     private broadcast(data: Uint8Array | string, except: unknown): void {
@@ -224,6 +263,8 @@ export class RoomCore {
         this.peers.delete(p);
         if (p.awarenessIds.size) removeAwarenessStates(this.awareness, [...p.awarenessIds], p);
         for (const id of p.awarenessIds) if (this.awarenessOwners.get(id) === p) this.awarenessOwners.delete(id);
+        // An empty room is put away soon: nothing later would store the counter.
+        if (this.peers.size === 0) this.saveUsage(true);
     }
 
     get connections(): number {
@@ -245,7 +286,7 @@ export class RoomCore {
         const own = person.take(size, this.now());
         if (own !== 'ok') return this.sendControl(p, { type: 'refused', reason: own });
         const verdict = this.meter.take(size, this.now());
-        this.store.setUsage(this.meter.counter.day, 'bytes', this.meter.counter.bytes);
+        this.saveUsage(false);
         this.announceMode();
         if (verdict !== 'ok') return this.sendControl(p, { type: 'refused', reason: verdict });
         try {
@@ -354,6 +395,7 @@ export class RoomCore {
             }
             case 'backed-up':
                 this.store.setMeta('dirty', '0');
+                this.dirty = false;
                 this.store.setMeta('backup', m.commit);
                 return;
         }
@@ -362,9 +404,10 @@ export class RoomCore {
     /** The alarm's work: compact both logs, and ask a writer for a WIP backup if the text changed since the last one.
      *  Returns whether there is anyone to ask. */
     tick(): boolean {
-        for (const id of [DOC_TEXT, DOC_REVIEW] as const) if (this.store.updateCount(id) > 1) this.store.compact(id, Y.encodeStateAsUpdate(this.docOf(id)), this.now());
+        for (const id of [DOC_TEXT, DOC_REVIEW] as const) if ((this.logged.get(id) ?? 0) > 1) this.compact(id);
+        this.saveUsage(true);
         this.announceMode();
-        if (this.store.getMeta('dirty') !== '1') return false;
+        if (!this.dirty) return false;
         const writer = [...this.peers].find(p => p.identity.access === 'write');
         if (writer) this.sendControl(writer, { type: 'backup-due' });
         return writer !== undefined;

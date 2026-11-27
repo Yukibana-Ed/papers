@@ -295,6 +295,63 @@ describe('room', () => {
         expect(connectionExpired(null, since)).toBe(true);
     });
 
+    it("writes only the changes while people type, and keeps the day's counter across a sleep", () => {
+        const db = new DatabaseSync(':memory:');
+        const inner = memorySql(db);
+        const seen: string[] = [];
+        const sql: Sql = {
+            exec(query, ...bindings) {
+                seen.push(query.trim().split(/\s+/).slice(0, 3).join(' '));
+                return inner.exec(query, ...bindings);
+            },
+        };
+        let now = Date.UTC(2026, 10, 26, 12);
+        const room = new RoomCore(new RoomStore(sql), () => now);
+        const a = new Client(room, 'ada', 'write');
+        a.open('a.tex', '');
+        const t = a.text.getMap<Y.Text>('files').get('a.tex');
+        t?.insert(0, 'a');
+        seen.length = 0;
+        for (let i = 0; i < 50; i++) {
+            now += 100;
+            t?.insert(0, 'x');
+        }
+        // Fifty keystrokes in five seconds: fifty rows in the log, and nothing read or written beside them.
+        expect(seen.filter(q => q === 'INSERT INTO updates')).toHaveLength(50);
+        expect(seen.filter(q => q !== 'INSERT INTO updates')).toEqual([]);
+        now += 10_000;
+        t?.insert(0, 'y');
+        expect(seen.filter(q => q === 'INSERT INTO usage')).toHaveLength(1);
+        // The last one leaves: the counter is stored whole, and the room that wakes next starts from it.
+        now += 100;
+        t?.insert(0, 'z');
+        room.disconnect(a.peer);
+        const stored = Number(inner.exec("SELECT value FROM usage WHERE metric = 'bytes'").toArray()[0]?.['value']);
+        expect(stored).toBeGreaterThan(0);
+        seen.length = 0;
+        room.disconnect(a.peer);
+        expect(seen).toEqual([]);
+        const again = new RoomCore(new RoomStore(memorySql(db)), () => now, { ...DEFAULT_LIMITS, bytesPerDay: stored });
+        const b = new Client(again, 'ada', 'write');
+        expect(b.control[0]).toMatchObject({ type: 'welcome', sync: { mode: 'paused' } });
+        expect(again.text.getMap<Y.Text>('files').get('a.tex')?.toJSON()).toBe(`zy${'x'.repeat(50)}a`);
+    });
+
+    it('compacts a long log to one update', () => {
+        const db = new DatabaseSync(':memory:');
+        const room = new RoomCore(new RoomStore(memorySql(db)));
+        const a = new Client(room, 'ada', 'write');
+        a.open('a.tex', '');
+        const t = a.text.getMap<Y.Text>('files').get('a.tex');
+        const rows = (): number => Number(memorySql(db).exec('SELECT count(*) AS n FROM updates WHERE doc = ?', DOC_TEXT).toArray()[0]?.['n']);
+        for (let i = 0; i < 250; i++) t?.insert(0, 'x');
+        expect(rows()).toBeLessThanOrEqual(201);
+        room.tick();
+        expect(rows()).toBe(1);
+        const again = new RoomCore(new RoomStore(memorySql(db)));
+        expect(again.text.getMap<Y.Text>('files').get('a.tex')?.toJSON()).toBe('x'.repeat(250));
+    });
+
     it('asks a writer for a WIP backup after changes', () => {
         const room = new RoomCore(new RoomStore(memorySql()));
         const a = new Client(room, 'ada', 'write');
