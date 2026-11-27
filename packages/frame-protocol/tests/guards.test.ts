@@ -5,6 +5,8 @@ describe('guards', () => {
     it('accept well-formed messages', () => {
         expect(isAppMessage({ type: 'zoom', zoom: 1 })).toBe(true);
         expect(isAppMessage({ type: 'print' })).toBe(true);
+        expect(isAppMessage({ type: 'download', name: 'main.pdf' })).toBe(true);
+        expect(isAppMessage({ type: 'download' })).toBe(false);
         expect(
             isAppMessage({
                 type: 'files',

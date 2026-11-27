@@ -74,6 +74,14 @@ interface PageView {
     rendering: Promise<void> | null;
 }
 
+/** The file name a build is saved under when asked to save it as `name`: the last part of `name` without characters
+ *  a file name cannot hold, ending in `.pdf`; `document.pdf` when nothing is left. */
+export function pdfName(name: string): string {
+    const kept = (name.split(/[\\/]/).pop() ?? '').replace(/[\p{Cc}<>:"|?*]/gu, '');
+    const last = kept.replace(/\.pdf$/i, '').replace(/^[.\s]+|[.\s]+$/g, '');
+    return `${last === '' ? 'document' : last}.pdf`;
+}
+
 /** Draws a PDF's pages in a scroller, with PDF.js's text layer for selecting and copying, and the overlays that tie
  *  the pages to the source through SyncTeX: comment and selection highlights, the cursor's locator bar, a flash, and the
  *  others' presence dots.
@@ -111,6 +119,8 @@ export class Viewer {
     #selFrame = 0;
     #pointerDown: { x: number; y: number } | null = null;
     #printing = false;
+    /** The shown build's PDF, as it was given to `show`. */
+    #pdf: Uint8Array<ArrayBuffer> | null = null;
 
     constructor(scroller: HTMLElement, events: ViewerEvents) {
         this.#scroller = scroller;
@@ -222,6 +232,7 @@ export class Viewer {
         const proxies = await Promise.all(Array.from({ length: doc.numPages }, (_, i) => doc.getPage(i + 1)));
         const old = this.#task;
         this.#task = task;
+        this.#pdf = pdf.slice();
         this.#sync = sync;
         this.#exact = exact;
         if (exact !== null) this.#precise = exact;
@@ -251,6 +262,19 @@ export class Viewer {
         // Not awaited: PDF.js draws in animation frames, which a hidden page does not get, and the build's result must
         // not wait for the page to be seen. The old document goes once the new pages are drawn.
         void this.#renderVisible().then(() => old?.destroy());
+    }
+
+    /** Saves the shown build's PDF, byte for byte, as a file: the browser's own download of `pdfName(name)`. Does
+     *  nothing when no build is shown. */
+    download(name: string): void {
+        if (this.#pdf === null) return;
+        const url = URL.createObjectURL(new Blob([this.#pdf], { type: 'application/pdf' }));
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = pdfName(name);
+        link.click();
+        // The download has the blob by now; the address is not needed again.
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
     }
 
     /** Prints the shown build through the browser's print dialog: every page drawn afresh as an image at print
