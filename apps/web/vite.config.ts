@@ -34,7 +34,8 @@ export default {
                     'default-src': ['self'],
                     // Cloudflare Web Analytics: the zone adds its beacon script to every page, and the beacon reports to
                     // cloudflareinsights.com (see connect-src). The content origin's policy allows neither.
-                    'script-src': ['self', 'https://static.cloudflareinsights.com'],
+                    // `report-sample`: a violation's event carries the start of the blocked script, which the root layout logs.
+                    'script-src': ['self', 'https://static.cloudflareinsights.com', 'report-sample'],
                     'style-src': ['self', 'unsafe-inline'],
                     'img-src': ['self', 'data:', 'blob:', 'https://avatars.githubusercontent.com', 'https://raw.githubusercontent.com'],
                     'font-src': ['self', 'data:'],
