@@ -144,6 +144,12 @@ export function spansMap(spans: GlyphSpans, sources: ReadonlyMap<string, string>
             }
             return out.length === 0 ? null : out;
         },
+        hasWords(file, line) {
+            const s = startsOf(file);
+            const from = s?.[line - 1];
+            if (s === null || from === undefined) return false;
+            return (byFile.get(file) ?? []).some(g => g.start >= from && g.start < (s[line] ?? Infinity));
+        },
         pointToSource(page, x, y) {
             let best: Glyph | null = null;
             let bestDistance = Infinity;

@@ -40,9 +40,14 @@ export interface PreciseMap {
     /** The box of the word at `at` (of the character, when the source spells the word as shown), or null. A column
      *  between words takes the next word on its line, else the previous one. */
     locate(at: SourceAt): PageBox | null;
-    /** The boxes of the text from `start` to `end` (exclusive), word by word, trimmed to the characters at either end
-     *  where the source spells those words as shown; null when either end has no paired word. */
+    /** The boxes of the text from `start` to `end` (exclusive, in `start`'s file), word by word, trimmed to the
+     *  characters at either end where the source spells those words as shown. The ends are the first and the last word
+     *  the range holds any of: a range that starts on a blank line or ends in markup shows the words inside it and none
+     *  beside it, and one that holds no word is empty. Null when the first or the last of its words is not paired. */
     range(start: SourceAt, end: SourceAt): PageBox[] | null;
+    /** Whether `file`'s `line` has words of its own. A line without any (blank, or markup alone) shows nothing itself,
+     *  though the coarse map may put the paragraph it ends on it. */
+    hasWords(file: string, line: number): boolean;
     /** The source of the word under (`x`, `y`) on `page`, to the character where the source spells it as shown. */
     pointToSource(page: number, x: number, y: number): SourceHit | null;
     /** The source of character `offset` of text run `run` on `page` (a text-layer span and an offset in its text):
@@ -367,9 +372,14 @@ export function preciseMap(coarse: SourceMap, words: readonly DocWord[], sources
 
     const placed = (at: SourceAt): { token: SourceToken; word: DocWord; index: number } | null => {
         const ti = tokenAt(at.file, at.line, at.column);
-        if (ti === null) return null;
-        const token = tokens(at.file)[ti];
-        const di = pairsAround(at.file, at.line).get(ti);
+        return ti === null ? null : placedToken(at.file, ti);
+    };
+
+    /** Token `ti` of `file` with the document word the alignment around its line pairs it with. */
+    const placedToken = (file: string, ti: number): { token: SourceToken; word: DocWord; index: number } | null => {
+        const token = tokens(file)[ti];
+        if (token === undefined) return null;
+        const di = pairsAround(file, token.line).get(ti);
         const word = di === undefined ? undefined : words[di];
         if (token === undefined || word === undefined || di === undefined) return null;
         return { token, word, index: di };
@@ -413,16 +423,26 @@ export function preciseMap(coarse: SourceMap, words: readonly DocWord[], sources
         },
 
         range(start, end) {
-            const a = placed(start);
-            // The end is exclusive: the last character is the one before it.
-            const b = placed({ ...end, column: Math.max(0, end.column - 1) });
+            // The first and the last token with a character in the range.
+            let first = -1;
+            let last = -1;
+            tokens(start.file).forEach((t, i) => {
+                const afterStart = t.line > start.line || (t.line === start.line && t.end > start.column);
+                const beforeEnd = t.line < end.line || (t.line === end.line && t.start < end.column);
+                if (!afterStart || !beforeEnd) return;
+                if (first < 0) first = i;
+                last = i;
+            });
+            if (first < 0) return [];
+            const a = placedToken(start.file, first);
+            const b = placedToken(start.file, last);
             if (a === null || b === null || b.index < a.index) return null;
             const out: PageBox[] = [];
             for (let i = a.index; i <= b.index; i++) {
                 const w = words[i];
                 if (w === undefined) continue;
-                const from = i === a.index && sameSpelling(a.token, w) ? Math.max(0, start.column - a.token.start) : 0;
-                const to = i === b.index && sameSpelling(b.token, w) ? Math.min(w.text.length, end.column - b.token.start) : w.text.length;
+                const from = i === a.index && a.token.line === start.line && sameSpelling(a.token, w) ? Math.max(0, start.column - a.token.start) : 0;
+                const to = i === b.index && b.token.line === end.line && sameSpelling(b.token, w) ? Math.min(w.text.length, end.column - b.token.start) : w.text.length;
                 if (from === 0 && to === w.text.length) out.push(...w.parts);
                 else {
                     const box = charBox(w, from, to);
@@ -430,6 +450,10 @@ export function preciseMap(coarse: SourceMap, words: readonly DocWord[], sources
                 }
             }
             return out;
+        },
+
+        hasWords(file, line) {
+            return tokens(file).some(t => t.line === line);
         },
 
         pointToSource(page, x, y) {

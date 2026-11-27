@@ -467,6 +467,8 @@ export class Viewer {
         const first = Math.min(lines.startLine, lines.endLine);
         const last = Math.min(Math.max(lines.startLine, lines.endLine), first + 400);
         for (let l = first; l <= last; l++) {
+            // In a range of lines, one without words shows nothing: the coarse map puts the paragraph it ends on it.
+            if (first !== last && this.#precise?.hasWords(lines.file, l) === false) continue;
             for (const b of this.#sync.segments(lines.file, l, first === last)) {
                 const list = out.get(b.page) ?? [];
                 list.push(b);
@@ -538,7 +540,7 @@ export class Viewer {
             { file: lines.file, line: lines.startLine, column: lines.startColumn - 1 },
             { file: lines.file, line: lines.endLine, column: lines.endColumn - 1 },
         );
-        if (boxes === null || boxes.length === 0) return null;
+        if (boxes === null) return null;
         const out = new Map<number, Rect[]>();
         for (const b of boxes) out.set(b.page, [...(out.get(b.page) ?? []), b]);
         for (const [page, rects] of out) out.set(page, mergeLineRects(rects, 0, 0.15));

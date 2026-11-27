@@ -56,6 +56,39 @@ describe('preciseMap', () => {
     });
 });
 
+describe('a range that starts or ends outside its words', () => {
+    // Two paragraphs with a blank line between; the coarse map puts the first paragraph on the blank line that ends it.
+    const source = ['alpha beta gamma', '', 'delta epsilon zeta', ''].join('\n');
+    const texts: PageText[] = [
+        { page: 1, str: 'alpha beta gamma', x: 0, y: 20, width: 16, height: 10 },
+        { page: 1, str: 'delta epsilon zeta', x: 0, y: 34, width: 18, height: 10 },
+    ];
+    const lines: SourceMap = {
+        segments: (_file, line) => (line <= 2 ? [LINE_BAND(20)] : line === 3 ? [LINE_BAND(34)] : []),
+        backward: (_page, _x, y) => ({ file: 'main.tex', line: y < 25 ? 1 : 3 }),
+    };
+    const m = preciseMap(lines, docWords(texts), new Map([['main.tex', source]]), 'latex');
+    const at = (line: number, column: number): { file: string; line: number; column: number } => ({ file: 'main.tex', line, column });
+
+    it('shows the words inside it and none of the paragraph before', () => {
+        const own = m.range(at(3, 0), at(3, 18));
+        expect(own).toHaveLength(3);
+        expect(m.range(at(2, 0), at(3, 18))).toEqual(own);
+        expect(m.range(at(2, 0), at(4, 0))).toEqual(own);
+        expect(m.range(at(1, 16), at(4, 0))).toEqual(own);
+    });
+
+    it('is empty when it holds no word', () => {
+        expect(m.range(at(2, 0), at(2, 0))).toEqual([]);
+        expect(m.range(at(1, 5), at(1, 6))).toEqual([]);
+        expect(m.range(at(4, 0), at(4, 0))).toEqual([]);
+    });
+
+    it('knows the lines that have words', () => {
+        expect([1, 2, 3, 4].map(l => m.hasWords('main.tex', l))).toEqual([true, false, true, false]);
+    });
+});
+
 describe('with glyph boxes', () => {
     // "Will fill" where W is 3 pt wide, i and l 0.5 pt, f 1 pt: the glyphs are where the font puts them, not at shares
     // of the run's width. The second run ends "ta-" and the third starts "ble": one word over two lines.
