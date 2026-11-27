@@ -132,6 +132,9 @@ export class Frame {
             case 'print':
                 void this.#viewer.print();
                 return;
+            case 'download':
+                this.#viewer.download(m.name);
+                return;
             case 'lsp-stop':
                 this.#servers.get(m.server)?.terminate();
                 this.#servers.delete(m.server);
