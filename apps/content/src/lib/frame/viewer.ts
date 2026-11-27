@@ -279,8 +279,9 @@ export class Viewer {
 
     /** Prints the shown build through the browser's print dialog: every page drawn afresh as an image at print
      *  resolution (300 dpi up to 25 pages, 200 up to 60, 150 beyond, to bound memory), each on a sheet of the first
-     *  page's size with no margins. Does nothing when no build is shown or a print is already being prepared. Resolves
-     *  once the dialog has been asked for, or when a newer build replaced the pages meanwhile (then nothing prints). */
+     *  page's size with no margins. Does nothing when no build is shown or a print is already being prepared. When a
+     *  newer build replaces the pages meanwhile, that build is printed instead. Resolves once the dialog has been asked
+     *  for. */
     async print(): Promise<void> {
         const pages = this.#pages.map(p => ({ proxy: p.proxy, width: p.width, height: p.height }));
         const first = pages[0];
@@ -319,8 +320,10 @@ export class Viewer {
                 sheets.append(img);
             }
         } catch {
-            // A newer build took the document away: its pages are not these.
             done();
+            // A newer build took the document away while its pages were being drawn: that build is the one shown now,
+            // so it is the one to print. Anything else that failed prints nothing.
+            if (this.#pages[0] !== undefined && this.#pages[0].proxy !== first.proxy) await this.print();
             return;
         }
         document.head.append(style);

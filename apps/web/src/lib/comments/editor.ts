@@ -1,11 +1,11 @@
 import { baseKeymap, chainCommands, exitCode, setBlockType, toggleMark, wrapIn } from 'prosemirror-commands';
 import { history, redo, undo } from 'prosemirror-history';
-import { InputRule, inputRules, textblockTypeInputRule, wrappingInputRule } from 'prosemirror-inputrules';
+import { InputRule, inputRules, wrappingInputRule } from 'prosemirror-inputrules';
 import { keymap } from 'prosemirror-keymap';
-import type { MarkType, Node as PMNode } from 'prosemirror-model';
+import type { MarkType, Node as PMNode, NodeType } from 'prosemirror-model';
 import { liftListItem, sinkListItem, splitListItem, wrapInList } from 'prosemirror-schema-list';
-import { EditorState, type Command, type Plugin } from 'prosemirror-state';
-import { EditorView } from 'prosemirror-view';
+import { EditorState, Plugin, TextSelection, type Command, type Transaction } from 'prosemirror-state';
+import { Decoration, DecorationSet, EditorView } from 'prosemirror-view';
 import { parseMarkdown, safeHref, schema, toMarkdown } from './markdown.ts';
 
 const S = schema.nodes;
@@ -21,15 +21,134 @@ function markRule(pattern: RegExp, mark: MarkType): InputRule {
     });
 }
 
-/** Typing Markdown in the rich editor makes what it would render: `**b**`, `*i*`, `` `c` ``, `> `, `- `, `1. `, ```` ``` ````,
- *  `$x$`. */
+/** What an input rule sees in place of a line break (or any other inline node) in the text before the caret. */
+const BREAK = '￼';
+
+/** The line the caret ends: its text and where it starts, when the selection is a caret at the end of a `type` block.
+ *  In a paragraph a line starts after a line break, in a code block after a newline. */
+function lineAtEnd(state: EditorState, type: NodeType): { text: string; from: number; first: boolean } | null {
+    const { $from, empty } = state.selection;
+    if (!empty || $from.parent.type !== type || $from.parentOffset !== $from.parent.content.size) return null;
+    const all = $from.parent.textBetween(0, $from.parentOffset, undefined, BREAK);
+    const cut = Math.max(all.lastIndexOf(BREAK), all.lastIndexOf('\n')) + 1;
+    return { text: all.slice(cut), from: $from.start() + cut, first: cut === 0 };
+}
+
+/** Starts a code block from the line that ends at the caret, when that line is ```` ``` ```` and an optional language.
+ *  The lines before it stay a paragraph of their own. Returns null for any other line. */
+function openFence(state: EditorState): Transaction | null {
+    const line = lineAtEnd(state, S['paragraph']);
+    const m = line && /^```([^\s`]*)$/.exec(line.text);
+    if (!line || !m) return null;
+    const end = state.selection.from;
+    const tr = state.tr;
+    if (line.first) return tr.delete(line.from, end).setBlockType(line.from, line.from, S['code_block'], { params: m[1] });
+    // The line break before the fence goes with it, and the paragraph ends there.
+    tr.delete(line.from - 1, end).split(line.from - 1);
+    return tr.setBlockType(line.from + 1, line.from + 1, S['code_block'], { params: m[1] });
+}
+
+/** Enter on a ```` ``` ```` line: opens a code block from a paragraph, or closes the code block the caret is in. */
+const fenceOnEnter: Command = (state, dispatch) => {
+    const opened = openFence(state);
+    if (opened) {
+        dispatch?.(opened.scrollIntoView());
+        return true;
+    }
+    const line = lineAtEnd(state, S['code_block']);
+    if (!line || line.text !== '```' || line.first) return false;
+    if (dispatch) {
+        const { $from } = state.selection;
+        const tr = state.tr.delete(line.from - 1, $from.pos);
+        const after = tr.mapping.map($from.after());
+        tr.insert(after, S['paragraph'].create());
+        dispatch(tr.setSelection(TextSelection.create(tr.doc, after + 1)).scrollIntoView());
+    }
+    return true;
+};
+
+/** Left or right at an edge of inline code steps over the edge without moving the caret: the caret is either in the
+ *  code, where typing adds to it, or beside it, where typing is plain text. `dir` is -1 for left and 1 for right. */
+function crossCodeEdge(dir: -1 | 1): Command {
+    const code = M['code'];
+    return (state, dispatch) => {
+        const { $from, empty } = state.selection;
+        if (!empty || !$from.parent.inlineContent || $from.parent.type.spec.code) return false;
+        const before = $from.nodeBefore !== null && code.isInSet($from.nodeBefore.marks) !== undefined;
+        const after = $from.nodeAfter !== null && code.isInSet($from.nodeAfter.marks) !== undefined;
+        if (before === after) return false;
+        const inside = code.isInSet(state.storedMarks ?? $from.marks()) !== undefined;
+        // The code lies to the left of its right edge and to the right of its left edge.
+        const towardsCode = before ? dir === -1 : dir === 1;
+        if (inside === towardsCode) return false;
+        dispatch?.(inside ? state.tr.removeStoredMark(code) : state.tr.addStoredMark(code.create()));
+        return true;
+    };
+}
+
+/** Marks the inline code that typing would add to (class `cm-code-on`), so that the two sides of its edge look different. */
+function codeCaret(): Plugin {
+    const code = M['code'];
+    return new Plugin({
+        props: {
+            decorations(state) {
+                const { $from, empty } = state.selection;
+                if (!empty || !$from.parent.inlineContent || code.isInSet(state.storedMarks ?? $from.marks()) === undefined) return null;
+                // The run of code that touches the caret.
+                const at = $from.parentOffset;
+                let from = -1;
+                let run: { from: number; to: number } | null = null;
+                $from.parent.forEach((child, offset) => {
+                    const isCode = code.isInSet(child.marks) !== undefined;
+                    if (isCode && from < 0) from = offset;
+                    const end = isCode ? offset + child.nodeSize : offset;
+                    if (from >= 0 && (!isCode || end === $from.parent.content.size)) {
+                        if (from <= at && at <= end) run = { from, to: end };
+                        from = -1;
+                    }
+                });
+                const found = run as { from: number; to: number } | null;
+                if (found === null) return null;
+                const start = $from.start();
+                return DecorationSet.create(state.doc, [Decoration.inline(start + found.from, start + found.to, { class: 'cm-code-on' })]);
+            },
+        },
+    });
+}
+
+/** An arrow key that would leave a code block where nothing is next to it puts an empty paragraph there and the caret
+ *  in it. `dir` is -1 for up and left, 1 for down and right; `axis` says which pair. Up and down act on the block's first
+ *  and last line, left and right at its very start and end. */
+function leaveCodeBlock(dir: -1 | 1, axis: 'line' | 'char'): Command {
+    return (state, dispatch) => {
+        const { $from, empty } = state.selection;
+        const block = $from.parent;
+        if (!empty || block.type !== S['code_block']) return false;
+        const text = block.textContent;
+        const rest = dir === -1 ? text.slice(0, $from.parentOffset) : text.slice($from.parentOffset);
+        if (axis === 'char' ? rest !== '' : rest.includes('\n')) return false;
+        const index = $from.index($from.depth - 1);
+        const hasNeighbour = dir === -1 ? index > 0 : index < $from.node($from.depth - 1).childCount - 1;
+        if (hasNeighbour) return false;
+        if (dispatch) {
+            const at = dir === -1 ? $from.before() : $from.after();
+            const tr = state.tr.insert(at, S['paragraph'].create());
+            dispatch(tr.setSelection(TextSelection.create(tr.doc, at + 1)).scrollIntoView());
+        }
+        return true;
+    };
+}
+
+/** Typing Markdown in the rich editor makes what it would render: `**b**`, `*i*`, `` `c` ``, `> `, `- `, `1. `, `$x$`, and
+ *  ```` ```lang ```` followed by a space (Enter does the same, through the keymap). Emphasis, code and math stay within a
+ *  line: a line break is never part of what a rule replaces. */
 function rules(): Plugin {
     const items = [
-        markRule(/\*\*([^*\s][^*]*[^*\s]|[^*\s])\*\*$/, M['strong']),
-        markRule(/(?<![*\w])\*([^*\s][^*]*[^*\s]|[^*\s])\*$/, M['em']),
-        markRule(/(?<![_\w])_([^_\s][^_]*[^_\s]|[^_\s])_$/, M['em']),
-        markRule(/`([^`]+)`$/, M['code']),
-        new InputRule(/(?<![\w$\\])\$([^$\s](?:[^$]*[^$\s])?)\$$/, (state, match, start, end) => {
+        markRule(/\*\*([^*\s￼][^*￼]*[^*\s￼]|[^*\s￼])\*\*$/, M['strong']),
+        markRule(/(?<![*\w])\*([^*\s￼][^*￼]*[^*\s￼]|[^*\s￼])\*$/, M['em']),
+        markRule(/(?<![_\w])_([^_\s￼][^_￼]*[^_\s￼]|[^_\s￼])_$/, M['em']),
+        markRule(/(?<!`)`([^`￼]+)`$/, M['code']),
+        new InputRule(/(?<![\w$\\])\$([^$\s￼](?:[^$￼]*[^$\s￼])?)\$$/, (state, match, start, end) => {
             const tex = match[1];
             return tex === undefined ? null : state.tr.replaceWith(start, end, S['math_inline'].create({ tex }));
         }),
@@ -41,7 +160,7 @@ function rules(): Plugin {
             m => ({ order: Number(m[1]) }),
             (m, node) => node.childCount + Number(node.attrs['order']) === Number(m[1]),
         ),
-        textblockTypeInputRule(/^```$/, S['code_block']),
+        new InputRule(/```[^\s`]*\s$/, state => openFence(state)),
     ];
     return inputRules({ rules: items });
 }
@@ -111,6 +230,7 @@ export function createRichEditor(host: HTMLElement, o: RichEditorOptions): Edito
         doc: parseMarkdown(o.markdown),
         plugins: [
             rules(),
+            codeCaret(),
             history(),
             keymap({
                 'Mod-z': undo,
@@ -122,11 +242,15 @@ export function createRichEditor(host: HTMLElement, o: RichEditorOptions): Edito
                 'Mod-k': commands.link,
                 'Mod-Enter': submit,
                 Escape: cancel,
-                Enter: splitListItem(S['list_item']),
+                Enter: chainCommands(fenceOnEnter, splitListItem(S['list_item'])),
                 'Shift-Enter': chainCommands(exitCode, (st, dispatch) => {
                     dispatch?.(st.tr.replaceSelectionWith(S['hard_break'].create()).scrollIntoView());
                     return true;
                 }),
+                ArrowLeft: chainCommands(crossCodeEdge(-1), leaveCodeBlock(-1, 'char')),
+                ArrowRight: chainCommands(crossCodeEdge(1), leaveCodeBlock(1, 'char')),
+                ArrowUp: leaveCodeBlock(-1, 'line'),
+                ArrowDown: leaveCodeBlock(1, 'line'),
                 Tab: sinkListItem(S['list_item']),
                 'Shift-Tab': liftListItem(S['list_item']),
             }),
