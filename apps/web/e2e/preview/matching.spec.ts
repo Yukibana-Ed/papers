@@ -116,6 +116,41 @@ test.describe('matching source and preview', () => {
         expect(pages).toEqual(['3']);
     });
 
+    test('a selection from the blank line before a paragraph to the blank line after it shows that paragraph alone', async ({ page }) => {
+        const frame = await preview(page);
+        const lines = TABLE_PAPER['main.tex'].split('\n');
+        // The second paragraph: after the first blank line that follows the section's heading.
+        const blank = lines.findIndex((l, i) => l === '' && i > lines.indexOf('\\section{Introduction}')) + 1;
+        const first = blank + 1;
+        const last = lines.findIndex((l, i) => l === '' && i >= first) + 1 - 1;
+        const shown = async (): Promise<string[]> => {
+            await settled(frame);
+            return frame.locator('.pv-hl-mirror').evaluateAll(els =>
+                els
+                    .map(el => {
+                        const r = el.getBoundingClientRect();
+                        return [el.closest('.pv-page')?.getAttribute('data-page'), r.left, r.top, r.width, r.height]
+                            .map(v => (typeof v === 'number' ? Math.round(v) : v))
+                            .join(' ');
+                    })
+                    .toSorted(),
+            );
+        };
+        const select = async (fromLine: number, toLine: number, toEnd: boolean): Promise<string[]> => {
+            await caretAt(page, 'main.tex', fromLine, 1);
+            for (let l = fromLine; l < toLine; l++) await page.keyboard.press('Shift+ArrowDown');
+            if (toEnd) await page.keyboard.press('Shift+End');
+            return shown();
+        };
+        const own = await select(first, last, true);
+        expect(own.length).toBeGreaterThan(3);
+        expect(await select(blank, last, true)).toEqual(own);
+        expect(await select(first, last + 1, false)).toEqual(own);
+        expect(await select(blank, last + 1, false)).toEqual(own);
+        // Blank lines alone show nothing.
+        expect(await select(blank, blank, false)).toEqual([]);
+    });
+
     test('a selection in a caption that ends on a comma selects those words in the source, no more', async ({ page }) => {
         const frame = await preview(page);
         const iframe = await page.locator('iframe.pv-frame').boundingBox();
