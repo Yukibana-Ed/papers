@@ -94,6 +94,8 @@ test.describe('the dock', () => {
         await expect(page.locator('.monaco-editor .view-lines')).toBeVisible();
         await expect(tab(page, 'method.tex')).toHaveAttribute('aria-selected', 'true');
         await page.keyboard.press('Control+Shift+E');
+        // The dock takes the room the panel leaves a frame later: a drag aimed before that would miss its place.
+        await expect.poll(async () => (await rect(page.locator('.dv-content-container').first())).width - (await rect(page.locator('.dv-dockview'))).width).toBe(0);
 
         // Out again, to the right; then a file's tab dragged to where Preview is stays where it was.
         await drag(page, tab(page, 'Preview'), page.locator('.dv-content-container').first(), r => [r.x + r.width - 30, r.y + r.height / 2]);

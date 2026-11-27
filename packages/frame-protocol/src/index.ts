@@ -107,7 +107,10 @@ export type AppMessage =
     /** Try again after a `service` failure: the frame starts the failed part afresh and builds. */
     | { readonly type: 'retry' }
     /** Print the shown build through the browser's print dialog; nothing when no build is shown. */
-    | { readonly type: 'print' };
+    | { readonly type: 'print' }
+    /** Save the shown build's PDF as a file called `name` (the frame keeps only the name's last part and makes it end
+     *  in `.pdf`); nothing when no build is shown. */
+    | { readonly type: 'download'; readonly name: string };
 
 /** The language servers the frame can run. They read user content, so they run on the content origin; the editor, on
  *  the app's, talks to them through the frame. */
@@ -298,6 +301,8 @@ function appFieldsMatch(x: Record<string, unknown>): boolean {
         case 'retry':
         case 'print':
             return true;
+        case 'download':
+            return isString(x['name']);
         default:
             return false;
     }

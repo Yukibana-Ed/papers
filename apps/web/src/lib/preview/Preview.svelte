@@ -242,6 +242,12 @@
         client?.send({ type: 'print' });
     }
 
+    /** Saves the shown build's PDF as a file named after `name` (the frame downloads it: the PDF never reaches the
+     *  app). Nothing happens when no build is shown. */
+    export function download(name: string): void {
+        client?.send({ type: 'download', name });
+    }
+
     export function retry(): void {
         session.service = null;
         client?.send({ type: 'retry' });

@@ -78,8 +78,8 @@ export function collapseQueue(queue: readonly AppMessage[], reconnected: boolean
     queue.forEach((m, i) => last.set(m.type, i));
     return queue.filter((m, i) => {
         if (m.type === 'project' || m.type === 'files') return false;
-        // A print asked for before the frame was there has nothing to print.
-        if (m.type === 'print') return false;
+        // A print or a download asked for before the frame was there has nothing to give.
+        if (m.type === 'print' || m.type === 'download') return false;
         if (LATEST_ONLY.has(m.type)) return last.get(m.type) === i;
         if (m.type === 'lsp' || m.type === 'lsp-start' || m.type === 'lsp-stop') return !reconnected;
         return true;

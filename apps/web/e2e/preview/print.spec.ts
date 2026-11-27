@@ -50,7 +50,29 @@ test('Ctrl+P prints the PDF from the preview, from the editor and from the previ
     await page.keyboard.press('Control+p');
     await expect.poll(printed, { timeout: 30_000 }).toHaveLength(2);
 
-    await page.getByRole('button', { name: 'Print' }).click();
+    // And from the command palette.
+    await page.keyboard.press('Control+k');
+    await page.locator('.palette-input').fill('Print');
+    await page.keyboard.press('Enter');
     await expect.poll(printed, { timeout: 30_000 }).toHaveLength(3);
     expect(await page.evaluate(() => Reflect.has(window, 'printedApp'))).toBe(false);
+});
+
+/** The toolbar's Download saves the built PDF itself, named after the document; the frame hands it to the browser. */
+test('Download saves the built PDF under the document’s name, and Print stays in the palette', async ({ page }) => {
+    test.setTimeout(240_000);
+    await openTypstPaper(page, { 'main.typ': '= One\n\nFirst page.\n' });
+    const inFrame = page.frameLocator('iframe.pv-frame');
+    await expect(inFrame.locator('.textLayer span', { hasText: 'First' }).first()).toBeAttached({ timeout: 150_000 });
+    await expect(page.getByRole('button', { name: 'Print' })).toHaveCount(0);
+    const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download' }).click()]);
+    expect(download.suggestedFilename()).toBe('main.pdf');
+    const stream = await download.createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(chunk as Buffer);
+    expect(Buffer.concat(chunks).subarray(0, 5).toString('latin1')).toBe('%PDF-');
+
+    await page.keyboard.press('Control+k');
+    await page.locator('.palette-input').fill('Print');
+    await expect(page.locator('.palette-list .row-btn').first()).toHaveText(/Print.*Ctrl\+P/);
 });

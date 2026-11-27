@@ -252,6 +252,11 @@
         return () => files.unobserve(onFiles);
     });
 
+    /** Saves the built PDF under the document's name: `paper/main.tex` gives `main.pdf`. */
+    function downloadPdf(): void {
+        preview?.download(s.root.replace(/\.[^./]*$/, ''));
+    }
+
     function setTheme(t: 'light' | 'dark' | 'system'): void {
         chooseTheme(t);
         s.theme = t;
@@ -414,6 +419,7 @@
         { id: 'newbranch', name: 'New branch', run: () => (s.popover = 'branch') },
         ...s.order.map((f) => ({ id: `f-${f}`, name: f, kind: 'file' as const, run: () => openFile(f) })),
         { id: 'print', name: 'Print', kbd: 'Ctrl+P', run: () => preview?.print() },
+        { id: 'download', name: 'Download PDF', run: downloadPdf },
         { id: 'zoomin', name: 'Zoom in', kbd: 'Ctrl+=', run: () => s.zoomBy(0.1) },
         { id: 'zoomout', name: 'Zoom out', kbd: 'Ctrl+-', run: () => s.zoomBy(-0.1) },
         { id: 'theme-light', name: 'Light theme', run: () => setTheme('light') },
@@ -633,7 +639,7 @@
             <button type="button" class="yk-icon-btn icon-xs" onclick={() => s.zoomBy(-0.1)} {...tip('Zoom out', 'Ctrl+-')}><Icon name="minus" size={14} /></button>
             <span class="muted zoom-n">{Math.round(s.scale * 100)}%</span>
             <button type="button" class="yk-icon-btn icon-xs" onclick={() => s.zoomBy(0.1)} {...tip('Zoom in', 'Ctrl+=')}><Icon name="plus" size={14} /></button>
-            <button type="button" class="yk-icon-btn icon-xs" disabled={s.build.pages === 0} onclick={() => preview?.print()} {...tip('Print', 'Ctrl+P', 'the PDF')}><Icon name="printer" size={14} /></button>
+            <button type="button" class="yk-icon-btn icon-xs" disabled={s.build.pages === 0} onclick={downloadPdf} {...tip('Download', null, 'the PDF')}><Icon name="download" size={14} /></button>
             <button
                 type="button"
                 class="backend"
