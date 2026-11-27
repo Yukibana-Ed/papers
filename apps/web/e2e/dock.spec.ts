@@ -42,6 +42,26 @@ test.describe('the dock', () => {
         await expect(tab(page, 'intro.tex')).toHaveCount(1);
     });
 
+    test("an edited file's dot sits where the close button shows, and the tab keeps its width", async ({ page }) => {
+        await openDemo(page);
+        const intro = tab(page, 'intro.tex');
+        const clean = (await rect(intro)).width;
+        await page.locator('.monaco-editor .view-lines').click();
+        await page.keyboard.type('x');
+        // Another tab in front, the pointer away: the edited tab shows its dot.
+        await tab(page, 'paper.tex').click();
+        await page.mouse.move(0, 400);
+        const dot = await rect(intro.locator('.tab-dot'));
+        const x = await rect(intro.locator('.tab-x'));
+        expect(Math.abs(dot.x + dot.width / 2 - (x.x + x.width / 2))).toBeLessThan(0.6);
+        expect(Math.abs(dot.y + dot.height / 2 - (x.y + x.height / 2))).toBeLessThan(0.6);
+        expect((await rect(intro)).width).toBe(clean);
+        await intro.hover();
+        await expect(intro.locator('.tab-dot')).toBeHidden();
+        await expect(intro.locator('.tab-x')).toHaveCSS('opacity', '1');
+        expect((await rect(intro)).width).toBe(clean);
+    });
+
     test('Preview goes where it is dragged, without loading again; a file stays among the files', async ({ page }) => {
         await openDemo(page);
         const frame = page.frameLocator('iframe.pv-frame');

@@ -543,7 +543,6 @@
     <!-- Out of the tab order, like the tab itself (the dock's keys reach it); the keyboard closes with Ctrl+Alt+W. -->
     <span class="file-tab" role="presentation" data-file={f} onauxclick={(e) => e.button === 1 && s.closeTab(f)} {...tip(f, null, dirty ? 'uncommitted edits' : null)}>
         <span class="file-tab-name">{short(f)}</span>
-        {#if dirty}<span class="tab-dot"></span>{/if}
     </span>
     <button
         type="button"
@@ -559,6 +558,7 @@
     >
         <Icon name="x" size={12} />
     </button>
+    {#if dirty}<span class="tab-dot"></span>{/if}
 {/snippet}
 
 {#snippet editorPart(_: null)}

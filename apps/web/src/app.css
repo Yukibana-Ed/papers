@@ -863,6 +863,7 @@ button {
 }
 /* A file's tab: the whole of it is the file's (a middle click anywhere closes it), up to its close button. */
 .dock-tab:has(.tab-x) {
+    position: relative;
     padding: 0 6px 0 0;
 }
 .file-tab {
@@ -901,15 +902,21 @@ button {
     background: var(--yk-sunken);
     color: var(--yk-ink);
 }
+/* Uncommitted edits: a dot in the middle of the close button's place, which it gives up where the button shows. */
 .tab-dot {
+    position: absolute;
+    top: 50%;
+    right: 11px;
     width: 6px;
     height: 6px;
+    margin-top: -3px;
     border-radius: 50%;
     background: var(--yk-warn);
+    pointer-events: none;
 }
-/* The dot makes room for the close button where that shows. */
 .dv-tab:hover .tab-dot,
-.dv-active-tab .tab-dot {
+.dv-active-tab .tab-dot,
+.tab-x:focus-visible + .tab-dot {
     display: none;
 }
 /* The list of the tabs that do not fit in a narrow group's bar. */
