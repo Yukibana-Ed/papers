@@ -32,7 +32,9 @@ export default {
                 mode: 'hash',
                 directives: {
                     'default-src': ['self'],
-                    'script-src': ['self'],
+                    // Cloudflare Web Analytics: the zone adds its beacon script to every page, and the beacon reports to
+                    // cloudflareinsights.com (see connect-src). The content origin's policy allows neither.
+                    'script-src': ['self', 'https://static.cloudflareinsights.com'],
                     'style-src': ['self', 'unsafe-inline'],
                     'img-src': ['self', 'data:', 'blob:', 'https://avatars.githubusercontent.com', 'https://raw.githubusercontent.com'],
                     'font-src': ['self', 'data:'],
@@ -42,6 +44,7 @@ export default {
                         'https://api.github.com',
                         'https://raw.githubusercontent.com',
                         'https://packages.typst.org',
+                        'https://cloudflareinsights.com',
                         'http://127.0.0.1:47115',
                         'ws://127.0.0.1:47115',
                     ],
