@@ -16,10 +16,13 @@ const repo = (owner: string, name: string, pushed: string, extra: Record<string,
 const API = {
     '/user/installations': { body: { installations: [{ id: 1 }, { id: 2 }] } },
     '/user/installations/1/repositories': {
-        body: { repositories: [repo('ada', 'thesis', '2026-11-20T10:00:00Z'), repo('ada', 'notes', '2026-01-01T10:00:00Z', { private: true })] },
+        body: { total_count: 2, repositories: [repo('ada', 'thesis', '2026-11-20T10:00:00Z'), repo('ada', 'notes', '2026-01-01T10:00:00Z', { private: true })] },
     },
     '/user/installations/2/repositories': {
-        body: { repositories: [repo('lab', 'feedback-paper', '2026-11-25T10:00:00Z'), repo('lab', 'website', '2026-06-01T10:00:00Z', { permissions: { push: false } })] },
+        body: {
+            total_count: 2,
+            repositories: [repo('lab', 'feedback-paper', '2026-11-25T10:00:00Z'), repo('lab', 'website', '2026-06-01T10:00:00Z', { permissions: { push: false } })],
+        },
     },
     '/repos/ada/thesis/contents/': {
         body: [
@@ -79,4 +82,23 @@ test('signed out on GitHub meanwhile, the start page offers to sign in again', a
     await page.route('**/auth/token', route => route.fulfill({ status: 401, json: { message: 'Sign in' } }));
     await page.goto('/');
     await expect(page.getByRole('link', { name: 'Sign in with GitHub' })).toHaveAttribute('href', '/auth/login');
+});
+
+test('many repositories: the pages after the first are asked at once, and the next visit shows the list before GitHub answers', async ({ page }) => {
+    const many = Array.from({ length: 250 }, (_, i) => repo('big', `r${String(i).padStart(3, '0')}`, new Date(Date.UTC(2026, 0, 1) + i * 3600_000).toISOString()));
+    const pages = Object.fromEntries(
+        [1, 2, 3].map(n => [`/user/installations/9/repositories?per_page=100&page=${n}`, { body: { total_count: 250, repositories: many.slice((n - 1) * 100, n * 100) } }]),
+    );
+    const asked = await signedIn(page, 'ada', { '/user/installations': { body: { installations: [{ id: 9 }] } }, ...pages });
+    await page.goto('/');
+    const rows = page.locator('.projects .row');
+    await expect(rows).toHaveCount(250);
+    await expect(rows.nth(0)).toContainText('big/r249');
+    expect(asked.filter(a => a.includes('/user/installations/9/repositories'))).toHaveLength(3);
+
+    // GitHub now never answers the list: the kept one shows anyway.
+    await page.route('https://api.github.com/user/installations**', () => undefined);
+    await page.reload();
+    await expect(rows).toHaveCount(250);
+    await expect(rows.nth(0)).toContainText('big/r249');
 });
