@@ -450,14 +450,14 @@
         {@const hs = tri(h.changes.map((c) => inc(f, c)))}
         <table class="dtable {layout}">
             {#if layout === 'unified'}
-                <colgroup><col style:width="26px" />{#if team}<col style:width="30px" />{/if}<col style:width="40px" /><col style:width="40px" /><col style:width="16px" /><col /></colgroup>
+                <colgroup><col style:width="26px" />{#if team}<col style:width="38px" />{/if}<col style:width="40px" /><col style:width="40px" /><col style:width="16px" /><col /></colgroup>
             {:else}
-                <colgroup><col style:width="40px" /><col style:width="26px" />{#if team}<col style:width="30px" />{/if}<col /><col style:width="1px" /><col style:width="40px" /><col style:width="26px" />{#if team}<col style:width="30px" />{/if}<col /></colgroup>
+                <colgroup><col style:width="26px" />{#if team}<col style:width="38px" />{/if}<col style:width="40px" /><col /><col style:width="1px" /><col style:width="26px" />{#if team}<col style:width="38px" />{/if}<col style:width="40px" /><col /></colgroup>
             {/if}
             <tbody>
                 <tr class="hunk">
-                    <td class="cb" colspan={layout === 'split' ? 2 : 1}>{@render check(hs, 'Include hunk', (on) => s.setIncluded(f, h.changes, on))}</td>
-                    <td colspan={layout === 'split' ? (team ? 7 : 5) : team ? 5 : 4}>
+                    <td class="cb">{@render check(hs, 'Include hunk', (on) => s.setIncluded(f, h.changes, on))}</td>
+                    <td colspan={layout === 'split' ? (team ? 8 : 6) : team ? 5 : 4}>
                         <div class="hk">
                             <span class="mono">@@ -{h.oldStart} +{h.newStart} @@</span>
                             <span class="ctx">{#if h.header}{@render cell({ kind: 'ctx', text: h.header, old: null, new: null, change: -1, authors: [] }, f)}{/if}</span>
@@ -485,9 +485,9 @@
                             {@const row = r.rows[pair.ctx]}
                             {#if row}
                                 <tr>
-                                    <td class="no">{row.old}</td><td class="cb"></td>{#if team}<td class="au"></td>{/if}<td class="tx">{@render cell(row, f)}</td>
+                                    <td class="cb"></td>{#if team}<td class="au"></td>{/if}<td class="no">{row.old}</td><td class="tx">{@render cell(row, f)}</td>
                                     <td class="mid"></td>
-                                    <td class="no">{row.new}</td><td class="cb"></td>{#if team}<td class="au"></td>{/if}<td class="tx">{@render cell(row, f)}</td>
+                                    <td class="cb"></td>{#if team}<td class="au"></td>{/if}<td class="no">{row.new}</td><td class="tx">{@render cell(row, f)}</td>
                                 </tr>
                             {/if}
                         {:else}
@@ -496,22 +496,22 @@
                             <tr>
                                 {#if d}
                                     {@const off = inc(f, d.change) ? '' : 'off'}
-                                    <td class="no del {off}">{d.old}</td>
                                     <td class="cb del {off}">{@render lineCheck(f, d)}</td>
                                     {@render author(d, `del ${off}`)}
+                                    <td class="no del {off}">{d.old}</td>
                                     <td class="tx del {off}">{@render cell(d, f)}</td>
                                 {:else}
-                                    <td class="no blank"></td><td class="cb blank"></td>{#if team}<td class="au blank"></td>{/if}<td class="tx blank"></td>
+                                    <td class="cb blank"></td>{#if team}<td class="au blank"></td>{/if}<td class="no blank"></td><td class="tx blank"></td>
                                 {/if}
                                 <td class="mid"></td>
                                 {#if a}
                                     {@const off = inc(f, a.change) ? '' : 'off'}
-                                    <td class="no add {off}">{a.new}</td>
                                     <td class="cb add {off}">{@render lineCheck(f, a)}</td>
                                     {@render author(a, `add ${off}`)}
+                                    <td class="no add {off}">{a.new}</td>
                                     <td class="tx add {off}">{@render cell(a, f)}</td>
                                 {:else}
-                                    <td class="no blank"></td><td class="cb blank"></td>{#if team}<td class="au blank"></td>{/if}<td class="tx blank"></td>
+                                    <td class="cb blank"></td>{#if team}<td class="au blank"></td>{/if}<td class="no blank"></td><td class="tx blank"></td>
                                 {/if}
                             </tr>
                         {/if}
@@ -627,10 +627,10 @@
     }
     .commit-pop.big {
         position: fixed;
-        top: 46px;
-        right: 10px;
-        width: min(1240px, calc(100vw - 72px));
-        height: calc(100vh - 64px);
+        inset: 0;
+        margin: auto;
+        width: min(1680px, calc(100vw - 64px));
+        height: calc(100vh - 48px);
         max-height: none;
         padding: 0;
         flex-direction: row;
@@ -641,7 +641,7 @@
     }
     .commit-scrim {
         position: fixed;
-        inset: 40px 0 0 0;
+        inset: 0;
         background: oklch(from var(--yk-ink) l c h / 0.16);
         z-index: 45;
         animation: fade-in var(--yk-motion-fast) var(--yk-motion-ease);
@@ -905,7 +905,7 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        padding: 6px 8px 6px 12px;
+        padding: 6px 8px 6px 5px;
         border-bottom: 1px solid var(--yk-line);
         min-height: 40px;
         box-sizing: border-box;
@@ -978,10 +978,11 @@
         text-align: center;
         user-select: none;
     }
+    /* Every box in a diff on one axis: the middle of the first column, the middle of a line. */
     td.cb .yk-check {
-        width: 14px;
-        height: 14px;
-        margin-top: 3px;
+        display: grid;
+        flex: none;
+        margin: 2px auto 0;
     }
     td.sg {
         color: var(--yk-soft);
@@ -993,34 +994,27 @@
     td.mid {
         background: var(--yk-line);
     }
-    td.au {
-        text-align: center;
-        padding-top: 2px;
-    }
     .au-in {
-        display: inline-flex;
+        display: flex;
+        width: fit-content;
+        height: 20px;
+        align-items: center;
+        margin-inline: auto;
         position: relative;
     }
     .au-in :global(.avatar) {
         box-shadow: none;
     }
-    /* A line two people changed: both, the second half under the first. */
-    .au-in.two :global(.avatar) {
-        position: relative;
-    }
-    .au-in.two :global(.avatar:first-child) {
-        z-index: 1;
-        box-shadow: 0 0 0 1.5px var(--yk-surface);
-    }
-    .au-in.two :global(.avatar + .avatar) {
-        margin-left: -5px;
+    /* A line two people changed: both, side by side. */
+    .au-in.two {
+        gap: 2px;
     }
     /* An accepted suggestion: a pen on the suggester's picture. */
     .au-in.sug::after {
         content: '';
         position: absolute;
         right: -3px;
-        bottom: -3px;
+        bottom: -1px;
         width: 9px;
         height: 9px;
         border-radius: 50%;
@@ -1032,7 +1026,7 @@
         content: '';
         position: absolute;
         right: -2px;
-        bottom: -2px;
+        bottom: 0;
         width: 7px;
         height: 7px;
         z-index: 1;
@@ -1088,7 +1082,7 @@
         font-size: 11.5px;
     }
     tr.hunk td.cb .yk-check {
-        margin-top: 0;
+        margin-block: 0;
     }
     .hk {
         display: flex;
