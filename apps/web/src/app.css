@@ -114,12 +114,19 @@ button {
     border-radius: 50%;
     background: oklch(from var(--yk-chip-grey-bg) l 0.06 var(--hue));
     color: oklch(from var(--yk-chip-grey-fg) l 0.1 var(--hue));
+    /* The interface's face wherever the avatar sits (a diff is monospace). */
+    font-family: var(--yk-font-family-body);
     font-weight: var(--yk-font-weight-bold);
-    letter-spacing: -0.02em;
+    letter-spacing: 0;
     box-shadow: 0 0 0 1.5px var(--yk-surface);
     flex: none;
     line-height: 1;
     position: relative;
+}
+/* Initials centred by their capitals, not by the line box (which has room for descenders). */
+.avatar-i {
+    display: block;
+    text-box: trim-both cap alphabetic;
 }
 .avatar img {
     position: absolute;
