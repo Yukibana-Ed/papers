@@ -69,14 +69,101 @@ test('someone whose name has letters beyond Latin-1 joins the room', async ({ pa
     await expect(page.locator('.monaco-editor .view-lines')).toContainText('Hello from the repository. Szia.');
 });
 
-test('a room that keeps refusing is named with its reason instead of opening forever', async ({ page }, info) => {
+/** Makes `page`'s room unreachable until the returned function is called: every connection is turned away, and the
+ *  room says why when asked. */
+async function roomDown(page: Page): Promise<() => void> {
+    let down = true;
+    await page.routeWebSocket(/\/room\//, ws => {
+        if (down) void ws.close();
+        else ws.connectToServer();
+    });
+    await page.route(/\/room\/ada\//, route => (down && route.request().method() === 'POST' ? route.fulfill({ status: 503, body: 'Exceeded the daily limit' }) : route.fallback()));
+    return () => {
+        down = false;
+    };
+}
+
+const OFFLINE = '.yk-chip:has-text("Offline")';
+
+test('a project whose room cannot be reached opens from GitHub, and what is typed there joins the room once it answers', async ({ page, browser }, info) => {
     const repo = await repoFor(info.title);
-    // The room turns every connection away, and says why when asked.
-    await page.routeWebSocket(/\/room\//, ws => void ws.close());
-    await page.route(/\/room\/ada\//, route => (route.request().method() === 'POST' ? route.fulfill({ status: 503, body: 'Exceeded the daily limit' }) : route.fallback()));
-    await signedInToFake(page, 'ada');
-    await page.goto(`/p/${repo}`);
-    await expect(page.locator('main.loading .yk-chip')).toHaveText('The room is unavailable (503: Exceeded the daily limit)', { timeout: 30_000 });
+    // Bob is in the room, and stays.
+    const bob = await another(browser);
+    await open(bob, 'bob', repo);
+
+    const up = await roomDown(page);
+    await open(page, 'ada', repo);
+    await expect(page.locator('.yk-toast')).toHaveText('The room is unavailable (503: Exceeded the daily limit)');
+    await expect(page.locator(OFFLINE)).toBeVisible();
+    await typeAfter(page, 'Hello from the repository.', ' Ada, without the room.');
+    await expect(page.locator('.pending')).toBeVisible();
+    await typeAfter(bob, '\\documentclass{article}', '% Bob, in the room.');
+
+    up();
+    // Both edits, each once, for both: the two texts were made separately from the same commit.
+    for (const p of [page, bob]) {
+        const lines = p.locator('.monaco-editor .view-lines');
+        await expect(lines).toContainText('Hello from the repository. Ada, without the room.', { timeout: 60_000 });
+        await expect(lines).toContainText('\\documentclass{article}% Bob, in the room.');
+        await expect(p.locator('.monaco-editor .view-line', { hasText: 'Hello from the repository.' })).toHaveCount(1);
+    }
+    await expect(page.locator(OFFLINE)).toBeHidden();
+    await expect(page.locator('.present-one')).toHaveCount(1);
+    await bob.context().close();
+});
+
+test('what was typed while the room was away is still there after a reload, and reaches the room afterwards', async ({ page, browser }, info) => {
+    const repo = await repoFor(info.title);
+    // Ada has been in the room: this browser keeps a copy of the branch.
+    await open(page, 'ada', repo);
+    await typeAfter(page, 'Hello from the repository.', ' With the room.');
+    await page.waitForTimeout(1500);
+
+    const up = await roomDown(page);
+    await page.reload();
+    await expect(page.locator('.monaco-editor .view-lines')).toContainText('Hello from the repository. With the room.', { timeout: 30_000 });
+    await expect(page.locator(OFFLINE)).toBeVisible();
+    await typeAfter(page, 'With the room.', ' Then without.');
+    await page.waitForTimeout(1500);
+    await page.reload();
+    await expect(page.locator('.monaco-editor .view-lines')).toContainText('With the room. Then without.', { timeout: 30_000 });
+
+    up();
+    await expect(page.locator(OFFLINE)).toBeHidden({ timeout: 60_000 });
+    const bob = await another(browser);
+    await open(bob, 'bob', repo);
+    await expect(bob.locator('.monaco-editor .view-lines')).toContainText('Hello from the repository. With the room. Then without.');
+    await expect(bob.locator('.monaco-editor .view-line', { hasText: 'Hello from the repository.' })).toHaveCount(1);
+    await bob.context().close();
+});
+
+test('a commit made while the room was away is the room’s base once it answers, with nothing left pending', async ({ page, browser }, info) => {
+    const repo = await repoFor(info.title);
+    const bob = await another(browser);
+    await open(bob, 'bob', repo);
+
+    const up = await roomDown(page);
+    await open(page, 'ada', repo);
+    await typeAfter(page, 'Hello from the repository.', ' Committed without the room.');
+    await page.getByRole('button', { name: 'Commit' }).click();
+    await page.getByRole('textbox', { name: 'Message' }).press('Enter');
+    await expect(page.locator('.pending')).toBeHidden();
+    expect((await repoState(repo)).files['main.tex']).toContain('Committed without the room.');
+
+    up();
+    await expect(page.locator(OFFLINE)).toBeHidden({ timeout: 60_000 });
+    for (const p of [page, bob]) {
+        await expect(p.locator('.monaco-editor .view-lines')).toContainText('Hello from the repository. Committed without the room.');
+        await expect(p.locator('.monaco-editor .view-line', { hasText: 'Hello from the repository.' })).toHaveCount(1);
+        await expect(p.locator('.pending')).toBeHidden();
+    }
+    // The next commit, from the room, goes on top of it.
+    await typeAfter(bob, 'Committed without the room.', ' And Bob.');
+    await bob.getByRole('button', { name: 'Commit' }).click();
+    await bob.getByRole('textbox', { name: 'Message' }).press('Enter');
+    await expect(bob.locator('.pending')).toBeHidden();
+    expect((await repoState(repo)).commits.map(c => c.author)).toEqual(['bob', 'ada', 'ada']);
+    await bob.context().close();
 });
 
 test('two people in a branch see each other type, and what one commits is committed for both', async ({ page, browser }, info) => {
