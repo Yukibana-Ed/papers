@@ -69,10 +69,6 @@ export class RoomStore {
         this.sql.exec('INSERT INTO updates (doc, data, at) VALUES (?, ?, ?)', doc, data, at);
     }
 
-    updateCount(doc: DocId): number {
-        return Number(this.sql.exec('SELECT count(*) AS n FROM updates WHERE doc = ?', doc).toArray()[0]?.['n'] ?? 0);
-    }
-
     /** Replaces `doc`'s whole log with one update that `state` holds (its state as one update). */
     compact(doc: DocId, state: Uint8Array, at: number): void {
         this.sql.exec('DELETE FROM updates WHERE doc = ?', doc);
@@ -115,12 +111,6 @@ export class RoomStore {
         };
     }
 
-    /** The login `client` writes as, if one is known. */
-    writer(client: number): string | null {
-        const r = this.sql.exec('SELECT login FROM writers WHERE client = ?', client).toArray()[0];
-        return r ? str(r['login']) : null;
-    }
-
     /** Records that `client` writes as `login`. Precondition: `client` has no writer yet. */
     addWriter(client: number, login: string): void {
         this.sql.exec('INSERT INTO writers (client, login) VALUES (?, ?)', client, login);
@@ -142,7 +132,10 @@ export class RoomStore {
 
     setUsage(day: string, metric: string, value: number): void {
         this.sql.exec('INSERT INTO usage (day, metric, value) VALUES (?, ?, ?) ON CONFLICT (day, metric) DO UPDATE SET value = excluded.value', day, metric, value);
-        // A month of counters is plenty to look back at.
+    }
+
+    /** Forgets the counters of more than a month before `day` (`YYYY-MM-DD`): a month is plenty to look back at. */
+    pruneUsage(day: string): void {
         this.sql.exec('DELETE FROM usage WHERE day < ?', new Date(Date.parse(`${day}T00:00:00Z`) - 31 * 864e5).toISOString().slice(0, 10));
     }
 }
