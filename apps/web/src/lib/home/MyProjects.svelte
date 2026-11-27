@@ -2,7 +2,7 @@
     import { goto } from '$app/navigation';
     import { onMount } from 'svelte';
     import { myProjects, paperKind, type Project } from '#lib/github/projects.ts';
-    import { githubToken, SignInNeeded } from '#lib/github/token.ts';
+    import { session, SignInNeeded } from '#lib/github/token.ts';
     import Icon from '#lib/ui/Icon.svelte';
     import TooltipLayer from '#lib/ui/TooltipLayer.svelte';
     import { tip } from '#lib/ui/tooltip.ts';
@@ -57,24 +57,59 @@
         return rtf.format(0, 'minute');
     }
 
+    type Kind = 'papers' | 'latex' | 'typst' | null;
+
+    /** The list as this browser last saw it, for `login`: shown at once on the next visit while GitHub is asked again. */
+    const keptKey = (login: string): string => `yukibana-papers/projects/${login.toLowerCase()}`;
+
+    function kept(login: string): { projects: Project[]; kinds: Record<string, Kind> } | null {
+        try {
+            const v: unknown = JSON.parse(localStorage.getItem(keptKey(login)) ?? 'null');
+            if (typeof v !== 'object' || v === null || !('projects' in v) || !('kinds' in v) || !Array.isArray(v.projects)) return null;
+            return v as { projects: Project[]; kinds: Record<string, Kind> };
+        } catch {
+            return null;
+        }
+    }
+
+    function keep(login: string, list: Project[], k: Record<string, Kind>): void {
+        try {
+            localStorage.setItem(keptKey(login), JSON.stringify({ projects: list, kinds: k }));
+        } catch {
+            // Storage full or refused: the next visit waits for GitHub, as without it.
+        }
+    }
+
     onMount(() => {
         let cancelled = false;
         void (async () => {
             try {
-                const token = await githubToken();
-                const list = await myProjects(token);
+                const { token, viewer } = await session();
+                const before = kept(viewer.login);
+                if (before && !cancelled) {
+                    projects = before.projects;
+                    kinds = before.kinds;
+                }
+                const list = await myProjects(token, (sofar) => {
+                    // Without a kept list, show each page as it comes; with one, swap only once GitHub's is whole.
+                    if (!cancelled && before === null) projects = sofar;
+                });
                 if (cancelled) return;
                 projects = list;
+                keep(viewer.login, list, before?.kinds ?? {});
                 // What the most recent ones hold, a few at a time.
                 const todo = list.slice(0, LOOK);
+                const found: Record<string, Kind> = {};
                 const next = async (): Promise<void> => {
                     for (let p = todo.shift(); p !== undefined; p = todo.shift()) {
                         const kind = await paperKind(token, p.owner, p.name).catch(() => null);
                         if (cancelled) return;
                         kinds[`${p.owner}/${p.name}`] = kind;
+                        found[`${p.owner}/${p.name}`] = kind;
                     }
                 };
                 await Promise.all(Array.from({ length: 6 }, next));
+                if (!cancelled) keep(viewer.login, list, found);
             } catch (e) {
                 if (cancelled) return;
                 signedOut = e instanceof SignInNeeded;
