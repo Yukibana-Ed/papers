@@ -77,7 +77,7 @@ interface PageView {
 /** The file name a build is saved under when asked to save it as `name`: the last part of `name` without characters
  *  a file name cannot hold, ending in `.pdf`; `document.pdf` when nothing is left. */
 export function pdfName(name: string): string {
-    const kept = [...(name.split(/[\\/]/).pop() ?? '')].filter(c => c >= ' ' && !'<>:"|?*'.includes(c)).join('');
+    const kept = (name.split(/[\\/]/).pop() ?? '').replace(/[\p{Cc}<>:"|?*]/gu, '');
     const last = kept.replace(/\.pdf$/i, '').replace(/^[.\s]+|[.\s]+$/g, '');
     return `${last === '' ? 'document' : last}.pdf`;
 }
