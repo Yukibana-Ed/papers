@@ -26,7 +26,38 @@ export interface Peer {
     send(data: string | Uint8Array): void;
     /** The awareness client ids this connection has announced, so they go when it does. */
     readonly awarenessIds: Set<number>;
+    /** Takes the connection's presence each time it changes, as an awareness update of its client ids: what `rejoin`
+     *  needs back when the room was put to sleep with this connection open. */
+    keep(presence: Uint8Array): void;
 }
+
+/** A presence registry that runs no timer. y-protocols starts one in every `Awareness` (it renews the local state and
+ *  times others out); a pending timer keeps a Durable Object awake, and awake time is what the platform bills. The
+ *  room needs neither job: it has no presence of its own, and it drops a connection's presence when the connection
+ *  ends. */
+function timerlessAwareness(doc: Y.Doc): Awareness {
+    const awareness = new Awareness(doc);
+    // The one public way to stop the timer. It also clears the local state and the listeners (none yet); states are
+    // still applied, encoded and removed as before.
+    awareness.destroy();
+    return awareness;
+}
+
+/** The awareness client ids `update` speaks for. Throws when `update` is not an awareness update. */
+function awarenessClients(update: Uint8Array): number[] {
+    const d = decoding.createDecoder(update);
+    const n = decoding.readVarUint(d);
+    const ids: number[] = [];
+    for (let i = 0; i < n; i++) {
+        ids.push(decoding.readVarUint(d));
+        decoding.readVarUint(d);
+        decoding.readVarString(d);
+    }
+    return ids;
+}
+
+/** The origin of presence put back by `rejoin`: everyone connected has it already. */
+const RESTORED = 'restored';
 
 /** The ids of `text`'s characters that are in it now, in order: what a file's committed state is when the room
  *  creates it from that very text. */
@@ -60,13 +91,17 @@ function changesText(data: Uint8Array): boolean {
 /** A room: the two Yjs documents of one branch's session, kept in memory and in the room's SQL storage, and the
  *  connections to it. It is the Durable Object's logic without the Durable Object, so tests drive it directly.
  *
+ *  It starts no timer and holds nothing pending, so that the object can be put to sleep whenever no message is being
+ *  handled. What lives only in memory is lost then: the connections come back through `rejoin`, each person's own
+ *  budget starts afresh, and the bytes counted in the last `USAGE_SAVE_MS` may go uncounted.
+ *
  *  Invariants: every change applied to a document is in the store before it is sent to anyone; a connection with
  *  `comment` access never changes the text document; the base commit and the files' committed state change only on
  *  `open` (for a file the room does not have yet), `committed` and `pulled`, all from `write` connections. */
 export class RoomCore {
     readonly text = new Y.Doc();
     readonly review = new Y.Doc();
-    readonly awareness = new Awareness(this.review);
+    readonly awareness = timerlessAwareness(this.review);
     private readonly peers = new Set<Peer>();
     private readonly meter: UsageMeter;
     /** Each person's own budget, by login, across their connections. */
@@ -90,8 +125,6 @@ export class RoomCore {
         private readonly now: () => number = Date.now,
         private readonly limits: Limits = DEFAULT_LIMITS,
     ) {
-        // The server holds no presence of its own.
-        this.awareness.setLocalState(null);
         for (const [id, doc] of [
             [DOC_TEXT, this.text],
             [DOC_REVIEW, this.review],
@@ -104,6 +137,7 @@ export class RoomCore {
         this.text.on('afterTransaction', (tr: Y.Transaction) => this.recordAuthors(tr));
         this.loadBaseIds();
         this.awareness.on('update', ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => {
+            if (origin === RESTORED) return;
             const changed = [...added, ...updated, ...removed];
             const msg = encoding.createEncoder();
             encoding.writeUint8(msg, DOC_REVIEW);
@@ -258,6 +292,26 @@ export class RoomCore {
         }
     }
 
+    /** Puts back a connection that was open when the room was put to sleep, with the `presence` it last handed to
+     *  `keep` (null when it announced none). Sends nothing: the connection and everyone else have what they had.
+     *  Precondition: called on a room just made, before any message is handled. A `presence` that cannot be read, or
+     *  that speaks for another connection's client id, is dropped. */
+    rejoin(p: Peer, presence: Uint8Array | null): void {
+        this.peers.add(p);
+        if (presence === null) return;
+        try {
+            const ids = awarenessClients(presence);
+            if (ids.some(id => this.awarenessOwners.has(id))) return;
+            for (const id of ids) {
+                p.awarenessIds.add(id);
+                this.awarenessOwners.set(id, p);
+            }
+            applyAwarenessUpdate(this.awareness, presence, RESTORED);
+        } catch {
+            // Unreadable: the connection announces its presence again when it next changes.
+        }
+    }
+
     /** Removes a connection and its presence. */
     disconnect(p: Peer): void {
         this.peers.delete(p);
@@ -313,22 +367,17 @@ export class RoomCore {
             if (id !== DOC_REVIEW) throw new Error('awareness is on the review document');
             const update = decoding.readVarUint8Array(dec);
             // The awareness clients this update speaks for: each must be new, or this connection's already.
-            const d = decoding.createDecoder(update);
-            const n = decoding.readVarUint(d);
-            const ids: number[] = [];
-            for (let i = 0; i < n; i++) {
-                const client = decoding.readVarUint(d);
+            const ids = awarenessClients(update);
+            for (const client of ids) {
                 const owner = this.awarenessOwners.get(client);
                 if (client === this.awareness.clientID || (owner !== undefined && owner !== p)) throw new Error('another connection’s presence');
-                ids.push(client);
-                decoding.readVarUint(d);
-                decoding.readVarString(d);
             }
             for (const client of ids) {
                 p.awarenessIds.add(client);
                 this.awarenessOwners.set(client, p);
             }
             applyAwarenessUpdate(this.awareness, update, p);
+            p.keep(encodeAwarenessUpdate(this.awareness, [...p.awarenessIds]));
             return;
         }
         if (kind !== MSG_SYNC) throw new Error('unknown message');

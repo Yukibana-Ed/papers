@@ -15,6 +15,36 @@ function isRecord(x: unknown): x is Record<string, unknown> {
     return typeof x === 'object' && x !== null;
 }
 
+/** What a WebSocket's attachment holds, as JSON: who the connection is, since when (epoch ms), and its presence as
+ *  the room core last handed it over (an awareness update, base64). It is all that outlives the room's sleep. */
+interface Kept {
+    readonly identity: Identity;
+    readonly since: number;
+    readonly presence: Uint8Array | null;
+}
+
+function base64(bytes: Uint8Array): string {
+    let binary = '';
+    for (const b of bytes) binary += String.fromCharCode(b);
+    return btoa(binary);
+}
+
+function parseKept(attachment: unknown): Kept | null {
+    const identity = parseIdentity(typeof attachment === 'string' ? attachment : null);
+    if (!identity || typeof attachment !== 'string') return null;
+    const r: unknown = JSON.parse(attachment);
+    if (!isRecord(r)) return null;
+    let presence: Uint8Array | null = null;
+    if (typeof r['presence'] === 'string') {
+        try {
+            presence = Uint8Array.from(atob(r['presence']), c => c.charCodeAt(0));
+        } catch {
+            // Not base64: no presence.
+        }
+    }
+    return { identity, since: typeof r['since'] === 'number' ? r['since'] : 0, presence };
+}
+
 function parseIdentity(raw: string | null): Identity | null {
     if (raw === null) return null;
     try {
@@ -30,7 +60,9 @@ function parseIdentity(raw: string | null): Identity | null {
 }
 
 /** The room of one branch of one repository: named `<owner>/<repo>#<branch>` by the app's Worker. Hibernating
- *  WebSockets: an idle room costs nothing, and wakes with its documents from SQLite. */
+ *  WebSockets: a room nobody is talking to is put to sleep with its connections open and costs nothing; it wakes for
+ *  the next message with its documents from SQLite and its connections from their attachments. Nothing here or in
+ *  the core may leave a timer pending: that would keep the room awake, which is what the platform bills. */
 export class Room extends DurableObject<Env> {
     private core: RoomCore | null = null;
     private readonly peers = new Map<WebSocket, Peer>();
@@ -39,19 +71,34 @@ export class Room extends DurableObject<Env> {
         if (this.core) return this.core;
         const core = new RoomCore(new RoomStore(this.ctx.storage.sql));
         this.core = core;
-        // After a wake from hibernation: the sockets are still open, the peers have to be rebuilt.
-        for (const ws of this.ctx.getWebSockets()) {
-            const attachment: unknown = ws.deserializeAttachment();
-            const identity = parseIdentity(typeof attachment === 'string' ? attachment : null);
-            if (identity) this.peers.set(ws, this.peerOf(ws, identity));
-        }
+        // After a wake from hibernation: the sockets are still open, the room has to be told of them again.
+        for (const ws of this.ctx.getWebSockets()) this.restore(core, ws);
         return core;
     }
 
-    private peerOf(ws: WebSocket, identity: Identity): Peer {
+    /** Puts `ws`, a connection from before the room slept, back in `core`, unless it is there. */
+    private restore(core: RoomCore, ws: WebSocket): void {
+        if (this.peers.has(ws)) return;
+        const kept = parseKept(ws.deserializeAttachment());
+        if (!kept) return;
+        const peer = this.peerOf(ws, kept.identity, kept.since);
+        this.peers.set(ws, peer);
+        core.rejoin(peer, kept.presence);
+    }
+
+    private peerOf(ws: WebSocket, identity: Identity, since: number): Peer {
         return {
             identity,
             awarenessIds: new Set(),
+            keep: presence => {
+                try {
+                    ws.serializeAttachment(JSON.stringify({ ...identity, since, presence: base64(presence) }));
+                } catch {
+                    // Larger than an attachment may be: after a sleep this connection's presence is unknown until it
+                    // changes again.
+                    ws.serializeAttachment(JSON.stringify({ ...identity, since }));
+                }
+            },
             send: data => {
                 try {
                     ws.send(data);
@@ -81,8 +128,9 @@ export class Room extends DurableObject<Env> {
         const core = this.room();
         const { 0: client, 1: server } = new WebSocketPair();
         this.ctx.acceptWebSocket(server);
-        server.serializeAttachment(JSON.stringify({ ...identity, since: Date.now() }));
-        const peer = this.peerOf(server, identity);
+        const since = Date.now();
+        server.serializeAttachment(JSON.stringify({ ...identity, since }));
+        const peer = this.peerOf(server, identity, since);
         this.peers.set(server, peer);
         core.connect(peer);
         await this.ctx.storage.setAlarm(Date.now() + TICK_MS);
@@ -106,8 +154,11 @@ export class Room extends DurableObject<Env> {
     }
 
     override webSocketClose(ws: WebSocket): void {
+        const core = this.room();
+        // A close can be what woke the room: the connection is put back first, so that its presence goes with it.
+        this.restore(core, ws);
         const peer = this.peers.get(ws);
-        if (peer) this.room().disconnect(peer);
+        if (peer) core.disconnect(peer);
         this.peers.delete(ws);
     }
 

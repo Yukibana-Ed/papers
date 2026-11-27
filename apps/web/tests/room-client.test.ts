@@ -210,6 +210,27 @@ describe('RoomClient', () => {
         client.close();
     });
 
+    it('sends nothing while its user does nothing, and keeps the presence of others who say nothing', async () => {
+        const { client, ws } = await connected();
+        client.awareness.setLocalState({ user: 'me', cursor: { file: 'a.tex', line: 6 } });
+        const { Awareness, encodeAwarenessUpdate } = await import('y-protocols/awareness');
+        const other = new Awareness(new Y.Doc());
+        other.setLocalState({ user: 'lena' });
+        const e = encoding.createEncoder();
+        encoding.writeUint8(e, DOC_REVIEW);
+        encoding.writeVarUint(e, MSG_AWARENESS);
+        encoding.writeVarUint8Array(e, encodeAwarenessUpdate(other, [other.clientID]));
+        ws.receive(encoding.toUint8Array(e));
+        other.destroy();
+        await vi.advanceTimersByTimeAsync(PRESENCE_MS);
+        const sent = ws.sent.length;
+        await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+        expect(ws.sent).toHaveLength(sent);
+        expect(client.awareness.getStates().get(other.clientID)).toEqual({ user: 'lena' });
+        expect(vi.getTimerCount()).toBe(0);
+        client.close();
+    });
+
     it('reconnects with backoff after the socket closes, syncing again rather than resending what was queued', async () => {
         const { client, ws, on } = await connected();
         ws.close();

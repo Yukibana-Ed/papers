@@ -51,8 +51,11 @@ export interface RoomEvents {
  *  reconnection both documents sync again from their state vectors, so edits made while offline are sent then. An
  *  update the room refused while paused is sent the same way: the client reconnects once the room takes messages again.
  *
- *  Presence: only this client's own state is sent, at most once per `PRESENCE_MS`; while paused only the latest state
- *  is kept, to be sent on resume. */
+ *  Presence: only this client's own state is sent, when it changes and at most once per `PRESENCE_MS`; while paused
+ *  only the latest state is kept, to be sent on resume. Someone else's presence lasts until the room says they left
+ *  or this client's connection closes.
+ *
+ *  A client whose user does nothing sends nothing: the room can sleep under an open tab. */
 export class RoomClient {
     readonly text = new Y.Doc();
     readonly review = new Y.Doc();
@@ -89,6 +92,12 @@ export class RoomClient {
             doc.on('update', listener);
             this.docListeners.push([doc, listener]);
         }
+        // y-protocols renews the local state every 15 s and times others out after 30 s. Neither is wanted: a message
+        // every 15 s from every open tab keeps the room awake all day (awake time is what the platform bills), and the
+        // room says when someone left.
+        // `destroy` is the one public way to stop that timer; it also clears the local state and the listeners (none
+        // yet), and the awareness works as before otherwise.
+        this.awareness.destroy();
         this.awareness.on('update', this.onAwareness);
         this.connect();
     }
