@@ -1211,6 +1211,11 @@ button {
     overflow: auto;
     font-size: 12px;
 }
+.cm-rich code.cm-code-on,
+.cm-rich code:has(.cm-code-on),
+.cm-rich .cm-code-on > code {
+    outline: 1px solid var(--yk-line-strong);
+}
 .cm-body pre[data-lang]::before,
 .cm-rich pre[data-lang]::before {
     content: attr(data-lang);

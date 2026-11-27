@@ -4,8 +4,8 @@ import { InputRule, inputRules, wrappingInputRule } from 'prosemirror-inputrules
 import { keymap } from 'prosemirror-keymap';
 import type { MarkType, Node as PMNode, NodeType } from 'prosemirror-model';
 import { liftListItem, sinkListItem, splitListItem, wrapInList } from 'prosemirror-schema-list';
-import { EditorState, TextSelection, type Command, type Plugin, type Transaction } from 'prosemirror-state';
-import { EditorView } from 'prosemirror-view';
+import { EditorState, Plugin, TextSelection, type Command, type Transaction } from 'prosemirror-state';
+import { Decoration, DecorationSet, EditorView } from 'prosemirror-view';
 import { parseMarkdown, safeHref, schema, toMarkdown } from './markdown.ts';
 
 const S = schema.nodes;
@@ -66,6 +66,78 @@ const fenceOnEnter: Command = (state, dispatch) => {
     }
     return true;
 };
+
+/** Left or right at an edge of inline code steps over the edge without moving the caret: the caret is either in the
+ *  code, where typing adds to it, or beside it, where typing is plain text. `dir` is -1 for left and 1 for right. */
+function crossCodeEdge(dir: -1 | 1): Command {
+    const code = M['code'];
+    return (state, dispatch) => {
+        const { $from, empty } = state.selection;
+        if (!empty || !$from.parent.inlineContent || $from.parent.type.spec.code) return false;
+        const before = $from.nodeBefore !== null && code.isInSet($from.nodeBefore.marks) !== undefined;
+        const after = $from.nodeAfter !== null && code.isInSet($from.nodeAfter.marks) !== undefined;
+        if (before === after) return false;
+        const inside = code.isInSet(state.storedMarks ?? $from.marks()) !== undefined;
+        // The code lies to the left of its right edge and to the right of its left edge.
+        const towardsCode = before ? dir === -1 : dir === 1;
+        if (inside === towardsCode) return false;
+        dispatch?.(inside ? state.tr.removeStoredMark(code) : state.tr.addStoredMark(code.create()));
+        return true;
+    };
+}
+
+/** Marks the inline code that typing would add to (class `cm-code-on`), so that the two sides of its edge look different. */
+function codeCaret(): Plugin {
+    const code = M['code'];
+    return new Plugin({
+        props: {
+            decorations(state) {
+                const { $from, empty } = state.selection;
+                if (!empty || !$from.parent.inlineContent || code.isInSet(state.storedMarks ?? $from.marks()) === undefined) return null;
+                // The run of code that touches the caret.
+                const at = $from.parentOffset;
+                let from = -1;
+                let run: { from: number; to: number } | null = null;
+                $from.parent.forEach((child, offset) => {
+                    const isCode = code.isInSet(child.marks) !== undefined;
+                    if (isCode && from < 0) from = offset;
+                    const end = isCode ? offset + child.nodeSize : offset;
+                    if (from >= 0 && (!isCode || end === $from.parent.content.size)) {
+                        if (from <= at && at <= end) run = { from, to: end };
+                        from = -1;
+                    }
+                });
+                const found = run as { from: number; to: number } | null;
+                if (found === null) return null;
+                const start = $from.start();
+                return DecorationSet.create(state.doc, [Decoration.inline(start + found.from, start + found.to, { class: 'cm-code-on' })]);
+            },
+        },
+    });
+}
+
+/** An arrow key that would leave a code block where nothing is next to it puts an empty paragraph there and the caret
+ *  in it. `dir` is -1 for up and left, 1 for down and right; `axis` says which pair. Up and down act on the block's first
+ *  and last line, left and right at its very start and end. */
+function leaveCodeBlock(dir: -1 | 1, axis: 'line' | 'char'): Command {
+    return (state, dispatch) => {
+        const { $from, empty } = state.selection;
+        const block = $from.parent;
+        if (!empty || block.type !== S['code_block']) return false;
+        const text = block.textContent;
+        const rest = dir === -1 ? text.slice(0, $from.parentOffset) : text.slice($from.parentOffset);
+        if (axis === 'char' ? rest !== '' : rest.includes('\n')) return false;
+        const index = $from.index($from.depth - 1);
+        const hasNeighbour = dir === -1 ? index > 0 : index < $from.node($from.depth - 1).childCount - 1;
+        if (hasNeighbour) return false;
+        if (dispatch) {
+            const at = dir === -1 ? $from.before() : $from.after();
+            const tr = state.tr.insert(at, S['paragraph'].create());
+            dispatch(tr.setSelection(TextSelection.create(tr.doc, at + 1)).scrollIntoView());
+        }
+        return true;
+    };
+}
 
 /** Typing Markdown in the rich editor makes what it would render: `**b**`, `*i*`, `` `c` ``, `> `, `- `, `1. `, `$x$`, and
  *  ```` ```lang ```` followed by a space (Enter does the same, through the keymap). Emphasis, code and math stay within a
@@ -158,6 +230,7 @@ export function createRichEditor(host: HTMLElement, o: RichEditorOptions): Edito
         doc: parseMarkdown(o.markdown),
         plugins: [
             rules(),
+            codeCaret(),
             history(),
             keymap({
                 'Mod-z': undo,
@@ -174,6 +247,10 @@ export function createRichEditor(host: HTMLElement, o: RichEditorOptions): Edito
                     dispatch?.(st.tr.replaceSelectionWith(S['hard_break'].create()).scrollIntoView());
                     return true;
                 }),
+                ArrowLeft: chainCommands(crossCodeEdge(-1), leaveCodeBlock(-1, 'char')),
+                ArrowRight: chainCommands(crossCodeEdge(1), leaveCodeBlock(1, 'char')),
+                ArrowUp: leaveCodeBlock(-1, 'line'),
+                ArrowDown: leaveCodeBlock(1, 'line'),
                 Tab: sinkListItem(S['list_item']),
                 'Shift-Tab': liftListItem(S['list_item']),
             }),
