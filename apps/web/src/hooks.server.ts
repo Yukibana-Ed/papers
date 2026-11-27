@@ -10,6 +10,11 @@ import { workerPlatform } from '#lib/server/platform.ts';
 
 /** The theme script's hash: it is inline (it must run before the first paint) and not SvelteKit's own. */
 const themeHash = scriptHash(THEME_BOOT);
+/** The design system's theme boot script, which `app.html` has a place for at the top of `<head>`: it shows the theme
+ *  chosen on any Yukibana site before anything paints. It is put in here, into every page's HTML, and not by the root
+ *  layout: a page that renders in the browser only (`ssr = false`) gets no layout from the server, and a script
+ *  element a component adds later does not run, so those pages would keep the system's scheme. */
+const THEME_SCRIPT = `<script>${THEME_BOOT}</script>`;
 
 /** `/room/<owner>/<repo>/<branch>?ticket=…`: a WebSocket to the branch's room, for the holder of a ticket from
  *  `/room/ticket`. The room learns who they are and what they may do from this Worker alone.
@@ -45,7 +50,7 @@ async function room(event: RequestEvent): Promise<Response | null> {
 export const handle: Handle = async ({ event, resolve }) => {
     const ws = await room(event);
     if (ws) return ws;
-    const response = await resolve(event);
+    const response = await resolve(event, { transformPageChunk: ({ html }) => html.replace('%yukibana.theme%', THEME_SCRIPT) });
     const contentOrigin = contentOriginOf(workerPlatform());
     for (const [name, value] of Object.entries(appHeaders())) response.headers.set(name, value);
     // SvelteKit writes the policy with the hashes of its own scripts; the content origin is known only at run time.
