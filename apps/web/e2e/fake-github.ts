@@ -88,7 +88,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 
     const login = /^Bearer e2e:([A-Za-z0-9-]+)$/.exec(req.headers.authorization ?? '')?.[1];
     if (login === undefined) return send(res, 401, { message: 'Bad credentials' });
-    if (path === '/user') return send(res, 200, { login, name: null, avatar_url: '' });
+    // One person has a name: with letters a header cannot hold as they are.
+    if (path === '/user') return send(res, 200, { login, name: login === 'odon' ? 'Ödön Őry' : null, avatar_url: '' });
 
     if (path === '/graphql' && req.method === 'POST') {
         const input = field(field(await body(req), 'variables'), 'input');

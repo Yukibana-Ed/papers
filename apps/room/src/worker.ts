@@ -18,7 +18,8 @@ function isRecord(x: unknown): x is Record<string, unknown> {
 function parseIdentity(raw: string | null): Identity | null {
     if (raw === null) return null;
     try {
-        const r: unknown = JSON.parse(raw);
+        // Percent-encoded JSON, as the app sends it; plain JSON from an app deployed before it did.
+        const r: unknown = JSON.parse(raw.startsWith('%7B') ? decodeURIComponent(raw) : raw);
         if (!isRecord(r)) return null;
         const access = r['access'];
         if (typeof r['login'] !== 'string' || typeof r['name'] !== 'string' || (access !== 'write' && access !== 'comment')) return null;
@@ -61,10 +62,22 @@ export class Room extends DurableObject<Env> {
         };
     }
 
+    /** A WebSocket upgrade joins the room. A POST asks whether the room can take a connection: it loads the room and
+     *  writes to its storage as joining does, and answers 200, or 503 with what failed. */
     override async fetch(request: Request): Promise<Response> {
-        if (request.headers.get('Upgrade') !== 'websocket') return new Response('Expected a WebSocket', { status: 426 });
+        const probe = request.method === 'POST';
+        if (!probe && request.headers.get('Upgrade') !== 'websocket') return new Response('Expected a WebSocket', { status: 426 });
         const identity = parseIdentity(request.headers.get(IDENTITY_HEADER));
         if (!identity) return new Response('Unknown identity', { status: 403 });
+        if (probe) {
+            try {
+                this.room();
+                await this.ctx.storage.setAlarm(Date.now() + TICK_MS);
+                return new Response('ok', { headers: { 'Cache-Control': 'no-store' } });
+            } catch (e) {
+                return new Response((e instanceof Error ? e.message : String(e)).slice(0, 300), { status: 503, headers: { 'Cache-Control': 'no-store' } });
+            }
+        }
         const core = this.room();
         const { 0: client, 1: server } = new WebSocketPair();
         this.ctx.acceptWebSocket(server);

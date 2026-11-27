@@ -35,6 +35,18 @@
         return first === '' ? String(e.status) : first.length > 140 ? `${first.slice(0, 139)}…` : first;
     }
 
+    /** Why the room refuses connections, in its own words: `url` gives the room's WebSocket address with a ticket, and
+     *  the same address by POST answers with what is wrong (see `hooks.server.ts`). */
+    async function whyRefused(url: () => Promise<string>): Promise<string> {
+        try {
+            const res = await fetch((await url()).replace(/^ws/, 'http'), { method: 'POST' });
+            const text = (await res.text()).trim();
+            return res.ok ? 'The room refuses the connection' : `The room is unavailable (${res.status}${text === '' ? '' : `: ${text.slice(0, 200)}`})`;
+        } catch {
+            return 'The room cannot be reached';
+        }
+    }
+
     function start(p: LoadedProject, me: Viewer, r: RoomClient, base: string | null, baseFiles: readonly BaseFile[], authors: Authors): void {
         const files: Record<string, string> = {};
         for (const [path, text] of r.files) files[path] = text.toJSON();
@@ -141,6 +153,8 @@
                 };
                 const r = new RoomClient(url, {
                     welcome: (_you, base, files, authors) => {
+                        refusals = 0;
+                        if (!session) failure = null;
                         welcome = { base, files, authors };
                         reviewSource?.setBase(files);
                         reviewSource?.addAuthors(authors);
@@ -208,8 +222,14 @@
                                 },
                             );
                     },
-                    connection: state => {
+                    connection: (state) => {
                         if (session && state !== 'connecting') session.sync = state === 'open' ? mode : 'offline';
+                        if (state === 'closed' && !session && ++refusals === 3) {
+                            // The room keeps refusing before the paper could open: ask it why, and say so.
+                            void whyRefused(url).then((why) => {
+                                if (!session && !cancelled && refusals >= 3) failure = why;
+                            });
+                        }
                     },
                     refused: (reason) => {
                         if (reason !== 'paused') session?.flash(`Refused: ${reason}`);
@@ -234,6 +254,8 @@
     let head = '';
     /** The commits made from this page. */
     const mine = new Set<string>();
+    /** Connections to the room that closed, in a row, since the last one the room welcomed. */
+    let refusals = 0;
     /** The room's sync mode as it last said. */
     let mode: 'live' | 'batched' | 'paused' = 'live';
     let welcome: { base: string | null; files: readonly BaseFile[]; authors: Authors } | null = null;

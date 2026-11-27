@@ -62,6 +62,23 @@ test('a repository opens with its files, and Commit writes the edits to its bran
     expect((await repoState(repo)).commits).toHaveLength(3);
 });
 
+test('someone whose name has letters beyond Latin-1 joins the room', async ({ page }, info) => {
+    const repo = await repoFor(info.title);
+    await open(page, 'odon', repo);
+    await typeAfter(page, 'Hello from the repository.', ' Szia.');
+    await expect(page.locator('.monaco-editor .view-lines')).toContainText('Hello from the repository. Szia.');
+});
+
+test('a room that keeps refusing is named with its reason instead of opening forever', async ({ page }, info) => {
+    const repo = await repoFor(info.title);
+    // The room turns every connection away, and says why when asked.
+    await page.routeWebSocket(/\/room\//, ws => void ws.close());
+    await page.route(/\/room\/ada\//, route => (route.request().method() === 'POST' ? route.fulfill({ status: 503, body: 'Exceeded the daily limit' }) : route.fallback()));
+    await signedInToFake(page, 'ada');
+    await page.goto(`/p/${repo}`);
+    await expect(page.locator('main.loading .yk-chip')).toHaveText('The room is unavailable (503: Exceeded the daily limit)', { timeout: 30_000 });
+});
+
 test('two people in a branch see each other type, and what one commits is committed for both', async ({ page, browser }, info) => {
     const repo = await repoFor(info.title);
     await open(page, 'ada', repo);
