@@ -161,6 +161,23 @@ export async function blob(token: string, owner: string, repo: string, sha: stri
     return r;
 }
 
+/** A `Co-authored-by` trailer for GitHub user `login` (`name` shown), with the noreply address GitHub links to the
+ *  account: `<id>+<login>@users.noreply.github.com`, the id read from GitHub. Without the id (the lookup failed) the
+ *  older `<login>@users.noreply.github.com`, which GitHub still links for most accounts. */
+export async function coAuthorTrailer(token: string, login: string, name: string, api = API): Promise<string> {
+    let email = `${login}@users.noreply.github.com`;
+    try {
+        const r = await githubFetch(`${api}/users/${encodeURIComponent(login)}`, { headers: headers(token) });
+        if (r.ok) {
+            const id: unknown = Reflect.get((await r.json()) as object, 'id');
+            if (typeof id === 'number' && Number.isInteger(id)) email = `${id}+${login}@users.noreply.github.com`;
+        }
+    } catch {
+        // The older address still credits most accounts.
+    }
+    return `Co-authored-by: ${name.replace(/[<>\n]/g, '')} <${email}>`;
+}
+
 export interface FileChange {
     readonly path: string;
     /** The new text; null deletes the file (unless `bytes` is given). */

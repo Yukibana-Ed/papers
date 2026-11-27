@@ -1,7 +1,8 @@
-import { changedLines } from '#lib/model/diff.ts';
 import { findRoots, includedFiles, outline, type Heading } from '#lib/model/tex.ts';
 import { addReply, findComment, setResolved } from '#lib/model/threads.ts';
 import type { Anchor, Branch, Commit, Cursor, Lines, PlacedSuggestion, Presence, Thread, User } from '#lib/model/types.ts';
+import { committedText, revertedText, reviewFile, textRuns, type FileReview } from '#lib/review/model.ts';
+import type { ReviewSource } from '#lib/review/source.svelte.ts';
 import { countProblems, mergeProblems, type Problem, type ProblemSource, type Reported } from '#lib/problems/model.ts';
 
 /** The data a session starts from: a repository at a branch, and its room. */
@@ -29,17 +30,27 @@ export interface SessionSeed {
     readonly otherFiles?: readonly string[];
 }
 
+/** A file as one commit leaves it: its text, and the ids of its characters in the room (an encoded `IdSet`, empty
+ *  when not known). */
+export interface CommittedFile {
+    readonly path: string;
+    readonly text: string;
+    readonly items: string;
+}
+
 /** What a repository's session does that the demo does not. */
 export interface SessionBackend {
-    /** Commits `changes` as the user with `message` and returns the new commit's SHA; throws with a message to show
-     *  when GitHub refuses. */
-    commit(message: string, changes: readonly { path: string; text: string | null }[]): Promise<string>;
+    /** Commits `files` as the user with `message` and returns the new commit's SHA; throws with a message to show
+     *  when GitHub refuses. `coAuthors` (logins, never the user) get a `Co-authored-by` trailer each. */
+    commit(message: string, files: readonly CommittedFile[], coAuthors: readonly string[]): Promise<string>;
 }
 
 export interface FileChange {
     readonly file: string;
     readonly add: number;
     readonly del: number;
+    /** A file new since the commit, one gone since, or one changed. */
+    readonly kind: 'added' | 'deleted' | 'modified';
 }
 
 export type Panel = 'outline' | 'files' | 'comments' | 'problems';
@@ -216,15 +227,134 @@ export class Session {
         return best;
     });
 
-    changes = $derived.by((): FileChange[] => {
-        const out: FileChange[] = [];
+    /** Where the commit review reads characters' ids and authors from: the room's documents (or the demo's). Null
+     *  without one: texts are compared by lines, and every change counts as the user's. */
+    source = $state.raw<ReviewSource | null>(null);
+    #reviewCache = new Map<string, { base: string; now: string; version: number; review: FileReview }>();
+
+    /** What changed in each file since its commit, in the file list's order; only files with something to show. */
+    reviews = $derived.by((): ReadonlyMap<string, FileReview> => {
+        const out = new Map<string, FileReview>();
+        const source = this.source;
+        const version = source?.version ?? 0;
         for (const f of this.order) {
             const a = this.base[f] ?? '';
             const b = this.files[f] ?? '';
-            if (a !== b) out.push({ file: f, ...changedLines(a, b) });
+            const cached = this.#reviewCache.get(f);
+            let review: FileReview;
+            if (cached && cached.base === a && cached.now === b && cached.version === version) review = cached.review;
+            else {
+                // Equal texts have nothing to show, whatever happened to the characters on the way.
+                review = a === b ? reviewFile([], this.me) : reviewFile(source?.runs(f, a) ?? textRuns(a, b, () => this.me), this.me);
+                this.#reviewCache.set(f, { base: a, now: b, version, review });
+            }
+            if (review.changes.length) out.set(f, review);
         }
         return out;
     });
+
+    changes = $derived.by((): FileChange[] =>
+        [...this.reviews].map(([file, r]) => ({
+            file,
+            add: r.add,
+            del: r.del,
+            kind: !(file in this.base) || this.base[file] === '' ? 'added' : this.files[file] === undefined ? 'deleted' : 'modified',
+        })),
+    );
+
+    // --- the commit selection --------------------------------------------------------------------------------------------
+
+    /** Ids (`Change.keys`) of changes left out of the next commit. A change is left out when any of its keys is: its
+     *  keys grow as people keep typing in it, and a change that grew into one left out is left out too. */
+    #excluded = new Set<string>();
+    /** Keys seen in the last look at the changes: a change with none of them is new. */
+    #known = new Set<string>();
+    /** Whether everything was ticked at the last look: new changes join the selection only then. */
+    #allIncluded = true;
+    #selectionTick = $state(0);
+
+    /** Per file with changes, per change: whether the next commit takes it. Everything is in at first; leaving changes
+     *  out lasts until they are ticked again or committed, across opening and closing the review; a change that appears
+     *  while everything is ticked is ticked, otherwise it is not. */
+    included = $derived.by((): ReadonlyMap<string, readonly boolean[]> => {
+        void this.#selectionTick;
+        const out = new Map<string, boolean[]>();
+        const seen = new Set<string>();
+        let all = true;
+        for (const [f, r] of this.reviews) {
+            out.set(
+                f,
+                r.changes.map(c => {
+                    const isNew = !c.keys.some(k => this.#known.has(k));
+                    const left = c.keys.some(k => this.#excluded.has(k)) || (isNew && !this.#allIncluded);
+                    for (const k of c.keys) {
+                        seen.add(k);
+                        if (left) this.#excluded.add(k);
+                    }
+                    if (left) all = false;
+                    return !left;
+                }),
+            );
+        }
+        this.#known = seen;
+        for (const k of this.#excluded) if (!seen.has(k)) this.#excluded.delete(k);
+        this.#allIncluded = all;
+        return out;
+    });
+
+    /** Ticks (`on`) or unticks changes `which` of `file`. */
+    setIncluded(file: string, which: readonly number[], on: boolean): void {
+        const r = this.reviews.get(file);
+        if (!r) return;
+        for (const i of which) {
+            for (const k of r.changes[i]?.keys ?? []) {
+                if (on) this.#excluded.delete(k);
+                else this.#excluded.add(k);
+            }
+        }
+        // "Everything is ticked" is about the changes as they are now, for the next change to arrive.
+        this.#allIncluded = [...this.reviews.values()].every(x => x.changes.every(c => !c.keys.some(k => this.#excluded.has(k))));
+        this.#selectionTick++;
+    }
+
+    /** Ticks or unticks every change, or (with `person`) every change that person took part in. */
+    setAllIncluded(on: boolean, person: string | null = null): void {
+        for (const [f, r] of this.reviews)
+            this.setIncluded(
+                f,
+                r.changes.filter(c => person === null || c.authors.includes(person)).map(c => c.index),
+                on,
+            );
+    }
+
+    /** How many changed lines the next commit takes. */
+    selectedLines = $derived([...this.reviews].reduce((n, [f, r]) => n + r.changes.reduce((m, c, i) => m + (this.included.get(f)?.[i] ? c.add + c.del : 0), 0), 0));
+
+    /** Puts changes `which` of `file` back as committed (all of the file's with null), for everyone in the room, and
+     *  offers Undo, which puts the text back as it was if nobody changed it since. */
+    revert(file: string, which: readonly number[] | null): void {
+        const r = this.reviews.get(file);
+        if (!r || this.readOnly) return;
+        const before = this.files[file] ?? '';
+        const after = revertedText(r, c => which === null || which.includes(c));
+        this.#setText(file, after);
+        this.lastRevert = { file, before, after, key: Date.now() };
+    }
+
+    /** The last revert, for its Undo; null once undone. */
+    lastRevert = $state<{ file: string; before: string; after: string; key: number } | null>(null);
+
+    undoRevert(): void {
+        const u = this.lastRevert;
+        this.lastRevert = null;
+        if (!u || (this.files[u.file] ?? '') !== u.after) return;
+        this.#setText(u.file, u.before);
+    }
+
+    #setText(file: string, text: string): void {
+        if (this.source?.files.has(file)) this.source.replace(file, text);
+        else this.edit(file, text);
+    }
 
     /** Every problem: the shown build's and the language servers', merged (notes included; the panel filters them). */
     problems = $derived.by((): Problem[] => {
@@ -238,7 +368,10 @@ export class Session {
     buildErrors = $derived(this.problems.filter(p => p.severity === 'error' && p.sources.includes('build')));
 
     uncommitted = $derived(this.changes.reduce((n, c) => n + Math.max(c.add, c.del), 0));
-    defaultCommitMessage = $derived(this.changes.length ? `Update ${this.changes.map(c => short(c.file)).join(', ')}` : '');
+    defaultCommitMessage = $derived.by(() => {
+        const files = this.changes.filter(c => this.included.get(c.file)?.some(Boolean));
+        return files.length ? `Update ${files.map(c => short(c.file)).join(', ')}` : '';
+    });
     currentBranch = $derived(this.branches[this.branch] ?? { name: this.branch, users: [], pr: null });
     pr = $derived(this.currentBranch.pr);
     head = $derived(this.commits[0] ?? { hash: '0000000', author: '', when: '', msg: '' });
@@ -348,14 +481,26 @@ export class Session {
     /** Commits every uncommitted change with the message typed, or the default one: through `backend` when the
      *  session is a repository's, else locally (the demo). A refused commit leaves everything uncommitted. */
     async commit(): Promise<void> {
-        if (!this.uncommitted || this.committing || this.readOnly) return;
+        if (!this.selectedLines || this.committing || this.readOnly) return;
         const msg = this.commitMessage.trim() || this.defaultCommitMessage;
-        const changes = this.changes.map(c => ({ path: c.file, text: this.files[c.file] ?? null }));
+        const files: CommittedFile[] = [];
+        const ids = new Map<string, ReturnType<typeof committedText>['items']>();
+        const people = new Set<string>();
+        for (const [f, r] of this.reviews) {
+            const inc = this.included.get(f) ?? [];
+            if (!inc.some(Boolean)) continue;
+            const c = committedText(r, i => inc[i] ?? false);
+            files.push({ path: f, text: c.text, items: c.items?.encode() ?? '' });
+            ids.set(f, c.items);
+            r.changes.forEach((ch, i) => inc[i] && ch.authors.forEach(a => people.add(a)));
+        }
+        people.delete(this.me);
         this.committing = true;
         try {
-            const hash = this.backend ? await this.backend.commit(msg, changes) : hex7();
+            const hash = this.backend ? await this.backend.commit(msg, files, [...people]) : hex7();
             this.commits.unshift({ hash: hash.slice(0, 7), author: this.me, when: 'just now', msg });
-            this.base = { ...this.base, ...Object.fromEntries(changes.map(c => [c.path, c.text ?? ''])) };
+            this.base = { ...this.base, ...Object.fromEntries(files.map(c => [c.path, c.text])) };
+            for (const [f, items] of ids) this.source?.setBaseIds(f, items);
             this.commitMessage = '';
             this.popover = null;
             this.justCommitted = true;
@@ -368,12 +513,13 @@ export class Session {
         }
     }
 
-    /** Someone else in the room committed: `hash` is the branch's head now and `files` (path → text) are committed.
-     *  Does nothing when `hash` is already the head (the room tells the one who committed too). */
-    committedElsewhere(hash: string, files: Readonly<Record<string, string>>): void {
+    /** Someone else in the room committed: `hash` is the branch's head now and `files` are committed, each with the
+     *  ids of its characters. Does nothing when `hash` is already the head (the room tells the one who committed too). */
+    committedElsewhere(hash: string, files: readonly CommittedFile[]): void {
         if (this.commits[0]?.hash === hash.slice(0, 7)) return;
         this.commits.unshift({ hash: hash.slice(0, 7), author: '', when: 'just now', msg: '' });
-        this.base = { ...this.base, ...files };
+        this.base = { ...this.base, ...Object.fromEntries(files.map(f => [f.path, f.text])) };
+        this.source?.setBase(files);
     }
 
     /** Makes `user` known to the session, unless someone with their id already is. */

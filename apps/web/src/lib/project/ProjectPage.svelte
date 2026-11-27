@@ -1,8 +1,9 @@
 <script lang="ts">
     import { githubUser } from '#lib/model/user.ts';
     import { onDestroy, onMount } from 'svelte';
-    import type { BaseFile } from '@yukibana/papers-room-protocol';
-    import { GitHubError, commit, compare, wipBackup } from '#lib/github/api.ts';
+    import type { Authors, BaseFile } from '@yukibana/papers-room-protocol';
+    import { GitHubError, coAuthorTrailer, commit, compare, wipBackup } from '#lib/github/api.ts';
+    import { ReviewSource } from '#lib/review/source.svelte.ts';
     import { mergePush, type Theirs } from './pull.ts';
     import { githubToken, session as githubSession, type Viewer } from '#lib/github/token.ts';
     import type { User } from '#lib/model/types.ts';
@@ -34,7 +35,7 @@
         return first === '' ? String(e.status) : first.length > 140 ? `${first.slice(0, 139)}…` : first;
     }
 
-    function start(p: LoadedProject, me: Viewer, r: RoomClient, base: string | null, baseFiles: readonly BaseFile[]): void {
+    function start(p: LoadedProject, me: Viewer, r: RoomClient, base: string | null, baseFiles: readonly BaseFile[], authors: Authors): void {
         const files: Record<string, string> = {};
         for (const [path, text] of r.files) files[path] = text.toJSON();
         // With read access the room's files cannot be made from here: until someone who can write opens the branch,
@@ -61,11 +62,21 @@
             otherFiles: p.order.filter((path) => !(path in files) && !p.unread.has(path)),
         });
         head = base ?? p.commit;
+        const source = new ReviewSource(r.text, r.review, me.login);
+        source.setBase(baseFiles);
+        source.addAuthors(authors);
+        for (const a of pendingAuthors) source.addAuthors(a);
+        source.setBase(pendingOpened);
+        reviewSource = source;
+        s.source = source;
         s.backend = {
-            async commit(message, changes) {
+            async commit(message, commitFiles, coAuthors) {
                 let oid: string;
                 try {
-                    oid = await commit(await githubToken(), p.owner, p.repo, p.branch, head, message, changes);
+                    const token = await githubToken();
+                    const trailers = await Promise.all(coAuthors.map((login) => coAuthorTrailer(token, login, s.users[login]?.name ?? login)));
+                    const full = trailers.length ? `${message}\n\n${trailers.join('\n')}` : message;
+                    oid = await commit(token, p.owner, p.repo, p.branch, head, full, commitFiles.map((f) => ({ path: f.path, text: f.text })));
                 } catch (e) {
                     if (e instanceof GitHubError && e.status === 409) {
                         // Someone pushed from outside the room: their commits are merged into the session first.
@@ -78,7 +89,7 @@
                 }
                 head = oid;
                 mine.add(oid);
-                r.committed(oid, changes.filter((c) => c.text !== null).map((c) => ({ path: c.path, blob: '', text: c.text ?? '' })));
+                r.committed(oid, commitFiles.map((f) => ({ path: f.path, blob: '', text: f.text, items: f.items })));
                 return oid;
             },
         };
@@ -129,13 +140,23 @@
                     return `${proto}//${location.host}${roomPath}?ticket=${encodeURIComponent(ticket)}`;
                 };
                 const r = new RoomClient(url, {
-                    welcome: (_you, base, files) => {
-                        welcome = { base, files };
+                    welcome: (_you, base, files, authors) => {
+                        welcome = { base, files, authors };
+                        reviewSource?.setBase(files);
+                        reviewSource?.addAuthors(authors);
                         // After a reconnection: what was committed while this page was away is the head now.
                         if (session && base !== null && base !== head && !mine.has(base)) {
                             head = base;
-                            session.committedElsewhere(base, Object.fromEntries(files.map((f) => [f.path, f.text])));
+                            session.committedElsewhere(base, files);
                         }
+                    },
+                    opened: (file) => {
+                        if (reviewSource) reviewSource.setBase([file]);
+                        else pendingOpened.push(file);
+                    },
+                    authors: (a) => {
+                        if (reviewSource) reviewSource.addAuthors(a);
+                        else pendingAuthors.push(a);
                     },
                     base: (base, files) => {
                         // The room tells the one who committed too, and that can arrive after a later commit from here:
@@ -143,7 +164,7 @@
                         if (mine.has(base)) return;
                         // Someone committed: later commits from here go on top of theirs.
                         head = base;
-                        session?.committedElsewhere(base, Object.fromEntries(files.map((f) => [f.path, f.text])));
+                        session?.committedElsewhere(base, files);
                     },
                     sync: m => {
                         mode = m.mode;
@@ -166,7 +187,7 @@
                         const go = (): void => {
                             if (!session && ready()) {
                                 r.files.unobserve(go);
-                                start(p, me, r, w.base, w.files);
+                                start(p, me, r, w.base, w.files, w.authors);
                                 // The branch moved since the room's session began: a push from outside the room.
                                 if (w.base !== null && w.base !== p.commit) void pull(p.branch, p).catch(() => session?.flash(`Could not merge ${p.branch}`));
                             }
@@ -215,10 +236,15 @@
     const mine = new Set<string>();
     /** The room's sync mode as it last said. */
     let mode: 'live' | 'batched' | 'paused' = 'live';
-    let welcome: { base: string | null; files: readonly BaseFile[] } | null = null;
+    let welcome: { base: string | null; files: readonly BaseFile[]; authors: Authors } | null = null;
+    /** Where the commit review reads ids and authors, once the session is up; what the room said before that waits. */
+    let reviewSource: ReviewSource | null = null;
+    const pendingAuthors: Authors[] = [];
+    const pendingOpened: BaseFile[] = [];
     let roomState = $state<RoomClient | null>(null);
 
     onDestroy(() => {
+        reviewSource?.dispose();
         stopSync?.();
         room?.close();
     });

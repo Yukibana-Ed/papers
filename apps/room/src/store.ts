@@ -1,4 +1,4 @@
-import type { BaseFile, DocId } from '@yukibana/papers-room-protocol';
+import type { Authors, BaseFile, DocId } from '@yukibana/papers-room-protocol';
 
 /** The subset of a Durable Object's SQL API the room uses (`ctx.storage.sql`): run a statement with bindings and get
  *  its rows. Tests give it node:sqlite instead. */
@@ -15,6 +15,11 @@ const MIGRATIONS: readonly string[] = [
      CREATE INDEX updates_doc ON updates (doc, id);
      CREATE TABLE base_files (path TEXT PRIMARY KEY NOT NULL, blob TEXT NOT NULL, text TEXT NOT NULL) STRICT;
      CREATE TABLE usage (day TEXT NOT NULL, metric TEXT NOT NULL, value INTEGER NOT NULL, PRIMARY KEY (day, metric)) STRICT;`,
+    // Who wrote and who deleted what (`Authors`), and each committed file's character ids. A room from before has no
+    // ids for its files: '' says not known, and the app compares texts for those until the next commit.
+    `ALTER TABLE base_files ADD COLUMN items TEXT NOT NULL DEFAULT '';
+     CREATE TABLE writers (client INTEGER PRIMARY KEY NOT NULL, login TEXT NOT NULL) STRICT;
+     CREATE TABLE deletions (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, client INTEGER NOT NULL, clock INTEGER NOT NULL, len INTEGER NOT NULL, login TEXT NOT NULL) STRICT;`,
 ];
 
 function str(v: SqlValue | undefined): string {
@@ -76,23 +81,59 @@ export class RoomStore {
 
     baseFiles(): BaseFile[] {
         return this.sql
-            .exec('SELECT path, blob, text FROM base_files ORDER BY path')
+            .exec('SELECT path, blob, text, items FROM base_files ORDER BY path')
             .toArray()
-            .map(r => ({ path: str(r['path']), blob: str(r['blob']), text: str(r['text']) }));
+            .map(r => ({ path: str(r['path']), blob: str(r['blob']), text: str(r['text']), items: str(r['items']) }));
     }
 
     baseFile(path: string): BaseFile | null {
-        const r = this.sql.exec('SELECT path, blob, text FROM base_files WHERE path = ?', path).toArray()[0];
-        return r ? { path: str(r['path']), blob: str(r['blob']), text: str(r['text']) } : null;
+        const r = this.sql.exec('SELECT path, blob, text, items FROM base_files WHERE path = ?', path).toArray()[0];
+        return r ? { path: str(r['path']), blob: str(r['blob']), text: str(r['text']), items: str(r['items']) } : null;
     }
 
     setBaseFile(f: BaseFile): void {
         this.sql.exec(
-            'INSERT INTO base_files (path, blob, text) VALUES (?, ?, ?) ON CONFLICT (path) DO UPDATE SET blob = excluded.blob, text = excluded.text',
+            'INSERT INTO base_files (path, blob, text, items) VALUES (?, ?, ?, ?) ON CONFLICT (path) DO UPDATE SET blob = excluded.blob, text = excluded.text, items = excluded.items',
             f.path,
             f.blob,
             f.text,
+            f.items,
         );
+    }
+
+    /** Everything known about who wrote and deleted what. */
+    authors(): Authors {
+        return {
+            writers: this.sql
+                .exec('SELECT client, login FROM writers ORDER BY client')
+                .toArray()
+                .map(r => [Number(r['client']), str(r['login'])] as const),
+            deleted: this.sql
+                .exec('SELECT client, clock, len, login FROM deletions ORDER BY id')
+                .toArray()
+                .map(r => [Number(r['client']), Number(r['clock']), Number(r['len']), str(r['login'])] as const),
+        };
+    }
+
+    /** The login `client` writes as, if one is known. */
+    writer(client: number): string | null {
+        const r = this.sql.exec('SELECT login FROM writers WHERE client = ?', client).toArray()[0];
+        return r ? str(r['login']) : null;
+    }
+
+    /** Records that `client` writes as `login`. Precondition: `client` has no writer yet. */
+    addWriter(client: number, login: string): void {
+        this.sql.exec('INSERT INTO writers (client, login) VALUES (?, ?)', client, login);
+    }
+
+    addDeletion(client: number, clock: number, len: number, login: string): void {
+        this.sql.exec('INSERT INTO deletions (client, clock, len, login) VALUES (?, ?, ?, ?)', client, clock, len, login);
+    }
+
+    /** Replaces every recorded deletion with `deleted`. */
+    setDeletions(deleted: Authors['deleted']): void {
+        this.sql.exec('DELETE FROM deletions');
+        for (const [client, clock, len, login] of deleted) this.addDeletion(client, clock, len, login);
     }
 
     usage(day: string, metric: string): number {

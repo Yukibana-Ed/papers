@@ -9,6 +9,10 @@
  *  Binary frames carry Yjs: `[doc: u8][y-protocols message]`, where the message is a sync message (`0`) or an
  *  awareness update (`1`), as y-protocols writes them. Text frames carry the JSON control messages below. */
 
+import { IdSet } from './ids.ts';
+
+export { IdSet };
+
 /** The header the app's Worker sets on the room upgrade it forwards: the identity it checked (a JSON `Identity`). The
  *  room Worker has no route of its own, so only the app's Worker, through its Durable Object binding, can set it. */
 export const IDENTITY_HEADER = 'X-Yukibana-Identity';
@@ -42,6 +46,21 @@ export interface BaseFile {
     /** The blob's git SHA-1. */
     readonly blob: string;
     readonly text: string;
+    /** The characters of the session text that make up `text`, as an encoded `IdSet`: those still in the session are
+     *  unchanged, those deleted from it are uncommitted deletions, and session characters outside it are uncommitted
+     *  insertions. In the text's order the ids spell `text` (deleted ones included, though their content is gone).
+     *  Empty when not known (a room from before ids were kept, or a push merged from outside): then the app compares
+     *  texts instead. For an empty `text` the empty set is also the right one. */
+    readonly items: string;
+}
+
+/** Who wrote and who deleted characters of the text document, as the room saw it happen: `writers` maps a Yjs client
+ *  id to the login of the connection that first wrote with it (later writes with that id count as theirs), and
+ *  `deleted` gives, for characters of a file's committed state, who deleted them (`[client, clock, len, login]`).
+ *  Deletions of characters no committed state holds are not kept: they never show in a diff. */
+export interface Authors {
+    readonly writers: readonly (readonly [client: number, login: string])[];
+    readonly deleted: readonly (readonly [client: number, clock: number, len: number, login: string])[];
 }
 
 /** Control messages from a client. */
@@ -63,7 +82,11 @@ export type ClientMessage =
 /** Control messages from the room. */
 export type ServerMessage =
     /** The first message on a connection. */
-    | { readonly type: 'welcome'; readonly you: Identity; readonly base: string | null; readonly files: readonly BaseFile[]; readonly sync: SyncMode }
+    | { readonly type: 'welcome'; readonly you: Identity; readonly base: string | null; readonly files: readonly BaseFile[]; readonly sync: SyncMode; readonly authors: Authors }
+    /** A file joined the room (someone opened it): its committed state. */
+    | { readonly type: 'opened'; readonly file: BaseFile }
+    /** More of `Authors`, after a change to the text: added to what the client has. */
+    | ({ readonly type: 'authors' } & Authors)
     | { readonly type: 'base'; readonly base: string; readonly files: readonly BaseFile[] }
     | { readonly type: 'sync'; readonly sync: SyncMode }
     /** Someone with write access should push a WIP backup: the session has changes not in one yet. */
@@ -76,7 +99,14 @@ function isRecord(x: unknown): x is Record<string, unknown> {
 }
 
 function isBaseFile(x: unknown): x is BaseFile {
-    return isRecord(x) && typeof x['path'] === 'string' && typeof x['blob'] === 'string' && typeof x['text'] === 'string';
+    return (
+        isRecord(x) &&
+        typeof x['path'] === 'string' &&
+        typeof x['blob'] === 'string' &&
+        typeof x['text'] === 'string' &&
+        typeof x['items'] === 'string' &&
+        IdSet.decode(x['items']) !== null
+    );
 }
 
 /** `x` as a client message, or null if it is not one. Clients are other people's browsers: every field is checked. */

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import CommitReview from '#lib/review/CommitReview.svelte';
     import { dialogFocus } from '#lib/ui/focus.ts';
     import { keepInView } from '#lib/ui/place.ts';
     import type { Session } from '#lib/session.svelte.ts';
@@ -118,34 +119,6 @@
     </button>
 
     {#if s.popover === 'commit'}
-        <div class="popover pop-commit" role="dialog" {@attach keepInView} {@attach dialogFocus} aria-label="Commit">
-            <!-- svelte-ignore a11y_autofocus -->
-            <input autofocus class="yk-input" placeholder={s.defaultCommitMessage} bind:value={s.commitMessage} onkeydown={(e) => e.key === 'Enter' && void s.commit()} aria-label="Message" />
-            <ul class="changes">
-                {#each s.changes as c (c.file)}
-                    <li>
-                        <button
-                            type="button"
-                            class="row-btn"
-                            onclick={() => {
-                                onOpenFile(c.file);
-                                s.popover = null;
-                            }}
-                            {...tip(c.file, null, 'open')}
-                        >
-                            <span class="mono">{c.file}</span>
-                            <span class="grow"></span>
-                            {#if c.add > 0}<span class="add">+{c.add}</span>{/if}
-                            {#if c.del > 0}<span class="del">−{c.del}</span>{/if}
-                        </button>
-                    </li>
-                {/each}
-            </ul>
-            <div class="pop-row">
-                <span class="muted mono">{s.branch}</span>
-                <span class="grow"></span>
-                <button type="button" class="yk-btn yk-btn--primary btn-sm" onclick={() => void s.commit()} {...tip('Commit', 'Enter')}>Commit</button>
-            </div>
-        </div>
+        <CommitReview session={s} {onOpenFile} />
     {/if}
 </header>

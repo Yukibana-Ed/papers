@@ -26,7 +26,7 @@ describe('mergePush', () => {
         expect(read(doc, 'b.tex')).toBe('same\n');
         expect(read(doc, 'c.tex')).toBe('new\n');
         expect(pull.files.map(f => f.path)).toEqual(['a.tex', 'c.tex']);
-        expect(pull.files[0]).toEqual({ path: 'a.tex', blob: 'blob-of-a.tex', text: 'one\ntwo\nthree, pushed\n' });
+        expect(pull.files[0]).toEqual({ path: 'a.tex', blob: 'blob-of-a.tex', text: 'one\ntwo\nthree, pushed\n', items: '' });
         expect(pull.conflicts).toEqual([]);
     });
 
