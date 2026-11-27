@@ -6,7 +6,6 @@
     import type { Snippet } from 'svelte';
     import { goto } from '$app/navigation';
     import { setPending, type PendingPaper } from '#lib/newpaper/pending.ts';
-    import { THEME_SCRIPT } from '#lib/theme-script.ts';
 
     let { children }: { children: Snippet } = $props();
 
@@ -27,9 +26,5 @@
             },
         });
 </script>
-
-<svelte:head>
-    {@html THEME_SCRIPT}
-</svelte:head>
 
 {@render children()}
