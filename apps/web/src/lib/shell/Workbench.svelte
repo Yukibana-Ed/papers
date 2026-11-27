@@ -361,9 +361,13 @@
         const text = editor?.lineText(at.file, at.line) ?? '';
         const i = word ? text.indexOf(word) : -1;
         const col = i >= 0 ? i + 1 : 1;
+        // From the preview too: what it selects in the source is not news to the preview, which may have a selection
+        // of its own by now (the second and third click of three).
         setTimeout(() => {
-            if (word && i >= 0) editor?.reveal(at.file, at.line, col, { focus: false, select: { startLineNumber: at.line, startColumn: col, endLineNumber: at.line, endColumn: col + word.length } });
-            else editor?.reveal(at.file, at.line, col, { focus: false });
+            asPreview(() => {
+                if (word && i >= 0) editor?.reveal(at.file, at.line, col, { focus: false, select: { startLineNumber: at.line, startColumn: col, endLineNumber: at.line, endColumn: col + word.length } });
+                else editor?.reveal(at.file, at.line, col, { focus: false });
+            });
             jumping = false;
         }, 0);
     }

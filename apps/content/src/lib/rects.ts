@@ -47,3 +47,36 @@ export function mergeLineRects(rects: Iterable<Rect>, pad = 0, lead = 0): Rect[]
     }
     return lines.map(l => ({ x: l.left - pad, y: l.top - pad, width: l.right - l.left + pad * 2, height: l.bottom - l.top + pad * 2 }));
 }
+
+/** The typeset line at (`x`, `y`) among `boxes` (text runs' boxes, in any units): the indices of the run there (the
+ *  nearest one level with `y`, within two of its heights) and of the runs level with it, on either side, that follow
+ *  one another with gaps under 0.8 of the line's height. Empty when no run is there. Promises: a run across a gap as
+ *  wide as a column gutter or a table's column space is not in the line. */
+export function lineOf(boxes: readonly { left: number; right: number; top: number; bottom: number }[], x: number, y: number): number[] {
+    let at = -1;
+    let away = Infinity;
+    boxes.forEach((b, i) => {
+        if (y < b.top || y > b.bottom) return;
+        const d = x < b.left ? b.left - x : x > b.right ? x - b.right : 0;
+        if (d < away && d <= 2 * (b.bottom - b.top)) {
+            away = d;
+            at = i;
+        }
+    });
+    const target = boxes[at];
+    if (target === undefined) return [];
+    const height = target.bottom - target.top;
+    // Level with it: sharing at least half of the lower of the two heights.
+    const level = boxes
+        .map((b, i) => ({ b, i }))
+        .filter(({ b }) => Math.min(b.bottom, target.bottom) - Math.max(b.top, target.top) >= Math.min(b.bottom - b.top, height) / 2)
+        .toSorted((p, q) => p.b.left - q.b.left);
+    const k = level.findIndex(r => r.i === at);
+    let from = k;
+    let to = k;
+    let edge = target.left;
+    while (from > 0 && edge - (level[from - 1]?.b.right ?? -Infinity) < 0.8 * height) edge = Math.min(edge, level[--from]?.b.left ?? edge);
+    edge = target.right;
+    while (to < level.length - 1 && (level[to + 1]?.b.left ?? Infinity) - edge < 0.8 * height) edge = Math.max(edge, level[++to]?.b.right ?? edge);
+    return level.slice(from, to + 1).map(r => r.i);
+}

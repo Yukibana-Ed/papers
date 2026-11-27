@@ -2,6 +2,7 @@ import { expect, test, type FrameLocator, type Page } from '@playwright/test';
 import { caretAt, state } from '../editor/helpers.ts';
 import { SLIDES } from '../fixtures/slides.ts';
 import { TABLE_PAPER } from '../fixtures/table-paper.ts';
+import { TWO_COLUMNS } from '../fixtures/two-columns.ts';
 import { openPaper } from '../typst-paper.ts';
 
 /** The sync to the word is right or says nothing, over a whole paper: one with a table whose rows repeat the same few
@@ -40,55 +41,62 @@ async function settled(frame: FrameLocator): Promise<number> {
 test.describe('matching source and preview', () => {
     test.skip(!process.env['E2E_ENGINE'], 'needs the TeX engine (E2E_ENGINE=1)');
 
-    test('every place in the source shows where its line does or nowhere, and every word leads back to itself', async ({ page }) => {
-        const frame = await preview(page);
-        const report = await frame.locator('body').evaluate((_body, files) => {
-            interface Box {
-                page: number;
-                x: number;
-                y: number;
-                width: number;
-                height: number;
-            }
-            interface Maps {
-                words: { text: string; parts: Box[]; at?: { page: number; run: number; offset: number } }[];
-                precise: {
-                    locate(at: { file: string; line: number; column: number }): Box | null;
-                    charToSource(page: number, run: number, offset: number): { file: string; line: number; column: number } | null;
-                };
-                coarse: { segments(file: string, line: number, merged?: boolean): Box[] };
-            }
-            const maps = Reflect.get(window, 'papersSync') as Maps;
-            const far: string[] = [];
-            for (const [file, text] of Object.entries(files)) {
-                text.split('\n').forEach((source, i) => {
-                    const line = i + 1;
-                    const bands: Box[] = [];
-                    for (let l = line - 3; l <= line + 3; l++) bands.push(...maps.coarse.segments(file, l, false));
-                    for (let column = 0; column <= source.length; column++) {
-                        const box = maps.precise.locate({ file, line, column });
-                        if (box !== null && !bands.some(b => b.page === box.page && Math.abs(b.y - box.y) < 20)) far.push(`${file}:${line}:${column} on page ${box.page}`);
-                    }
-                });
-            }
-            const astray: string[] = [];
-            let back = 0;
-            for (const word of maps.words) {
-                const part = word.parts[0];
-                if (word.at === undefined || part === undefined) continue;
-                const source = maps.precise.charToSource(word.at.page, word.at.run, word.at.offset);
-                if (source === null) continue;
-                const box = maps.precise.locate(source);
-                if (box !== null && box.page === part.page && Math.abs(box.x - part.x) < 1.5 && Math.abs(box.y - part.y) < 2) back++;
-                else astray.push(`"${word.text}" on page ${part.page} → ${source.file}:${source.line}:${source.column}`);
-            }
-            return { far, astray, back, words: maps.words.length };
-        }, TABLE_PAPER);
-        expect(report.far).toEqual([]);
-        expect(report.astray).toEqual([]);
-        // Nearly every word has a source: all but numbers and labels the document makes itself.
-        expect(report.back).toBeGreaterThan(report.words * 0.95);
-    });
+    for (const [name, paper] of [
+        ['a table, a float and repeated paragraphs', TABLE_PAPER],
+        ['two columns', TWO_COLUMNS],
+    ] as const) {
+        test(`every place in the source shows where its line does or nowhere, and every word leads back to itself: ${name}`, async ({ page }) => {
+            await openPaper(page, paper, { format: 'latex', engine: 'pdflatex', root: 'main.tex' });
+            const frame = page.frameLocator('iframe.pv-frame');
+            await expect(frame.locator('.pv-pages[data-sync]')).toBeAttached({ timeout: 170_000 });
+            const report = await frame.locator('body').evaluate((_body, files) => {
+                interface Box {
+                    page: number;
+                    x: number;
+                    y: number;
+                    width: number;
+                    height: number;
+                }
+                interface Maps {
+                    words: { text: string; parts: Box[]; at?: { page: number; run: number; offset: number } }[];
+                    precise: {
+                        locate(at: { file: string; line: number; column: number }): Box | null;
+                        charToSource(page: number, run: number, offset: number): { file: string; line: number; column: number } | null;
+                    };
+                    coarse: { segments(file: string, line: number, merged?: boolean): Box[] };
+                }
+                const maps = Reflect.get(window, 'papersSync') as Maps;
+                const far: string[] = [];
+                for (const [file, text] of Object.entries(files)) {
+                    text.split('\n').forEach((source, i) => {
+                        const line = i + 1;
+                        const bands: Box[] = [];
+                        for (let l = line - 3; l <= line + 3; l++) bands.push(...maps.coarse.segments(file, l, false));
+                        for (let column = 0; column <= source.length; column++) {
+                            const box = maps.precise.locate({ file, line, column });
+                            if (box !== null && !bands.some(b => b.page === box.page && Math.abs(b.y - box.y) < 20)) far.push(`${file}:${line}:${column} on page ${box.page}`);
+                        }
+                    });
+                }
+                const astray: string[] = [];
+                let back = 0;
+                for (const word of maps.words) {
+                    const part = word.parts[0];
+                    if (word.at === undefined || part === undefined) continue;
+                    const source = maps.precise.charToSource(word.at.page, word.at.run, word.at.offset);
+                    if (source === null) continue;
+                    const box = maps.precise.locate(source);
+                    if (box !== null && box.page === part.page && Math.abs(box.x - part.x) < 1.5 && Math.abs(box.y - part.y) < 2) back++;
+                    else astray.push(`"${word.text}" on page ${part.page} → ${source.file}:${source.line}:${source.column}`);
+                }
+                return { far, astray, back, words: maps.words.length };
+            }, paper);
+            expect(report.far).toEqual([]);
+            expect(report.astray).toEqual([]);
+            // Nearly every word has a source: all but numbers and labels the document makes itself.
+            expect(report.back).toBeGreaterThan(report.words * 0.95);
+        });
+    }
 
     test('extending a selection along a table row never moves the preview', async ({ page }) => {
         const frame = await preview(page);
