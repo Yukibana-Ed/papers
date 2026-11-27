@@ -23,7 +23,7 @@ interface CharAt {
     readonly x: number;
     readonly y: number;
 }
-import { mergeLineRects, type Rect } from '#lib/rects.ts';
+import { lineOf, mergeLineRects, type Rect } from '#lib/rects.ts';
 import type { PageText, SourceMap } from '#lib/sourcemap.ts';
 import type { PageBox } from '@yukibana/papers-tex';
 
@@ -125,6 +125,10 @@ export class Viewer {
         this.#resize.observe(scroller);
         scroller.addEventListener('pointerdown', this.#onPointerDown);
         scroller.addEventListener('click', this.#onClick);
+        // The third press would select the page's whole text before the click selects the line.
+        scroller.addEventListener('mousedown', e => {
+            if (e.detail >= 3) e.preventDefault();
+        });
         document.addEventListener('selectionchange', this.#onSelectionChange);
         document.addEventListener('keydown', this.#onKeydown);
     }
@@ -691,25 +695,34 @@ export class Viewer {
         if (hit !== null) this.#events.jump({ file: hit.file, line: hit.line }, word);
     };
 
-    /** A triple click selects the typeset line under the pointer, as in a PDF reader; the browser's own would select
-     *  the whole page, which is one block of text runs. */
+    /** A triple click selects the typeset line under the pointer, as in a PDF reader: the text runs level with the one
+     *  clicked that follow one another closely, so not the other column's line nor the next cell's. The browser's own
+     *  would select the whole page, which is one block of text runs: where no line is under the pointer, nothing is
+     *  selected. */
     #selectLineAt(x: number, y: number): void {
-        const target = document.elementFromPoint(x, y);
-        const layer = target?.closest('.textLayer');
-        if (!(target instanceof HTMLElement) || !(layer instanceof HTMLElement) || target === layer) return;
-        const r = target.getBoundingClientRect();
-        const runs = [...layer.querySelectorAll('span')].filter(run => {
-            const b = run.getBoundingClientRect();
-            return run.firstChild !== null && b.width > 0 && Math.min(b.bottom, r.bottom) - Math.max(b.top, r.top) >= Math.min(b.height, r.height) / 2;
-        });
-        const a = runs[0];
-        const b = runs.at(-1);
-        if (a === undefined || b === undefined) return;
-        const range = document.createRange();
-        range.setStart(a, 0);
-        range.setEnd(b, b.childNodes.length);
         const selection = window.getSelection();
+        const pageEl = document
+            .elementsFromPoint(x, y)
+            .map(el => el.closest('.pv-page'))
+            .find(el => el !== null && el !== undefined);
+        const runs = [...(pageEl?.querySelectorAll<HTMLElement>('.textLayer span[data-run]') ?? [])]
+            .filter(run => run.firstChild instanceof Text && run.firstChild.length > 0)
+            .map(el => ({ el, box: el.getBoundingClientRect() }))
+            .filter(run => run.box.width > 0 && run.box.height > 0);
+        const line = lineOf(
+            runs.map(run => run.box),
+            x,
+            y,
+        );
         selection?.removeAllRanges();
+        if (line.length === 0) return;
+        // In the text's own order, which is the order a selection runs in.
+        const chosen = line.map(i => runs[i]?.el).filter(el => el !== undefined);
+        const first = chosen.reduce((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_PRECEDING ? b : a));
+        const last = chosen.reduce((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? b : a));
+        const range = document.createRange();
+        range.setStart(first, 0);
+        range.setEnd(last, last.childNodes.length);
         selection?.addRange(range);
     }
 

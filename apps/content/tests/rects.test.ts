@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeLineRects } from '#lib/rects.ts';
+import { lineOf, mergeLineRects } from '#lib/rects.ts';
 
 describe('mergeLineRects', () => {
     it('merges the runs of one line into one rectangle spanning them', () => {
@@ -57,5 +57,29 @@ describe('mergeLineRects', () => {
             [98, 13.5],
             [111.5, 13.5],
         ]);
+    });
+});
+
+describe('lineOf', () => {
+    const run = (left: number, top: number, width: number, height = 10): { left: number; right: number; top: number; bottom: number } => ({
+        left,
+        right: left + width,
+        top,
+        bottom: top + height,
+    });
+    // Two columns, 20 apart: three lines in the left one (the second in two runs, with a raised mark after it), two in
+    // the right one, level with the left's.
+    const boxes = [run(0, 0, 100), run(0, 12, 40), run(43, 12, 57), run(100.5, 10, 3, 6), run(0, 24, 60), run(120, 0, 100), run(120, 12, 100)];
+
+    it('is the runs of the line clicked, in its column only', () => {
+        expect(lineOf(boxes, 50, 17)).toEqual([1, 2, 3]);
+        expect(lineOf(boxes, 150, 17)).toEqual([6]);
+        expect(lineOf(boxes, 10, 5)).toEqual([0]);
+    });
+
+    it('takes the nearest run for a click beside a line, and none for one far from any', () => {
+        expect(lineOf(boxes, 70, 29)).toEqual([4]);
+        expect(lineOf(boxes, 108, 29)).toEqual([]);
+        expect(lineOf(boxes, 50, 60)).toEqual([]);
     });
 });

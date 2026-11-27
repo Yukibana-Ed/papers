@@ -129,6 +129,9 @@ export function closingLine(source: string, line: number, known: (line: number) 
     return null;
 }
 
+/** Bands of typeset lines closer sideways than this (PDF points) are of one column: less than the space between two. */
+const COLUMN_GAP = 4;
+
 /** How many words in a row a search over the whole document needs to agree on. */
 const FAR_RUN = 3;
 
@@ -221,12 +224,32 @@ export function preciseMap(coarse: SourceMap, words: readonly DocWord[], sources
             if (end !== null) bands.push(...coarse.segments(file, end, false));
         }
         if (bands.length === 0) return [];
+        // A band is a part of a typeset line; the line is as wide as its column. The bands of a page that touch
+        // sideways make up a column: the words level with a band in its column show there, and not those level
+        // with it in the column beside.
+        const columns = new Map<number, { left: number; right: number }[]>();
+        for (const page of new Set(bands.map(b => b.page))) {
+            const spans: { left: number; right: number }[] = [];
+            for (const b of bands.filter(k => k.page === page).toSorted((p, q) => p.x - q.x)) {
+                const last = spans.at(-1);
+                if (last !== undefined && b.x <= last.right + COLUMN_GAP) last.right = Math.max(last.right, b.x + b.width);
+                else spans.push({ left: b.x, right: b.x + b.width });
+            }
+            columns.set(page, spans);
+        }
+        const columnOf = (b: PageBox): { left: number; right: number } | undefined => columns.get(b.page)?.find(c => b.x >= c.left - 0.5 && b.x <= c.right + 0.5);
         const out: number[] = [];
         words.forEach((w, i) => {
             const first = w.parts[0];
             if (first === undefined) return;
             const mid = first.y + first.height / 2;
-            if (bands.some(b => b.page === first.page && mid >= b.y && mid <= b.y + b.height)) out.push(i);
+            const centre = first.x + first.width / 2;
+            const shows = bands.some(b => {
+                if (b.page !== first.page || mid < b.y || mid > b.y + b.height) return false;
+                const column = columnOf(b);
+                return column === undefined || (centre >= column.left - COLUMN_GAP && centre <= column.right + COLUMN_GAP);
+            });
+            if (shows) out.push(i);
         });
         return out;
     };
