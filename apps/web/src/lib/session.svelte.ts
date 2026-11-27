@@ -120,6 +120,8 @@ export class Session {
     selection = $state<Lines | null>(null);
     /** Where `selection` was made. The preview is sent only a selection made in the source: it shows its own. */
     selectionFrom: 'source' | 'preview' = 'source';
+    /** Where the cursor was last put from: in the source, or by a click or a selection in the preview. */
+    cursorFrom: 'source' | 'preview' = 'source';
     /** The source lines of the text selected in the preview, which the source editor takes as its selection; null
      *  when nothing is selected there. */
     mirror = $state<Lines | null>(null);
@@ -329,7 +331,8 @@ export class Session {
         if (this.activeFile === file) this.activeFile = this.tabs[Math.min(i, this.tabs.length - 1)] ?? this.tabs[0] ?? file;
     }
 
-    setCursor(c: Cursor): void {
+    setCursor(c: Cursor, from: 'source' | 'preview' = 'source'): void {
+        this.cursorFrom = from;
         this.cursor = c;
         if (this.root) this.lastRoot = this.root;
     }

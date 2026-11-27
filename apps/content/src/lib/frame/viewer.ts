@@ -544,10 +544,11 @@ export class Viewer {
     // --- navigation ----------------------------------------------------------------------------------------------------
 
     /** Shows `at`. `follow` scrolls only when its line is outside the view; `jump` always brings it to a third of the
-     *  view's height, and flashes it. Either way the locator bar moves there. */
-    reveal(at: SourcePoint, mode: 'follow' | 'jump'): void {
+     *  view's height, and flashes it; `stay` scrolls nothing. In every mode the locator bar moves there. */
+    reveal(at: SourcePoint, mode: 'follow' | 'jump' | 'stay'): void {
         this.#cursor = at;
         this.#drawOverlays();
+        if (mode === 'stay') return;
         const b = this.#firstBox(at);
         const page = b === null ? undefined : this.#pages[b.page - 1];
         if (b === null || page === undefined) return;

@@ -107,7 +107,7 @@
             if (disposed || !host) return;
             ed = new SourceEditor(host, s.files, s.activeFile, s.me, {
                 change: (f, text) => s.edit(f, text),
-                cursor: (c) => s.setCursor(c),
+                cursor: (c) => s.setCursor(c, fromPreview || jumping ? 'preview' : 'source'),
                 selection: (sel) => {
                     s.selectionFrom = fromPreview ? 'preview' : 'source';
                     if (!fromPreview) previewSelected = false;
@@ -336,10 +336,14 @@
         }
     }
 
+    /** True from a click in the preview until the caret is where it points: the caret's moves in between are the click's. */
+    let jumping = false;
+
     function onJump(at: SourcePoint, word: string | null): void {
         // The frame may point into files the build made (paper.bbl): only project files open.
         if (!Object.hasOwn(s.files, at.file)) return;
         if (narrow()) s.narrowPane = 'source';
+        jumping = true;
         s.openFile(at.file);
         clearTimeout(focusAfterJump);
         focusAfterJump = window.setTimeout(() => editor?.focus(), JUMP_FOCUS_MS);
@@ -347,7 +351,10 @@
         if (at.column !== undefined) {
             const column = at.column;
             // The click cleared the preview's own selection and highlight: the caret is not news to it.
-            setTimeout(() => asPreview(() => editor?.reveal(at.file, at.line, column, { focus: false })), 0);
+            setTimeout(() => {
+                asPreview(() => editor?.reveal(at.file, at.line, column, { focus: false }));
+                jumping = false;
+            }, 0);
             return;
         }
         // Only the line is known: the first place the clicked word appears on it.
@@ -357,6 +364,7 @@
         setTimeout(() => {
             if (word && i >= 0) editor?.reveal(at.file, at.line, col, { focus: false, select: { startLineNumber: at.line, startColumn: col, endLineNumber: at.line, endColumn: col + word.length } });
             else editor?.reveal(at.file, at.line, col, { focus: false });
+            jumping = false;
         }, 0);
     }
 
