@@ -4,7 +4,20 @@ import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwareness
 import { messageYjsSyncStep1, messageYjsSyncStep2, messageYjsUpdate, writeSyncStep1, writeSyncStep2 } from 'y-protocols/sync';
 import * as Y from 'yjs';
 import { DEFAULT_LIMITS, PersonMeter, UsageMeter, dayOf, type Limits } from './limits.ts';
-import { DOC_REVIEW, DOC_TEXT, MSG_AWARENESS, MSG_SYNC, parseClientMessage, type DocId, type Identity, type ServerMessage, type SyncMode } from '@yukibana/papers-room-protocol';
+import {
+    DOC_REVIEW,
+    DOC_TEXT,
+    IdSet,
+    MSG_AWARENESS,
+    MSG_SYNC,
+    parseClientMessage,
+    type Authors,
+    type BaseFile,
+    type DocId,
+    type Identity,
+    type ServerMessage,
+    type SyncMode,
+} from '@yukibana/papers-room-protocol';
 import type { RoomStore } from './store.ts';
 
 /** One connection to the room. */
@@ -13,6 +26,16 @@ export interface Peer {
     send(data: string | Uint8Array): void;
     /** The awareness client ids this connection has announced, so they go when it does. */
     readonly awarenessIds: Set<number>;
+}
+
+/** The ids of `text`'s characters that are in it now, in order: what a file's committed state is when the room
+ *  creates it from that very text. */
+export function visibleIds(text: Y.Text): IdSet {
+    const ids = new IdSet();
+    // The items, deleted ones included, are only reachable through Yjs's own field: no public API walks them with ids.
+    // oxlint-disable-next-line no-underscore-dangle
+    for (let item = text._start; item !== null; item = item.right) if (!item.deleted && item.countable) ids.add(item.id.client, item.id.clock, item.length);
+    return ids;
 }
 
 /** Compact a document's update log once it is this long. */
@@ -48,6 +71,8 @@ export class RoomCore {
     /** The connection each awareness client id belongs to: the first to announce it, until it disconnects. */
     private readonly awarenessOwners = new Map<number, Peer>();
     private lastMode: SyncMode = { mode: 'live' };
+    /** Every committed file's character ids together: deletions of these are the ones worth recording. */
+    private baseIds = new IdSet();
 
     constructor(
         private readonly store: RoomStore,
@@ -63,6 +88,8 @@ export class RoomCore {
             for (const u of store.updates(id)) Y.applyUpdate(doc, u, 'storage');
             doc.on('update', (update: Uint8Array, origin: unknown) => this.onUpdate(id, update, origin));
         }
+        this.text.on('afterTransaction', (tr: Y.Transaction) => this.recordAuthors(tr));
+        this.loadBaseIds();
         this.awareness.on('update', ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => {
             const changed = [...added, ...updated, ...removed];
             const msg = encoding.createEncoder();
@@ -77,6 +104,70 @@ export class RoomCore {
 
     private docOf(id: DocId): Y.Doc {
         return id === DOC_TEXT ? this.text : this.review;
+    }
+
+    private loadBaseIds(): void {
+        const ids = new IdSet();
+        for (const f of this.store.baseFiles()) for (const [client, clock, len] of IdSet.decode(f.items)?.ranges() ?? []) ids.add(client, clock, len);
+        this.baseIds = ids;
+    }
+
+    /** After a change to the text from a connection: the clients it wrote with that nobody wrote with before are its
+     *  person's from now on, and the committed characters it deleted were deleted by that person. Both are stored, then
+     *  told to everyone. Changes the room makes itself (opening a file, merging a push) are nobody's. A client id
+     *  someone else wrote with first stays theirs: an id is random, so taking one over is not an accident. */
+    private recordAuthors(tr: Y.Transaction): void {
+        const p = [...this.peers].find(x => x === tr.origin);
+        if (!p) return;
+        const login = p.identity.login;
+        const writers: [number, string][] = [];
+        for (const [client, clock] of tr.afterState) {
+            if (clock > (tr.beforeState.get(client) ?? 0) && this.store.writer(client) === null) {
+                this.store.addWriter(client, login);
+                writers.push([client, login]);
+            }
+        }
+        const deleted: [number, number, number, string][] = [];
+        for (const [client, items] of tr.deleteSet.clients) {
+            for (const d of items) {
+                let clock = d.clock;
+                const end = d.clock + d.len;
+                while (clock < end) {
+                    const r = this.baseIds.run(client, clock, end - clock);
+                    if (r.inSet) {
+                        this.store.addDeletion(client, clock, r.len, login);
+                        deleted.push([client, clock, r.len, login]);
+                    }
+                    clock += r.len;
+                }
+            }
+        }
+        if (writers.length || deleted.length) this.broadcast(JSON.stringify({ type: 'authors', writers, deleted } satisfies ServerMessage), null);
+    }
+
+    /** Keeps only the deletions of characters some committed state still holds: the rest are committed. */
+    private pruneDeletions(): void {
+        const { deleted } = this.store.authors();
+        const kept: [number, number, number, string][] = [];
+        for (const [client, clock0, len, login] of deleted) {
+            let clock = clock0;
+            while (clock < clock0 + len) {
+                const r = this.baseIds.run(client, clock, clock0 + len - clock);
+                if (r.inSet) kept.push([client, clock, r.len, login]);
+                clock += r.len;
+            }
+        }
+        if (kept.length !== deleted.length || kept.some((k, i) => k[2] !== deleted[i]?.[2])) this.store.setDeletions(kept);
+    }
+
+    /** Every file's committed state. */
+    get baseFiles(): BaseFile[] {
+        return this.store.baseFiles();
+    }
+
+    /** What the room knows about who wrote what, for a new connection. */
+    get authors(): Authors {
+        return this.store.authors();
     }
 
     private onUpdate(id: DocId, update: Uint8Array, origin: unknown): void {
@@ -103,7 +194,14 @@ export class RoomCore {
     /** Adds a connection: tells it who it is, where the room is, and starts the sync of both documents. */
     connect(p: Peer): void {
         this.peers.add(p);
-        this.sendControl(p, { type: 'welcome', you: p.identity, base: this.store.getMeta('base'), files: this.store.baseFiles(), sync: this.meter.mode(this.now()) });
+        this.sendControl(p, {
+            type: 'welcome',
+            you: p.identity,
+            base: this.store.getMeta('base'),
+            files: this.store.baseFiles(),
+            sync: this.meter.mode(this.now()),
+            authors: this.store.authors(),
+        });
         for (const id of [DOC_TEXT, DOC_REVIEW] as const) {
             const msg = encoding.createEncoder();
             encoding.writeUint8(msg, id);
@@ -221,13 +319,19 @@ export class RoomCore {
                 // A file opened at another commit than the room's base would mix two states of the branch.
                 if (base !== null && base !== m.commit) return this.sendControl(p, { type: 'refused', reason: 'invalid' });
                 if (base === null) this.store.setMeta('base', m.commit);
-                this.store.setBaseFile({ path: m.path, blob: m.blob, text: m.text });
-                this.text.transact(() => files.set(m.path, new Y.Text(m.text)), 'server');
+                const text = new Y.Text(m.text);
+                this.text.transact(() => files.set(m.path, text), 'server');
+                const file = { path: m.path, blob: m.blob, text: m.text, items: visibleIds(text).encode() };
+                this.store.setBaseFile(file);
+                this.loadBaseIds();
+                for (const peer of this.peers) this.sendControl(peer, { type: 'opened', file });
                 return;
             }
             case 'committed': {
                 this.store.setMeta('base', m.commit);
                 for (const f of m.files) this.store.setBaseFile(f);
+                this.loadBaseIds();
+                this.pruneDeletions();
                 const all = this.store.baseFiles();
                 for (const peer of this.peers) this.sendControl(peer, { type: 'base', base: m.commit, files: all });
                 return;
@@ -242,6 +346,8 @@ export class RoomCore {
                 );
                 this.store.setMeta('base', m.to);
                 for (const f of m.files) this.store.setBaseFile(f);
+                this.loadBaseIds();
+                this.pruneDeletions();
                 const all = this.store.baseFiles();
                 for (const peer of this.peers) this.sendControl(peer, { type: 'base', base: m.to, files: all });
                 return;

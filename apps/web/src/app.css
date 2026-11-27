@@ -202,15 +202,15 @@ button {
     animation: fade-in var(--yk-motion-fast) var(--yk-motion-ease);
     font-size: var(--yk-font-size-sm);
 }
-.pop-commit {
-    right: 40px;
-    width: 340px;
-    display: grid;
-    gap: 8px;
-    padding: 10px;
-}
-.pop-commit .yk-input {
-    font-size: var(--yk-font-size-sm);
+.toast-undo {
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-weight: var(--yk-font-weight-bold);
+    text-decoration: underline;
+    cursor: pointer;
+    padding: 0 0 0 12px;
 }
 .anchor {
     position: relative;

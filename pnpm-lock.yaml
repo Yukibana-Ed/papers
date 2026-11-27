@@ -198,8 +198,8 @@ catalogs:
       specifier: 8.18.2
       version: 8.18.2
     '@yukibana/design':
-      specifier: github:Yukibana-Ed/Yukibana#7eee6311b75e8ea9c25ece97feee9b085ba39685&path:packages/design
-      version: https://codeload.github.com/Yukibana-Ed/Yukibana/tar.gz/7eee6311b75e8ea9c25ece97feee9b085ba39685#path:packages/design
+      specifier: github:Yukibana-Ed/Yukibana#8fb0a68147adab7d1c17765c5ed9e7df496ee481&path:packages/design
+      version: https://codeload.github.com/Yukibana-Ed/Yukibana/tar.gz/8fb0a68147adab7d1c17765c5ed9e7df496ee481#path:packages/design
     '@yukibana/papers-compiler':
       specifier: workspace:*
       version: workspace:*
@@ -380,7 +380,7 @@ importers:
         version: 24.19.2
       '@yukibana/design':
         specifier: 'catalog:'
-        version: https://codeload.github.com/Yukibana-Ed/Yukibana/tar.gz/7eee6311b75e8ea9c25ece97feee9b085ba39685#path:packages/design
+        version: https://codeload.github.com/Yukibana-Ed/Yukibana/tar.gz/8fb0a68147adab7d1c17765c5ed9e7df496ee481#path:packages/design
       fast-check:
         specifier: 'catalog:'
         version: 4.10.2
@@ -520,7 +520,7 @@ importers:
         version: 24.19.2
       '@yukibana/design':
         specifier: 'catalog:'
-        version: https://codeload.github.com/Yukibana-Ed/Yukibana/tar.gz/7eee6311b75e8ea9c25ece97feee9b085ba39685#path:packages/design
+        version: https://codeload.github.com/Yukibana-Ed/Yukibana/tar.gz/8fb0a68147adab7d1c17765c5ed9e7df496ee481#path:packages/design
       happy-dom:
         specifier: 'catalog:'
         version: 21.0.4
@@ -1875,8 +1875,8 @@ packages:
   '@vitest/spy@5.0.5':
     resolution: {integrity: sha512-lwJRExuH417257Q5wv9QYugN9IMJkoxcrKrYxGPQkBzl7wlNpTUxD/5yNX4ESKVUIShKPgkGchYPFMWOOk0wzw==}
 
-  '@yukibana/design@https://codeload.github.com/Yukibana-Ed/Yukibana/tar.gz/7eee6311b75e8ea9c25ece97feee9b085ba39685#path:packages/design':
-    resolution: {gitHosted: true, integrity: sha512-MZChtnwF8prUU+JTHTNLyB0vYk0nEJsWFpxf1W0zf3kM944gPGhOlSqom7Zz0vlfJdedRRZ2Kg/MtSdG6CVaoA==, path: packages/design, tarball: https://codeload.github.com/Yukibana-Ed/Yukibana/tar.gz/7eee6311b75e8ea9c25ece97feee9b085ba39685}
+  '@yukibana/design@https://codeload.github.com/Yukibana-Ed/Yukibana/tar.gz/8fb0a68147adab7d1c17765c5ed9e7df496ee481#path:packages/design':
+    resolution: {gitHosted: true, integrity: sha512-jvj0f/zIuGpkOAuDDl2/v/2qSoOGtnOPqMZCwCGb6I7rTLAmxARtgH9vK25otqrpXk5lQh5Vq2/C28jXolIkIQ==, path: packages/design, tarball: https://codeload.github.com/Yukibana-Ed/Yukibana/tar.gz/8fb0a68147adab7d1c17765c5ed9e7df496ee481}
     version: 0.0.0-dev
 
   accepts@2.0.0:
@@ -3718,7 +3718,7 @@ snapshots:
 
   '@vitest/spy@5.0.5': {}
 
-  '@yukibana/design@https://codeload.github.com/Yukibana-Ed/Yukibana/tar.gz/7eee6311b75e8ea9c25ece97feee9b085ba39685#path:packages/design': {}
+  '@yukibana/design@https://codeload.github.com/Yukibana-Ed/Yukibana/tar.gz/8fb0a68147adab7d1c17765c5ed9e7df496ee481#path:packages/design': {}
 
   accepts@2.0.0:
     dependencies:
