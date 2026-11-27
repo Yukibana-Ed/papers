@@ -7,7 +7,7 @@
 </script>
 
 <span class="avatar" role="img" style:--hue={user?.hue ?? 0} style:width="{size}px" style:height="{size}px" style:font-size="{size * 0.42}px" aria-label={user?.name ?? 'Unknown'}>
-    {user?.initials ?? '?'}
+    <span class="avatar-i">{user?.initials ?? '?'}</span>
     {#if user?.picture !== undefined && !failed}
         <img src={user.picture} alt="" width={size} height={size} loading="lazy" referrerpolicy="no-referrer" onerror={() => (failed = true)} />
     {/if}

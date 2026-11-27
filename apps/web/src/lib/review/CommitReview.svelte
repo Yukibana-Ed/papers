@@ -437,7 +437,7 @@
 {#snippet author(r: Row, cls: string)}
     {#if team}
         <td class="au {cls}">
-            <span class="au-in" class:sug={r.suggested !== undefined} class:two={r.authors.length > 1} {...rowTip(r)}>
+            <span class="au-in" class:two={r.authors.length > 1} {...rowTip(r)}>
                 {#each r.authors.slice(0, 2) as p (p)}<Avatar user={s.users[p]} size={16} />{/each}
             </span>
         </td>
@@ -1008,30 +1008,6 @@
     /* A line two people changed: both, side by side. */
     .au-in.two {
         gap: 2px;
-    }
-    /* An accepted suggestion: a pen on the suggester's picture. */
-    .au-in.sug::after {
-        content: '';
-        position: absolute;
-        right: -3px;
-        bottom: -1px;
-        width: 9px;
-        height: 9px;
-        border-radius: 50%;
-        background: var(--yk-surface);
-        box-shadow: 0 0 0 1px var(--yk-line);
-        mask: none;
-    }
-    .au-in.sug::before {
-        content: '';
-        position: absolute;
-        right: -2px;
-        bottom: 0;
-        width: 7px;
-        height: 7px;
-        z-index: 1;
-        background: var(--yk-soft);
-        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round'%3E%3Cpath d='M16.4 3.6a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4Z'/%3E%3C/svg%3E") center / contain no-repeat;
     }
     tr.add td:is(.tx, .sg),
     td.add:is(.tx, .au) {
