@@ -1,8 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
-import { describe, expect, it } from 'vitest';
-import { Awareness, encodeAwarenessUpdate } from 'y-protocols/awareness';
+import { describe, expect, it, vi } from 'vitest';
+import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness';
 import { readSyncMessage, writeSyncStep1, writeUpdate } from 'y-protocols/sync';
 import * as Y from 'yjs';
 import { RoomCore, type Peer } from '../src/core.ts';
@@ -27,14 +27,17 @@ class Client {
     readonly text = new Y.Doc();
     readonly review = new Y.Doc();
     readonly control: ServerMessage[] = [];
-    readonly peer: Peer;
+    peer: Peer;
+    /** Everyone's presence as this client has been told, and its own as the room last handed it to `keep`. */
+    readonly seen = new Awareness(new Y.Doc());
+    kept: Uint8Array | null = null;
 
     constructor(
-        readonly room: RoomCore,
+        public room: RoomCore,
         login: string,
         access: Access,
     ) {
-        this.peer = { identity: { login, name: login, access }, awarenessIds: new Set(), send: d => this.onServer(d) };
+        this.peer = this.newPeer(login, access);
         for (const [id, doc] of [
             [DOC_TEXT, this.text],
             [DOC_REVIEW, this.review],
@@ -48,6 +51,15 @@ class Client {
                 room.receive(this.peer, encoding.toUint8Array(e));
             });
         }
+        this.join();
+    }
+
+    private newPeer(login: string, access: Access): Peer {
+        return { identity: { login, name: login, access }, awarenessIds: new Set(), send: d => this.onServer(d), keep: p => (this.kept = p) };
+    }
+
+    private join(): void {
+        const room = this.room;
         room.connect(this.peer);
         for (const [id, doc] of [
             [DOC_TEXT, this.text],
@@ -69,12 +81,30 @@ class Client {
         const dec = decoding.createDecoder(d);
         const id = decoding.readUint8(dec);
         const kind = decoding.readVarUint(dec);
+        if (kind === MSG_AWARENESS) return applyAwarenessUpdate(this.seen, decoding.readVarUint8Array(dec), this);
         if (kind !== MSG_SYNC) return;
         const reply = encoding.createEncoder();
         encoding.writeUint8(reply, id);
         encoding.writeVarUint(reply, MSG_SYNC);
         readSyncMessage(dec, reply, id === DOC_TEXT ? this.text : this.review, this);
         if (encoding.length(reply) > 2) this.room.receive(this.peer, encoding.toUint8Array(reply));
+    }
+
+    /** Announces `state` as this client's presence. */
+    present(state: Record<string, unknown>): void {
+        this.seen.setLocalState(state);
+        const e = encoding.createEncoder();
+        encoding.writeUint8(e, DOC_REVIEW);
+        encoding.writeVarUint(e, MSG_AWARENESS);
+        encoding.writeVarUint8Array(e, encodeAwarenessUpdate(this.seen, [this.seen.clientID]));
+        this.room.receive(this.peer, encoding.toUint8Array(e));
+    }
+
+    /** The room slept and woke as `room` with this client's connection still open: the same socket, a new peer. */
+    wake(room: RoomCore): void {
+        this.room = room;
+        this.peer = this.newPeer(this.peer.identity.login, this.peer.identity.access);
+        room.rejoin(this.peer, this.kept);
     }
 
     open(path: string, text: string, commit = 'c1'): void {
@@ -184,7 +214,7 @@ describe('room', () => {
         const a = new Client(room, 'ada', 'write');
         const remote = new Awareness(new Y.Doc());
         remote.setLocalState({ user: 'lena', file: 'a.tex', line: 3 });
-        const lena: Peer = { identity: { login: 'lena', name: 'Lena', access: 'comment' }, awarenessIds: new Set(), send: () => {} };
+        const lena: Peer = { identity: { login: 'lena', name: 'Lena', access: 'comment' }, awarenessIds: new Set(), send: () => {}, keep: () => {} };
         room.connect(lena);
         const e = encoding.createEncoder();
         encoding.writeUint8(e, DOC_REVIEW);
@@ -255,7 +285,7 @@ describe('room', () => {
 
     it('keeps each presence with the connection that announced it', () => {
         const room = new RoomCore(new RoomStore(memorySql()));
-        const awarenessOf = (login: string): Peer => ({ identity: { login, name: login, access: 'comment' }, awarenessIds: new Set(), send: () => {} });
+        const awarenessOf = (login: string): Peer => ({ identity: { login, name: login, access: 'comment' }, awarenessIds: new Set(), send: () => {}, keep: () => {} });
         const announce = (p: Peer, a: Awareness): void => {
             const e = encoding.createEncoder();
             encoding.writeUint8(e, DOC_REVIEW);
@@ -284,6 +314,56 @@ describe('room', () => {
         for (let i = 0; i < 3; i++) fake.setLocalState({ user: 'lena', line: 99 }); // newer than the removal
         announce(eve, fake);
         expect(room.awareness.getStates().get(real.clientID)).toEqual({ user: 'lena', line: 99 });
+    });
+
+    it('leaves no timer pending, so that it can be put to sleep', () => {
+        vi.useFakeTimers();
+        try {
+            const room = new RoomCore(new RoomStore(memorySql()));
+            const a = new Client(room, 'ada', 'write');
+            a.open('paper.tex', 'Hello');
+            a.present({ user: 'ada', line: 1 });
+            a.text.getMap<Y.Text>('files').get('paper.tex')?.insert(5, '!');
+            a.seen.destroy();
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('wakes from a sleep with its connections: edits and presence still reach everyone, and leaving is told', () => {
+        const sql = memorySql();
+        const before = new RoomCore(new RoomStore(sql));
+        const a = new Client(before, 'ada', 'write');
+        const b = new Client(before, 'lena', 'write');
+        a.open('paper.tex', 'Hello');
+        a.present({ user: 'ada', line: 1 });
+        b.present({ user: 'lena', line: 2 });
+        expect(b.seen.getStates().get(a.seen.clientID)).toEqual({ user: 'ada', line: 1 });
+
+        // The sleep: memory is gone; the store and the open connections are what is left.
+        const room = new RoomCore(new RoomStore(sql));
+        const told = b.control.length;
+        a.wake(room);
+        b.wake(room);
+        expect(b.control).toHaveLength(told);
+
+        a.text.getMap<Y.Text>('files').get('paper.tex')?.insert(5, ', world');
+        expect(b.file('paper.tex')).toBe('Hello, world');
+
+        // Someone who joins now is told who is here, though nobody has moved since the sleep.
+        const c = new Client(room, 'mira', 'comment');
+        expect(c.seen.getStates().get(a.seen.clientID)).toEqual({ user: 'ada', line: 1 });
+        expect(c.seen.getStates().get(b.seen.clientID)).toEqual({ user: 'lena', line: 2 });
+
+        // Presence still moves, and still belongs to its connection.
+        a.present({ user: 'ada', line: 7 });
+        expect(b.seen.getStates().get(a.seen.clientID)).toEqual({ user: 'ada', line: 7 });
+
+        room.disconnect(a.peer);
+        expect(b.seen.getStates().has(a.seen.clientID)).toBe(false);
+        expect(c.seen.getStates().has(a.seen.clientID)).toBe(false);
+        for (const x of [a, b, c]) x.seen.destroy();
     });
 
     it('ends connections after an hour', () => {

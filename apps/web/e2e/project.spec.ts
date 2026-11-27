@@ -169,6 +169,35 @@ test('the people in a branch are shown at the top right, with their cursor and w
     await expect(page.locator('.monaco-editor .presence-bob')).toHaveCount(0);
 });
 
+test('a room that slept under open pages still carries edits and presence when someone types again', async ({ page, browser }, info) => {
+    test.slow();
+    const repo = await repoFor(info.title);
+    await open(page, 'ada', repo);
+    const bob = await another(browser);
+    await open(bob, 'bob', repo);
+    await bob.locator('.monaco-editor .view-line', { hasText: 'Hello from the repository.' }).click();
+    await expect(page.locator('.monaco-editor .presence-caret.presence-bob')).toHaveCount(1);
+
+    // Nobody does anything: the pages send nothing, and the platform puts the room to sleep after ten seconds.
+    await page.waitForTimeout(15_000);
+
+    await typeAfter(page, 'Hello from the repository.', ' Ada after the sleep.');
+    await expect(bob.locator('.monaco-editor .view-lines')).toContainText('Ada after the sleep.');
+    // Someone who comes now sees both, Bob included, who has not moved since before the sleep.
+    const carol = await another(browser);
+    await open(carol, 'carol', repo);
+    await expect(carol.locator('.monaco-editor .view-lines')).toContainText('Ada after the sleep.');
+    await expect(carol.locator('.present-one')).toHaveCount(2);
+    await expect(carol.locator('.monaco-editor .presence-caret.presence-bob')).toHaveCount(1);
+
+    await page.waitForTimeout(15_000);
+    // A leave that wakes the room is still told.
+    await bob.context().close();
+    await expect(carol.locator('.present-one')).toHaveCount(1);
+    await expect(page.locator('.monaco-editor .presence-bob')).toHaveCount(0);
+    await carol.context().close();
+});
+
 test('uncommitted edits are still there for whoever opens the branch next', async ({ page, browser }, info) => {
     const repo = await repoFor(info.title);
     await open(page, 'ada', repo);
