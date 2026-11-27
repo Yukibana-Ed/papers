@@ -236,8 +236,9 @@
     // A repository's session: every file of the room bound to its model, and files others open bound as they come.
     $effect(() => {
         const ed = editor;
-        if (!ed || !room) return;
-        const files = room.files;
+        // The demo has no room, but a document of its own (`Session.source`).
+        const files = room?.files ?? s.source?.files;
+        if (!ed || !files) return;
         for (const [path, text] of files) ed.bind(path, text);
         // Only paths that got a (new) text: edits inside a text do not reach this observer, and a deleted path has none.
         const onFiles = (e: { changes: { keys: Map<string, { action: 'add' | 'update' | 'delete' }> } }): void => {
@@ -290,7 +291,12 @@
             editor?.replaceAnchor(threadId, text);
             s.replacementAccepted(threadId, commentId, text);
         },
-        acceptSuggestion: (id) => editor?.acceptSuggestion(id),
+        acceptSuggestion(id) {
+            const by = s.suggestions.find((x) => x.id === id)?.author ?? s.me;
+            // What accepting inserts is credited to whoever suggested it.
+            if (s.source) s.source.accepting(by, () => editor?.acceptSuggestion(id));
+            else editor?.acceptSuggestion(id);
+        },
         rejectSuggestion: (id) => editor?.rejectSuggestion(id),
         discussSuggestion(id, body) {
             const place = editor?.suggestionPlace(id);
@@ -449,7 +455,24 @@
     }
 
     function onMousedown(e: MouseEvent): void {
-        if (s.popover && e.target instanceof Element && !e.target.closest('.popover, [data-popover-anchor]')) s.popover = null;
+        if (s.popover && e.target instanceof Element && !e.target.closest('.popover, [data-popover-anchor], .yk-toast')) s.popover = null;
+    }
+
+    /** What a revert did, for its toast: deleting a new file, restoring a deleted one, or reverting changes. */
+    function revertSaid(file: string, before: string, after: string): string {
+        const name = file.split('/').pop() ?? file;
+        if (after === '' && !(s.base[file] ?? '')) return `Deleted ${name}`;
+        if (before === '') return `Restored ${name}`;
+        return after === (s.base[file] ?? '') ? `Reverted ${name}` : `Reverted a change in ${name}`;
+    }
+    /** Hides the revert toast after six seconds, unless a newer revert replaced it. */
+    function expire(key: number): () => void {
+        return () => {
+            const t = setTimeout(() => {
+                if (s.lastRevert?.key === key) s.lastRevert = null;
+            }, 6000);
+            return () => clearTimeout(t);
+        };
     }
 
     function onEscape(e: KeyboardEvent): void {
@@ -816,7 +839,14 @@
 
     {#if s.palette}<Palette {commands} onClose={() => (s.palette = false)} />{/if}
     <TooltipLayer />
-    {#if s.toast}
+    {#if s.lastRevert}
+        {#key s.lastRevert.key}
+            <div class="yk-toast" role="status" {@attach expire(s.lastRevert.key)}>
+                <span>{revertSaid(s.lastRevert.file, s.lastRevert.before, s.lastRevert.after)}</span>
+                <button type="button" class="toast-undo" onclick={() => s.undoRevert()} {...tip('Undo', null, 'put the lines back')}>Undo</button>
+            </div>
+        {/key}
+    {:else if s.toast}
         {#key s.toast.key}
             <div class="yk-toast" role="status"><span>{s.toast.text}</span></div>
         {/key}

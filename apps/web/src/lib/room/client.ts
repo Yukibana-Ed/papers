@@ -3,7 +3,18 @@ import * as encoding from 'lib0/encoding';
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness';
 import { readSyncMessage, writeSyncStep1, writeUpdate } from 'y-protocols/sync';
 import * as Y from 'yjs';
-import { DOC_REVIEW, DOC_TEXT, MSG_AWARENESS, MSG_SYNC, type BaseFile, type DocId, type Identity, type ServerMessage, type SyncMode } from '@yukibana/papers-room-protocol';
+import {
+    DOC_REVIEW,
+    DOC_TEXT,
+    MSG_AWARENESS,
+    MSG_SYNC,
+    type Authors,
+    type BaseFile,
+    type DocId,
+    type Identity,
+    type ServerMessage,
+    type SyncMode,
+} from '@yukibana/papers-room-protocol';
 
 /** What the `url` callback throws when the app's Worker turned the ticket request down for the user's sign-in (401 or
  *  403): the client stops reconnecting and reports `signedOut`. */
@@ -17,8 +28,12 @@ export class TicketRefused extends Error {
 export const PRESENCE_MS = 150;
 
 export interface RoomEvents {
-    welcome(you: Identity, base: string | null, files: readonly BaseFile[]): void;
+    welcome(you: Identity, base: string | null, files: readonly BaseFile[], authors: Authors): void;
     base(base: string, files: readonly BaseFile[]): void;
+    /** A file joined the room, with its committed state. */
+    opened(file: BaseFile): void;
+    /** More about who wrote and deleted what. */
+    authors(a: Authors): void;
     sync(mode: SyncMode): void;
     /** Both documents have the room's state (after every (re)connection). */
     synced(): void;
@@ -191,7 +206,7 @@ export class RoomClient {
         switch (m.type) {
             case 'welcome':
                 this.mode = m.sync;
-                this.on.welcome(m.you, m.base, m.files);
+                this.on.welcome(m.you, m.base, m.files, m.authors);
                 this.on.sync(m.sync);
                 break;
             case 'base':
@@ -201,6 +216,12 @@ export class RoomClient {
                 this.mode = m.sync;
                 this.on.sync(m.sync);
                 this.scheduleFlush();
+                break;
+            case 'opened':
+                this.on.opened(m.file);
+                break;
+            case 'authors':
+                this.on.authors({ writers: m.writers, deleted: m.deleted });
                 break;
             case 'backup-due':
                 this.on.backupDue();

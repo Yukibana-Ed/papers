@@ -3,7 +3,7 @@ import { flushSync } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RoomClient } from '#lib/room/client.ts';
 import { syncReview } from '#lib/room/sync.svelte.ts';
-import { Session, type SessionSeed } from '#lib/session.svelte.ts';
+import { Session, type CommittedFile, type SessionSeed } from '#lib/session.svelte.ts';
 import type { Thread } from '#lib/model/types.ts';
 import { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
@@ -50,7 +50,7 @@ describe('Session.commit', () => {
         s.backend = { commit };
         s.commitMessage = '  Say more  ';
         await s.commit();
-        expect(commit).toHaveBeenCalledWith('Say more', [{ path: MAIN, text: s.files[MAIN] }]);
+        expect(commit).toHaveBeenCalledWith('Say more', [{ path: MAIN, text: s.files[MAIN], items: '' }], []);
         expect(s.uncommitted).toBe(0);
         expect(s.commits[0]).toMatchObject({ hash: 'abcdef1', msg: 'Say more', author: 'me' });
         expect(s.commitMessage).toBe('');
@@ -88,6 +88,38 @@ describe('Session.commit', () => {
         expect(s.justCommitted).toBe(true);
         vi.advanceTimersByTime(600);
         expect(s.justCommitted).toBe(false);
+    });
+});
+
+describe('the commit selection', () => {
+    it('commits only what is ticked, keeps the rest out after the commit, and lets new changes in only while everything is ticked', async () => {
+        const s = new Session(seed());
+        const base = s.files[MAIN] ?? '';
+        s.edit(MAIN, `FIRST\n${base}LAST\n`);
+        expect(s.included.get(MAIN)).toEqual([true, true]);
+        s.setIncluded(MAIN, [1], false);
+        const commit = vi.fn(async (_m: string, _f: readonly CommittedFile[], _c: readonly string[]) => '2222222');
+        s.backend = { commit };
+        await s.commit();
+        expect(commit.mock.calls[0]?.[1]).toEqual([{ path: MAIN, text: `FIRST\n${base}`, items: '' }]);
+        expect(s.base[MAIN]).toBe(`FIRST\n${base}`);
+        // LAST stays left out, and a new change waits to be ticked, since not everything is.
+        expect(s.included.get(MAIN)).toEqual([false]);
+        s.edit(MAIN, `FIRST\nNEW\n${base}LAST\n`);
+        expect(s.included.get(MAIN)).toEqual([false, false]);
+        s.setAllIncluded(true);
+        s.edit(MAIN, `FIRST\nNEW\n${base}LAST\nMORE\n`);
+        expect(s.included.get(MAIN)?.every(Boolean)).toBe(true);
+    });
+
+    it('reverts one change, and Undo puts it back', () => {
+        const s = new Session(seed());
+        const base = s.files[MAIN] ?? '';
+        s.edit(MAIN, `A\n${base}B\n`);
+        s.revert(MAIN, [0]);
+        expect(s.files[MAIN]).toBe(`${base}B\n`);
+        s.undoRevert();
+        expect(s.files[MAIN]).toBe(`A\n${base}B\n`);
     });
 });
 

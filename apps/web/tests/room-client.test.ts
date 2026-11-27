@@ -84,6 +84,8 @@ function events(): RoomEvents & { log: string[] } {
         log,
         welcome: () => log.push('welcome'),
         base: () => log.push('base'),
+        opened: () => log.push('opened'),
+        authors: () => log.push('authors'),
         sync: m => log.push(`sync:${m.mode}`),
         synced: () => log.push('synced'),
         backupDue: () => log.push('backup-due'),
@@ -93,7 +95,14 @@ function events(): RoomEvents & { log: string[] } {
     };
 }
 
-const WELCOME: ServerMessage = { type: 'welcome', you: { login: 'me', name: 'Me', access: 'write' }, base: null, files: [], sync: { mode: 'live' } } as unknown as ServerMessage;
+const WELCOME: ServerMessage = {
+    type: 'welcome',
+    you: { login: 'me', name: 'Me', access: 'write' },
+    base: null,
+    files: [],
+    sync: { mode: 'live' },
+    authors: { writers: [], deleted: [] },
+} as unknown as ServerMessage;
 
 /** A client whose first socket is open and synced with empty documents. */
 async function connected(on = events()): Promise<{ client: RoomClient; ws: FakeSocket; on: ReturnType<typeof events> }> {

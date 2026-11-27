@@ -49,7 +49,7 @@ export function mergePush(doc: Y.Doc, committed: Readonly<Record<string, string>
             const was = committed[path];
             const ours = files.get(path);
             if (was === their.text && ours !== undefined) continue;
-            changed.push({ path, blob: their.blob, text: their.text });
+            changed.push({ path, blob: their.blob, text: their.text, items: '' });
             if (ours === undefined) {
                 files.set(path, new Y.Text(their.text));
                 continue;

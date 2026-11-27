@@ -7,7 +7,7 @@ import { readSyncMessage, writeSyncStep1, writeUpdate } from 'y-protocols/sync';
 import * as Y from 'yjs';
 import { RoomCore, type Peer } from '../src/core.ts';
 import { DEFAULT_LIMITS, MAX_CONNECTION_MS, connectionExpired } from '../src/limits.ts';
-import { DOC_REVIEW, DOC_TEXT, MSG_AWARENESS, MSG_SYNC, type Access, type ServerMessage } from '@yukibana/papers-room-protocol';
+import { DOC_REVIEW, DOC_TEXT, IdSet, MSG_AWARENESS, MSG_SYNC, type Access, type ServerMessage } from '@yukibana/papers-room-protocol';
 import { RoomStore, type Sql, type SqlValue } from '../src/store.ts';
 
 /** node:sqlite behind the Durable Object SQL interface. */
@@ -146,7 +146,7 @@ describe('room', () => {
         const a = new Client(room, 'ada', 'write');
         const b = new Client(room, 'lena', 'write');
         a.open('a.tex', 'a');
-        room.receive(a.peer, JSON.stringify({ type: 'committed', commit: 'c2', files: [{ path: 'a.tex', blob: 'b2', text: 'a!' }] }));
+        room.receive(a.peer, JSON.stringify({ type: 'committed', commit: 'c2', files: [{ path: 'a.tex', blob: 'b2', text: 'a!', items: '' }] }));
         expect(b.control.at(-1)).toMatchObject({ type: 'base', base: 'c2', files: [{ path: 'a.tex', blob: 'b2', text: 'a!' }] });
     });
 
@@ -163,7 +163,7 @@ describe('room', () => {
             const before = Y.encodeStateVector(copy);
             copy.getMap<Y.Text>('files').get('a.tex')?.insert(4, 'two\n');
             const update = btoa(String.fromCharCode(...Y.encodeStateAsUpdate(copy, before)));
-            return JSON.stringify({ type: 'pulled', from, to: 'c9', update, files: [{ path: 'a.tex', blob: 'b9', text: 'one\ntwo\n' }] });
+            return JSON.stringify({ type: 'pulled', from, to: 'c9', update, files: [{ path: 'a.tex', blob: 'b9', text: 'one\ntwo\n', items: '' }] });
         };
         const fromA = pulled(a);
         const fromB = pulled(b);
@@ -172,7 +172,7 @@ describe('room', () => {
         expect(room.text.getMap<Y.Text>('files').get('a.tex')?.toJSON()).toBe('one\ntwo\n');
         expect(a.text.getMap<Y.Text>('files').get('a.tex')?.toJSON()).toBe('one\ntwo\n');
         expect(b.text.getMap<Y.Text>('files').get('a.tex')?.toJSON()).toBe('one\ntwo\n');
-        expect(b.control.filter(m => m.type === 'base')).toEqual([{ type: 'base', base: 'c9', files: [{ path: 'a.tex', blob: 'b9', text: 'one\ntwo\n' }] }]);
+        expect(b.control.filter(m => m.type === 'base')).toEqual([{ type: 'base', base: 'c9', files: [{ path: 'a.tex', blob: 'b9', text: 'one\ntwo\n', items: '' }] }]);
         // Someone with read access cannot.
         const r = new Client(room, 'rita', 'comment');
         room.receive(r.peer, JSON.stringify({ type: 'pulled', from: 'c9', to: 'c10', update: '', files: [] }));
@@ -303,5 +303,61 @@ describe('room', () => {
         expect(a.control.at(-1)).toEqual({ type: 'backup-due' });
         room.receive(a.peer, JSON.stringify({ type: 'backed-up', commit: 'w1' }));
         expect(room.tick()).toBe(false);
+    });
+
+    it('knows who wrote each character and who deleted committed ones, and nobody can write as someone else', () => {
+        const room = new RoomCore(new RoomStore(memorySql()));
+        const a = new Client(room, 'ada', 'write');
+        const b = new Client(room, 'lena', 'write');
+        a.open('a.tex', 'one two\n');
+        const base = room.authors;
+        expect(base.writers).toEqual([]);
+        const committed = IdSet.decode(room.baseFiles[0]?.items ?? '');
+        expect(committed?.size).toBe(8);
+        const tb = b.text.getMap<Y.Text>('files').get('a.tex');
+        tb?.insert(3, '!');
+        tb?.delete(4, 4);
+        const ta = a.text.getMap<Y.Text>('files').get('a.tex');
+        ta?.insert(0, 'x');
+        ta?.delete(0, 1);
+        expect(a.file('a.tex')).toBe('one!\n');
+        const who = room.authors;
+        expect(who.writers).toEqual(
+            [
+                [b.text.clientID, 'lena'],
+                [a.text.clientID, 'ada'],
+            ].toSorted((x, y) => (x[0] as number) - (y[0] as number)),
+        );
+        // Lena deleted " two" (four committed characters); Ada's own typo is not a committed character.
+        expect(who.deleted.map(d => [d[2], d[3]])).toEqual([[4, 'lena']]);
+        expect(a.control.filter(m => m.type === 'authors').length).toBeGreaterThan(0);
+        expect(new Client(room, 'marco', 'write').control[0]).toMatchObject({ type: 'welcome', authors: who });
+
+        // Marco writing with Lena's client id stays Lena's.
+        const forged = new Y.Doc();
+        forged.clientID = b.text.clientID;
+        Y.applyUpdate(forged, Y.encodeStateAsUpdate(a.text));
+        const m = new Client(room, 'marco', 'write');
+        const e = encoding.createEncoder();
+        encoding.writeUint8(e, DOC_TEXT);
+        encoding.writeVarUint(e, MSG_SYNC);
+        const before = Y.encodeStateVector(forged);
+        forged.getMap<Y.Text>('files').get('a.tex')?.insert(0, 'm');
+        writeUpdate(e, Y.encodeStateAsUpdate(forged, before));
+        room.receive(m.peer, encoding.toUint8Array(e));
+        expect(room.authors.writers.filter(w => w[0] === b.text.clientID)).toEqual([[b.text.clientID, 'lena']]);
+    });
+
+    it('forgets deletions once a commit takes them in', () => {
+        const room = new RoomCore(new RoomStore(memorySql()));
+        const a = new Client(room, 'ada', 'write');
+        a.open('a.tex', 'abc');
+        a.text.getMap<Y.Text>('files').get('a.tex')?.delete(0, 1);
+        expect(room.authors.deleted).toHaveLength(1);
+        const items = room.baseFiles[0]?.items ?? '';
+        const kept = new IdSet();
+        for (const [client, clock, len] of IdSet.decode(items)?.ranges() ?? []) kept.add(client, clock + 1, len - 1);
+        room.receive(a.peer, JSON.stringify({ type: 'committed', commit: 'c2', files: [{ path: 'a.tex', blob: '', text: 'bc', items: kept.encode() }] }));
+        expect(room.authors.deleted).toEqual([]);
     });
 });
