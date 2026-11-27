@@ -30,7 +30,7 @@ catalog:
   '@types/node': 24.19.2
   '@types/ws': 8.18.2
   # The design system, pinned to a commit of Yukibana-Ed/Yukibana main.
-  '@yukibana/design': github:Yukibana-Ed/Yukibana#85a47c9537e3214ffff33d6c39b842357f6ef4cd&path:packages/design
+  '@yukibana/design': github:Yukibana-Ed/Yukibana#8fb0a68147adab7d1c17765c5ed9e7df496ee481&path:packages/design
   '@yukibana/papers-compiler': workspace:*
   '@yukibana/papers-frame-protocol': workspace:*
   '@yukibana/papers-room-protocol': workspace:*
