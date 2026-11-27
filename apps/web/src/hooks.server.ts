@@ -12,7 +12,10 @@ import { workerPlatform } from '#lib/server/platform.ts';
 const themeHash = scriptHash(THEME_BOOT);
 
 /** `/room/<owner>/<repo>/<branch>?ticket=…`: a WebSocket to the branch's room, for the holder of a ticket from
- *  `/room/ticket`. The room learns who they are and what they may do from this Worker alone. */
+ *  `/room/ticket`. The room learns who they are and what they may do from this Worker alone.
+ *
+ *  The same address by POST asks the room whether it can take a connection, and answers 200 or 503 with why not: a
+ *  browser tells a page nothing about a WebSocket that was refused. A room that throws answers 503 either way. */
 async function room(event: RequestEvent): Promise<Response | null> {
     const m = /^\/room\/([^/]+)\/([^/]+)\/(.+)$/.exec(event.url.pathname);
     if (!m) return null;
@@ -20,14 +23,23 @@ async function room(event: RequestEvent): Promise<Response | null> {
     const rooms = workerPlatform().env.ROOM;
     const env = authEnv(event);
     if (!rooms || !env) return new Response('No rooms here', { status: 503 });
-    if (event.request.headers.get('Upgrade') !== 'websocket') return new Response('Expected a WebSocket', { status: 426 });
+    const probe = event.request.method === 'POST';
+    if (!probe && event.request.headers.get('Upgrade') !== 'websocket') return new Response('Expected a WebSocket', { status: 426 });
     if (event.request.headers.get('Origin') !== event.url.origin) return new Response('Cross-origin', { status: 403 });
     const name = roomName(decodeURIComponent(owner), decodeURIComponent(repo), decodeURIComponent(branch));
     const ticket = await checkTicket(env.SESSION_KEY, event.url.searchParams.get('ticket') ?? '', name, Date.now());
     if (!ticket) return new Response('No ticket', { status: 401 });
     const headers = new Headers(event.request.headers);
-    headers.set(IDENTITY_HEADER, JSON.stringify({ login: ticket.login, name: ticket.name, access: ticket.access }));
-    return rooms.get(rooms.idFromName(name)).fetch(new Request(event.request, { headers }));
+    // Percent-encoded: a header holds bytes, and a name may have any letter in it.
+    headers.set(IDENTITY_HEADER, encodeURIComponent(JSON.stringify({ login: ticket.login, name: ticket.name, access: ticket.access })));
+    try {
+        return await rooms.get(rooms.idFromName(name)).fetch(new Request(event.request, { headers }));
+    } catch (e) {
+        // What the room threw (an exceeded platform limit, a failed migration) reaches this Worker as its message.
+        const why = e instanceof Error ? e.message : String(e);
+        console.error(`Room ${name} failed: ${why}`);
+        return new Response(why.slice(0, 300), { status: 503, headers: { 'Cache-Control': 'no-store' } });
+    }
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
