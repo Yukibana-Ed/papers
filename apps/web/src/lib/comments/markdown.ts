@@ -30,7 +30,7 @@ export const schema = new Schema({
         },
         list_item: { content: 'paragraph block*', defining: true, parseDOM: [{ tag: 'li' }], toDOM: () => ['li', 0] },
         text: { group: 'inline' },
-        hard_break: { inline: true, group: 'inline', selectable: false, parseDOM: [{ tag: 'br' }], toDOM: () => ['br'] },
+        hard_break: { inline: true, group: 'inline', selectable: false, linebreakReplacement: true, parseDOM: [{ tag: 'br' }], toDOM: () => ['br'] },
         mention: {
             inline: true,
             group: 'inline',
