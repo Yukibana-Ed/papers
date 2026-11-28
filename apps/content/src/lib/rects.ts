@@ -114,3 +114,27 @@ export function lineBeside(
     if (target === undefined) return [];
     return lineOf(boxes, Math.min(Math.max(x, target.left), target.right), (target.top + target.bottom) / 2);
 }
+
+/** The text run a pointer at (`x`, `y`) means when it is over none of `boxes` (text runs' boxes, in the same units):
+ *  its index, or -1 without boxes. A run level with `y` and within `reach` of `x` across is meant before any other
+ *  (the pointer beside a line, or in a gap inside one), the nearest such; else the run nearest to the point. */
+export function nearestBox(boxes: readonly { left: number; right: number; top: number; bottom: number }[], x: number, y: number, reach: number): number {
+    let level = -1;
+    let beside = Infinity;
+    let near = -1;
+    let away = Infinity;
+    boxes.forEach((b, i) => {
+        const dx = x < b.left ? b.left - x : x > b.right ? x - b.right : 0;
+        const dy = y < b.top ? b.top - y : y > b.bottom ? y - b.bottom : 0;
+        if (dy === 0 && dx <= reach && dx < beside) {
+            beside = dx;
+            level = i;
+        }
+        const d = Math.hypot(dx, dy);
+        if (d < away) {
+            away = d;
+            near = i;
+        }
+    });
+    return level >= 0 ? level : near;
+}

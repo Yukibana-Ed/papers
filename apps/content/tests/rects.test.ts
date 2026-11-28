@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lineBeside, lineOf, mergeLineRects } from '#lib/rects.ts';
+import { lineBeside, lineOf, mergeLineRects, nearestBox } from '#lib/rects.ts';
 
 describe('mergeLineRects', () => {
     it('merges the runs of one line into one rectangle spanning them', () => {
@@ -122,5 +122,33 @@ describe('lineBeside', () => {
         expect(lineBeside(boxes, box([5]), 10, true)).toEqual([]);
         expect(lineBeside(boxes, box([7]), 150, true)).toEqual([]);
         expect(lineBeside(boxes, box([0]), 10, false)).toEqual([]);
+    });
+});
+
+describe('nearestBox', () => {
+    const run = (left: number, top: number, width: number, height = 10): { left: number; right: number; top: number; bottom: number } => ({
+        left,
+        right: left + width,
+        top,
+        bottom: top + height,
+    });
+    // Two columns: in the left one a full line, a line in two runs with a gap, and a short last line; in the right
+    // one three full lines.
+    const boxes = [run(0, 0, 100), run(0, 12, 40), run(43, 12, 57), run(0, 24, 30), run(120, 0, 100), run(120, 12, 100), run(120, 24, 100)];
+
+    it('is the run beside the pointer on its line: in a gap between two runs, or past a short line', () => {
+        expect(nearestBox(boxes, 41, 17, 55)).toBe(1);
+        expect(nearestBox(boxes, 42.5, 17, 55)).toBe(2);
+        expect(nearestBox(boxes, 70, 29, 55)).toBe(3);
+        expect(nearestBox(boxes, 108, 5, 55)).toBe(0);
+        expect(nearestBox(boxes, 112, 5, 55)).toBe(4);
+    });
+
+    it('is the nearest run for a pointer level with none: between two lines, above the first, below the last', () => {
+        expect(nearestBox(boxes, 50, 11, 55)).toBe(0);
+        expect(nearestBox(boxes, 20, -30, 55)).toBe(0);
+        expect(nearestBox(boxes, 10, 60, 55)).toBe(3);
+        expect(nearestBox(boxes, 200, 60, 55)).toBe(6);
+        expect(nearestBox([], 0, 0, 55)).toBe(-1);
     });
 });
