@@ -51,7 +51,6 @@ export function tree(extra: Readonly<Record<string, Uint8Array>> = {}): Tree {
         read: (path: string): Uint8Array | null => files[path] ?? null,
         kind: (path: string): Kind => (dirs.has(path) ? 2 : path in files ? 1 : 0),
         list: (path: string): readonly DirEntry[] => dirs.get(path) ?? [],
-        find: (): string | null => null,
     };
 }
 export const emptyTree: Tree = tree();
@@ -81,6 +80,7 @@ export const job: JobSettings = {
     args: ['/bin/pdftex', '-ini', '-interaction=batchmode', 'main.tex'],
     env: {},
     time: 1_700_000_000,
+    zone: 0,
 };
 
 /** The set-up every test document starts with: braces and parameters, PDF output without compression, a small page,

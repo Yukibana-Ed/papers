@@ -67,7 +67,7 @@ export class FrameClient {
 }
 
 /** The messages that each replace the frame's whole state of one kind: only the last of each is worth sending. */
-const LATEST_ONLY: ReadonlySet<AppMessage['type']> = new Set(['root', 'reveal', 'mirror', 'marks', 'presence', 'zoom', 'theme', 'builder', 'output']);
+const LATEST_ONLY: ReadonlySet<AppMessage['type']> = new Set(['root', 'reveal', 'mirror', 'marks', 'presence', 'zoom', 'theme', 'builder', 'incremental', 'output']);
 
 /** What of `queue` (in the order sent) still matters to a frame that has just connected and been sent the whole
  *  project: no `project`, `files` or `print`, the last message of each kind in `LATEST_ONLY`, every `centre?` (someone waits

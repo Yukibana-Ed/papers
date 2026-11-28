@@ -12,11 +12,11 @@ typeset from the last place the edit did not reach, with the same bytes as a run
   asks the host whether to pause (`inc_tick`, every 256 turns and after each page), and when it is entered for a
   paused run it goes on at the loop head instead of starting the job. `pdf_ship_out` tells the host the number of each
   page it ships (`inc_page`). Nothing else of the engine is changed: what it typesets and writes is upstream's.
-- `patches/0002-kpathsea-asks-the-host.patch` (kpathsea, under `INC_HOST`). Whether a path is a file or a directory
-  is asked from the host without the file's size or times (`dir.c`, `readable.c`), so that a run does not depend on
-  the length of a file it only looked for. A file that no search path leads to is asked from the host by its format and
-  name (`tex-file.c`), so that the host can serve TeX Live from a store of files by name.
-- `src/host.c` answers the C library's file system calls from the host's imports; `src/inc.c` is the pause itself
+- `patches/0002-kpathsea-asks-the-host.patch` (kpathsea, under `INC_HOST`, 2 files). Whether a path is a file or a
+  directory is asked from the host without the file's size or times (`dir.c`, `readable.c`), so that a run does not
+  depend on the length of a file it only looked for. kpathsea's searches are upstream's.
+- `src/host.c` answers the C library's file system calls from the host's imports, and its local time is the host's
+  (`localtime`, `mktime`: the C library of a standalone module knows only UTC, and `\today` is local); `src/inc.c` is the pause itself
   (a `longjmp` out of the main loop to the host's call) and the calls `inc_main`, `inc_resume` and `inc_finish`;
   `src/plain.c` is the entry of bibtex8, which runs from start to end.
 - `src/dirty.mjs` rewrites each linked module so that every instruction that writes memory first marks its 4 KiB page

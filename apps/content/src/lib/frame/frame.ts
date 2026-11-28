@@ -3,13 +3,17 @@ import { syncTexMap, textMap } from '#lib/sourcemap.ts';
 import { parseSynctex } from '@yukibana/papers-tex';
 import { parseTexLog } from '#lib/texlog.ts';
 import { Bridge } from './bridge.ts';
-import { TexEngine } from './engine.ts';
+import { bibliographyTool, TexEngine, type BuildOutput } from './engine.ts';
+import { IncrementalTex } from './incremental.ts';
+import { PDFTEX_PATH } from '#lib/pdftex-assets.ts';
 import { TypstEngine } from './typst-engine.ts';
 import { spansMap } from '#lib/typst-spans.ts';
 import { Viewer, type ToolbarAnchor } from './viewer.ts';
 
 /** How long the frame waits after the last change before building. */
 const DEBOUNCE_MS = 300;
+/** The same when the build goes on from where the last one was: long enough to take a burst of changes as one. */
+const INCREMENTAL_DEBOUNCE_MS = 40;
 
 /** The selection toolbar's state, for the page to draw: where it goes, in the scroller's content coordinates. */
 export type ToolbarState = ToolbarAnchor;
@@ -22,6 +26,10 @@ export class Frame {
     readonly #bridge: Bridge;
     readonly #viewer: Viewer;
     #engine = new TexEngine();
+    /** Our pdfTeX, which keeps a pdfLaTeX document built while it is typed; `#engine` builds what it cannot. */
+    #incremental = new IncrementalTex();
+    /** Whether the user wants builds to go on from where the last one was: the app says so. */
+    #incrementalOn = false;
     #typst = new TypstEngine();
     /** The part of the build service that last failed to start, until a build works again. */
     #failure: ServiceFailure | null = null;
@@ -82,7 +90,7 @@ export class Frame {
                     if (c.contents === null) this.#files.delete(c.path);
                     else this.#files.set(c.path, c.contents);
                 }
-                this.#schedule(DEBOUNCE_MS);
+                this.#schedule(this.#incrementally() ? INCREMENTAL_DEBOUNCE_MS : DEBOUNCE_MS);
                 return;
             case 'root':
                 this.#root = m.root;
@@ -115,6 +123,13 @@ export class Frame {
                 if (m.builder === 'browser') this.#schedule(0);
                 else clearTimeout(this.#timer);
                 return;
+            case 'incremental':
+                if (m.on === this.#incrementalOn) return;
+                this.#incrementalOn = m.on;
+                // What the engine held is given back at once.
+                if (!m.on) this.#incremental.close();
+                this.#schedule(0);
+                return;
             case 'output':
                 void this.#showOutput(m);
                 return;
@@ -127,6 +142,8 @@ export class Frame {
             case 'retry':
                 // Fresh engines: whatever failed to load is fetched again.
                 this.#engine = new TexEngine();
+                this.#incremental.close();
+                this.#incremental = new IncrementalTex();
                 this.#typst = new TypstEngine();
                 this.#schedule(0);
                 return;
@@ -184,9 +201,20 @@ export class Frame {
         this.#timer = window.setTimeout(() => void this.#build(), delay);
     }
 
+    /** Whether the document is one our pdfTeX keeps built: pdfLaTeX, without biber, while the user wants it and the
+     *  engine could be loaded. */
+    #incrementally(): boolean {
+        if (!this.#incrementalOn || this.#engineName !== 'pdflatex' || !this.#incremental.available) return false;
+        const sources: string[] = [];
+        for (const c of this.#files.values()) if (typeof c === 'string') sources.push(c);
+        return bibliographyTool(sources) !== 'biber';
+    }
+
     async #build(): Promise<void> {
         if (this.#building) {
             this.#again = true;
+            // The build that runs is of a text that is gone: it gives way.
+            this.#incremental.stop();
             return;
         }
         const root = this.#root;
@@ -201,29 +229,21 @@ export class Frame {
                 await this.#buildTypst(files, root);
                 return;
             }
+            if (this.#incrementally()) {
+                const out = await this.#incremental.build(files, root, pass => void this.#showPass(pass));
+                if (out === 'superseded') return;
+                if (out !== 'unavailable') {
+                    if (out.failure !== undefined) await this.#fail('tex-engine', out.failure, [`${PDFTEX_PATH}pdftex.wasm`, `${PDFTEX_PATH}pdflatex.fmt`]);
+                    else await this.#built(out, files, root);
+                    return;
+                }
+            }
             const out = await this.#engine.build(files, root, this.#engineName);
             if (out.failure !== undefined) {
                 await this.#fail('tex-engine', out.failure, ['/engine/busytex.js', '/engine/busytex.wasm', '/engine/texlive-basic.data']);
                 return;
             }
-            this.#recovered();
-            const diagnostics = parseTexLog(out.log, root, p => files.has(p));
-            if (out.ok && out.pdf !== null) {
-                const sync = out.synctex === null ? null : syncTexMap(parseSynctex(out.synctex));
-                await this.#viewer.show(out.pdf, sync);
-            }
-            this.#bridge.send({
-                type: 'built',
-                ok: out.ok,
-                pages: this.#viewer.pageCount,
-                ms: Math.round(out.ms),
-                log: out.log.slice(-256 * 1024),
-                diagnostics: out.ok
-                    ? diagnostics
-                    : diagnostics.some(d => d.severity === 'error')
-                      ? diagnostics
-                      : [...diagnostics, { file: root, line: 1, severity: 'error', message: lastError(out.log) }],
-            });
+            await this.#built(out, files, root);
         } finally {
             this.#building = false;
             this.#bridge.send({ type: 'status', status: 'idle' });
@@ -232,6 +252,32 @@ export class Frame {
                 this.#schedule(0);
             }
         }
+    }
+
+    /** A pass that is not the build's last: its pages are shown, and the build's report waits for the last. */
+    async #showPass(out: BuildOutput): Promise<void> {
+        if (out.pdf !== null) await this.#viewer.show(out.pdf, out.synctex === null ? null : syncTexMap(parseSynctex(out.synctex)));
+    }
+
+    /** A TeX build that ran: its pages are shown when it made any, and the app is told how it went. */
+    async #built(out: BuildOutput, files: ReadonlyMap<string, FileContents>, root: string): Promise<void> {
+        this.#recovered();
+        const diagnostics = parseTexLog(out.log, root, p => files.has(p));
+        if (out.ok && out.pdf !== null) {
+            await this.#viewer.show(out.pdf, out.synctex === null ? null : syncTexMap(parseSynctex(out.synctex)));
+        }
+        this.#bridge.send({
+            type: 'built',
+            ok: out.ok,
+            pages: this.#viewer.pageCount,
+            ms: Math.round(out.ms),
+            log: out.log.slice(-256 * 1024),
+            diagnostics: out.ok
+                ? diagnostics
+                : diagnostics.some(d => d.severity === 'error')
+                  ? diagnostics
+                  : [...diagnostics, { file: root, line: 1, severity: 'error', message: lastError(out.log) }],
+        });
     }
 
     /** Starts a language server in a worker, once. Its JSON-RPC goes to the app as it comes; the worker's first message
@@ -299,6 +345,7 @@ export class Frame {
 
     dispose(): void {
         for (const w of this.#servers.values()) w.terminate();
+        this.#incremental.close();
         window.removeEventListener('keydown', this.#onKey, true);
         this.#bridge.dispose();
         this.#viewer.dispose();

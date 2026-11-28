@@ -3,19 +3,16 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DirEntry, Kind, Project, Tree } from './files.ts';
 
-/** The file system of this computer as a tree, with `extra` files (by absolute path) over it and `found` answering
- *  kpathsea's requests that its paths do not (by `<format>/<name>`, giving an absolute path). Everything read is
+/** The file system of this computer as a tree, with `extra` files (by absolute path) over it. Everything read is
  *  kept, so a file that changes on disk afterwards is not seen to change. */
 export class DiskTree implements Tree {
     readonly #extra: ReadonlyMap<string, Uint8Array>;
-    readonly #found: ReadonlyMap<string, string>;
     readonly #files = new Map<string, Uint8Array | null>();
     readonly #kinds = new Map<string, Kind>();
     readonly #lists = new Map<string, readonly DirEntry[]>();
 
-    constructor(extra: ReadonlyMap<string, Uint8Array> = new Map(), found: ReadonlyMap<string, string> = new Map()) {
+    constructor(extra: ReadonlyMap<string, Uint8Array> = new Map()) {
         this.#extra = extra;
-        this.#found = found;
     }
 
     read(path: string): Uint8Array | null {
@@ -57,10 +54,6 @@ export class DiskTree implements Tree {
             this.#lists.set(path, list);
         }
         return list;
-    }
-
-    find(format: number, name: string): string | null {
-        return this.#found.get(`${format}/${name}`) ?? null;
     }
 }
 

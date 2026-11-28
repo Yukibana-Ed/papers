@@ -10,14 +10,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 
 #define IMPORT(name) __attribute__((import_module("inc"), import_name(#name)))
 #define EXPORT(name) __attribute__((export_name(#name)))
+IMPORT(zone) int inc_host_zone(void);                                                    /* seconds local time is ahead of UTC */
 IMPORT(open) int inc_host_open(const char *path, int flags);                              /* a descriptor, or -errno */
 IMPORT(stat) int inc_host_stat(const char *path, int *kind, double *size, double *mtime); /* 0, or -errno */
 IMPORT(kind) int inc_host_kind(const char *path);                                         /* 0 nothing, 1 file, 2 directory */
 IMPORT(fstat) int inc_host_fstat(int fd, int *kind, double *size, double *mtime);
-IMPORT(find) int inc_host_find(int format, const char *name, char *path, int size); /* length of the path, 0: not known */
 IMPORT(getcwd) int inc_host_getcwd(char *buf, int size);
 IMPORT(unlink) int inc_host_unlink(const char *path);
 IMPORT(rename) int inc_host_rename(const char *from, const char *to);
@@ -36,15 +37,25 @@ EXPORT(inc_mark_range) void inc_mark_range(unsigned addr, unsigned len) {
 /* Memory for the host to write the command line into. */
 EXPORT(inc_alloc) void *inc_alloc(int n) { return malloc(n); }
 
-/* For kpathsea (patches/0002): what a path is, without its size or time, and where the host has a file that the
-   search paths do not lead to. */
+/* For kpathsea (patches/0002): what a path is, without its size or time. */
 int inc_kind(const char *path) { return inc_host_kind(path); }
-char *inc_find(int format, const char *name) {
-  char path[1024];
-  int n = inc_host_find(format, name, path, sizeof path);
-  if (n <= 0 || n >= (int)sizeof path) return NULL;
-  path[n] = 0;
-  return strdup(path);
+
+/* Local time. The C library of a module without JavaScript knows no time zone, so its local time is UTC and a
+   document's \today is the wrong day for some hours of every day. The host says how far local time is ahead. */
+struct tm *localtime_r(const time_t *restrict t, struct tm *restrict tm) {
+  int east = inc_host_zone();
+  time_t shifted = *t + east;
+  if (!gmtime_r(&shifted, tm)) return NULL;
+  tm->tm_gmtoff = east;
+  return tm;
+}
+struct tm *localtime(const time_t *t) {
+  static struct tm tm;
+  return localtime_r(t, &tm);
+}
+time_t mktime(struct tm *tm) {
+  time_t t = timegm(tm);
+  return t == (time_t)-1 ? t : t - inc_host_zone();
 }
 
 /* The system calls the C library makes, answered by the host. */

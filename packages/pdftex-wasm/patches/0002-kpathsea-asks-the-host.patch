@@ -33,36 +33,3 @@
  #else /* not __DJGPP__ and not WIN32 */
  #define READABLE(kpse, fn, st) \
   (access((fn), R_OK) == 0 && stat((fn), &(st)) == 0 && !S_ISDIR ((st).st_mode))
---- a/texk/kpathsea/tex-file.c
-+++ b/texk/kpathsea/tex-file.c
-@@ -1011,6 +1011,10 @@
- /* As with `kpse_find_file', but also allow passing ALL for the search,
-    hence we always return a NULL-terminated list.  */
- 
-+#ifdef INC_HOST
-+extern char *inc_find (int format, const char *name); /* malloc'd path, or NULL */
-+#endif
-+
- string *
- kpathsea_find_file_generic (kpathsea kpse, const_string const_name,
-                             kpse_file_format_type format,
-@@ -1103,6 +1107,19 @@
-   ret = kpathsea_path_search_list_generic (kpse, FMT_INFO.path,
-                                            target, false, all);
- 
-+#ifdef INC_HOST
-+  /* The host may have the file where no search path leads.  */
-+  if (! *ret) {
-+    string found = inc_find (format, name);
-+    if (found) {
-+      free (ret);
-+      ret = XTALLOC (2, string);
-+      ret[0] = found;
-+      ret[1] = NULL;
-+    }
-+  }
-+#endif
-+
-   /* Do we need to pound the disk? */
-   if (! *ret && must_exist) {
-     for (count = 0; target[count]; count++)

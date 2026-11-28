@@ -18,9 +18,6 @@ export interface Tree {
     kind(path: string): Kind;
     /** The entries of the directory at `path`, sorted by name. Precondition: `kind(path) === 2`. */
     list(path: string): readonly DirEntry[];
-    /** Where the tree has the file kpathsea asks for as `name` in its format number `format`, for a file its search
-     *  paths do not lead to; null when the tree has no such file or leaves the search to the paths. */
-    find(format: number, name: string): string | null;
 }
 
 /** A state of the project: the bytes of each file, by its path relative to the project's root (`/` between

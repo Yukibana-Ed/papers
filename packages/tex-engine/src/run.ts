@@ -90,6 +90,8 @@ export interface JobSettings {
     readonly env: Readonly<Record<string, string>>;
     /** The time the engine is told it is, in seconds since 1970: the same during the whole run. */
     readonly time: number;
+    /** How far the local time the engine is told is ahead of UTC, in seconds. */
+    readonly zone: number;
 }
 
 export interface RunOptions {
@@ -463,15 +465,7 @@ export class Run {
                 writeStat(kind, size, pKind, pSize, pTime);
                 return 0;
             },
-            find: (format: number, pName: number, pPath: number, size: number): number => {
-                const found = this.job.tree.find(format, string(pName));
-                if (found === null) return 0;
-                const b = encoder.encode(found);
-                if (b.length >= size) return 0;
-                bytes().set(b, pPath);
-                machine.mark(pPath, b.length);
-                return b.length;
-            },
+            zone: (): number => this.job.zone,
             getcwd: (pBuffer: number, size: number): number => {
                 const b = encoder.encode(`${this.job.cwd}\0`);
                 if (b.length > size) return -EINVAL;

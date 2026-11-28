@@ -51,7 +51,7 @@ describe.runIf(engine !== null)('a format', () => {
 describe.runIf(engine !== null && bibtex !== null)('a LaTeX document', () => {
     const latex = (): Latex => {
         if (engine === null) throw new Error('no engine');
-        return new Latex({ pdftex: engine, bibtex, tree: tree({ '/fmt/test.fmt': format() }), program: '/bin/pdftex', format: 'test', time: job.time });
+        return new Latex({ pdftex: engine, bibtex, tree: tree({ '/fmt/test.fmt': format() }), program: '/bin/pdftex', format: 'test', time: job.time, zone: 0 });
     };
     const built = (s: Project): LatexResult => {
         const l = latex();

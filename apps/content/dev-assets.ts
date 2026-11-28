@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 import { stripAssetPrefix } from './src/lib/asset-path.ts';
 import { engineType } from './src/lib/engine-files.ts';
+import { pdftexAssetKey } from './src/lib/pdftex-assets.ts';
 import { TYPST_FONTS_VERSION, packageArchive, typstAssetKey, upstreamPackageUrl } from './src/lib/typst-assets.ts';
 
 /** The headers a cross-origin-isolated page needs on its own subresources. */
@@ -16,8 +17,9 @@ function isolated(res: { setHeader(name: string, value: string): unknown }): voi
 /** In development, what the Worker serves from R2 in production:
  *  - `/engine/<file>` from the BusyTeX release assets on disk (`BUSYTEX_ASSETS`, default `.engine/busytex` beside this
  *    file, which `pnpm fetch:engine` fills);
- *  - `/tl/<format>/<name>` proxied to a local TeX Live store server (`TL_STORE_URL`, default http://localhost:5191, the
- *    store server of scripts/tlstore.ts `serve`).
+ *  - `/tl/<format>/<name>` and `/tl-file/<path>` proxied to a local TeX Live store server (`TL_STORE_URL`, default
+ *    http://localhost:5191, the store server of scripts/tlstore.ts `serve`);
+ *  - `/engine/pdftex/<file>` from `.engine/pdftex` beside this file, which `node scripts/pdftex.ts dev` fills.
  *  Every response carries the headers a cross-origin-isolated page needs from its own subresources. */
 export function devAssets(): Plugin {
     const engineDir = resolve(process.env['BUSYTEX_ASSETS'] ?? join(import.meta.dirname, '.engine', 'busytex'));
@@ -25,6 +27,7 @@ export function devAssets(): Plugin {
     // The typst.ts web compiler from node_modules; tinymist's web build from TINYMIST_WEB (default .engine/tinymist,
     // which `pnpm fetch:typst` fills); fonts and packages from upstream.
     const compilerDir = join(dirname(fileURLToPath(import.meta.resolve('@myriaddreamin/typst-ts-web-compiler/package.json'))), 'pkg');
+    const pdftexDir = join(import.meta.dirname, '.engine', 'pdftex');
     const tinymistDir = resolve(process.env['TINYMIST_WEB'] ?? join(import.meta.dirname, '.engine', 'tinymist'));
     const serveFile = (res: import('node:http').ServerResponse, file: string, name: string): void => {
         if (!existsSync(file)) {
@@ -66,6 +69,20 @@ export function devAssets(): Plugin {
                     } else if (kind === 'typst') serveFile(res, join(compilerDir, name), name);
                     else if (kind === 'tinymist') serveFile(res, join(tinymistDir, name), name);
                     else proxy(res, `https://cdn.jsdelivr.net/gh/typst/typst-assets@${TYPST_FONTS_VERSION}/files/fonts/${name}`, 'font/otf');
+                    return;
+                }
+                const pdftex = /^\/engine\/pdftex\/([A-Za-z0-9._-]+)$/.exec(url.split('?')[0] ?? '');
+                if (pdftex !== null) {
+                    const name = pdftex[1] ?? '';
+                    if (pdftexAssetKey(name, '') === null) {
+                        res.statusCode = 404;
+                        res.end();
+                    } else serveFile(res, join(pdftexDir, name), name);
+                    return;
+                }
+                const byPath = /^\/tl-file\/([^?]+)/.exec(url);
+                if (byPath !== null) {
+                    proxy(res, `${store}/file/${byPath[1] ?? ''}`, 'application/octet-stream');
                     return;
                 }
                 const pkg = /^\/typst-packages\/([a-z]+)\/([A-Za-z0-9._-]+)$/.exec(url.split('?')[0] ?? '');

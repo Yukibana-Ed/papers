@@ -14,8 +14,10 @@ export interface LatexSettings {
     readonly program: string;
     /** The path of the LaTeX format in `tree`, made by this pdfTeX. */
     readonly format: string;
-    /** The time the document is told it is, in seconds since 1970. */
+    /** The time the document is told it is, in seconds since 1970, and how far its local time is ahead of UTC, in
+     *  seconds. */
     readonly time: number;
+    readonly zone: number;
     /** Milliseconds of engine time between snapshots. Default 30. */
     readonly snapshotEvery?: number;
     /** Bytes the snapshots may hold. Default 256 MiB. */
@@ -56,6 +58,29 @@ function sameBytes(a: Uint8Array | undefined, b: Uint8Array): boolean {
     if (a === undefined || a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
     return true;
+}
+
+/** The pdfLaTeX format of the TeX Live in `tree`, dumped by `pdftex` as the installation's own `fmtutil` has it dumped.
+ *  `program` is the path, in `tree`, that kpathsea takes the program to be at. Throws, with what the engine printed,
+ *  when no format was made. A format is only good for the engine that made it. */
+export function dumpFormat(pdftex: WebAssembly.Module, tree: Tree, program: string, time: number): Uint8Array {
+    const cwd = '/format';
+    const job: JobSettings = {
+        tree,
+        root: cwd,
+        cwd,
+        args: [program, '-ini', '-jobname=pdflatex', '-progname=pdflatex', '-translate-file=cp227.tcx', '*pdflatex.ini'],
+        env: {},
+        time,
+        zone: 0,
+    };
+    const run = new Run({ machine: new Machine(pdftex), job, project: new Map() });
+    run.go();
+    const out = run.outputs();
+    const format = out.get(`${cwd}/pdflatex.fmt`);
+    if (run.exitCode !== 0 || format === undefined)
+        throw new Error(`no format was made:\n${(decoder.decode(out.get('<stdout>')) + decoder.decode(out.get(`${cwd}/pdflatex.log`))).slice(-4000)}`);
+    return format.slice();
 }
 
 export class Latex {
@@ -108,6 +133,7 @@ export class Latex {
                 args: [this.#settings.program, `-fmt=${this.#settings.format}`, '-progname=pdflatex', '-interaction=nonstopmode', '-synctex=-1', '-no-shell-escape', name],
                 env: {},
                 time: this.#settings.time,
+                zone: this.#settings.zone,
             };
             this.#session = new Session({
                 module: this.#settings.pdftex,
@@ -215,6 +241,7 @@ export class Latex {
             args: [this.#settings.program.replace(/[^/]*$/, 'bibtex8'), name],
             env: {},
             time: this.#settings.time,
+            zone: this.#settings.zone,
         };
         const run = new Run({ machine: new Machine(module), job, project });
         run.go();

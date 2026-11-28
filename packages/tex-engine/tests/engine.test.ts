@@ -88,6 +88,21 @@ describe.runIf(ready)('a run', () => {
     });
 });
 
+describe.runIf(ready)('the time of a job', () => {
+    it('is local in the zone the job names', () => {
+        // 22:13:20 UTC on 14 November 2023.
+        const p = project({ 'main.tex': `${PREAMBLE}\\message{day \\the\\day, minute \\the\\time, \\pdfcreationdate}\\end\n` });
+        const log = (zone: number): string => {
+            const run = new Run({ machine: machine(), job: { ...job, zone }, project: p });
+            run.go();
+            return text(run.outputs().get('/project/main.log'));
+        };
+        expect(log(0)).toContain('day 14, minute 1333, D:20231114221320Z');
+        expect(log(7200)).toContain("day 15, minute 13, D:20231115001320+02'00'");
+        expect(log(-34_200)).toContain("day 14, minute 763, D:20231114124320-09'30'");
+    });
+});
+
 describe.runIf(ready)('a snapshot', () => {
     const m = ready ? machine() : null;
     const snapshots = (p: Project): Snapshot[] => {
