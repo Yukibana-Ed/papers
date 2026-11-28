@@ -79,7 +79,9 @@ export function dumpFormat(pdftex: WebAssembly.Module, tree: Tree, program: stri
     const out = run.outputs();
     const format = out.get(`${cwd}/pdflatex.fmt`);
     if (run.exitCode !== 0 || format === undefined)
-        throw new Error(`no format was made:\n${(decoder.decode(out.get('<stdout>')) + decoder.decode(out.get(`${cwd}/pdflatex.log`))).slice(-4000)}`);
+        throw new Error(
+            `no format was made:\n${(decoder.decode(out.get('<stdout>')) + decoder.decode(out.get('<stderr>')) + decoder.decode(out.get(`${cwd}/pdflatex.log`))).slice(-4000)}`,
+        );
     return format.slice();
 }
 
@@ -91,7 +93,9 @@ export class Latex {
     #sources: Project = new Map();
     /** What passes and BibTeX wrote for later passes to read (.aux, .toc, .bbl, ...), by project path. */
     #generated = new Map<string, Uint8Array>();
-    /** The BibTeX run whose .bbl is in `#generated`. */
+    /** For each generated file that was written over a source of the same path: that source, as it was then. */
+    #over = new Map<string, Uint8Array>();
+    /** The latest BibTeX run. */
     #bibtex: Run | null = null;
     #bibtexLog: string | null = null;
     #pass = 0;
@@ -144,6 +148,7 @@ export class Latex {
             });
             this.#root = root;
             this.#generated = new Map();
+            this.#over = new Map();
             this.#bibtex = null;
             this.#bibtexLog = null;
         }
@@ -197,13 +202,27 @@ export class Latex {
         return this.#root.slice(this.#root.lastIndexOf('/') + 1).replace(/\.tex$/, '');
     }
 
+    /** The files a pass reads: the sources, and what was generated. As in a directory that programs write into, a
+     *  generated file takes the place of a source of the same path (an .aux the project brings) until that source
+     *  changes. */
     #merge(generated: ReadonlyMap<string, Uint8Array>): Project {
-        // A source wins over a generated file of the same path: a .bbl that the project brings is the bibliography.
-        return new Map([...generated, ...this.#sources]);
+        const project = new Map(this.#sources);
+        for (const [rel, bytes] of generated) {
+            const source = this.#sources.get(rel);
+            if (source === undefined || sameBytes(this.#over.get(rel), source)) project.set(rel, bytes);
+        }
+        return project;
     }
 
     #project(): Project {
         return this.#merge(this.#generated);
+    }
+
+    /** Notes that the generated file `rel` was written now, over the source of that path if there is one. */
+    #wrote(rel: string): void {
+        const source = this.#sources.get(rel);
+        if (source === undefined) this.#over.delete(rel);
+        else this.#over.set(rel, source);
     }
 
     /** What a pass wrote for later passes, by project path. A file with the bytes it had keeps its array, so that a
@@ -215,14 +234,17 @@ export class Latex {
             const rel = path.slice(ROOT.length + 1);
             const old = this.#generated.get(rel);
             next.set(rel, sameBytes(old, bytes) ? (old ?? bytes) : bytes.slice());
+            this.#wrote(rel);
         }
         // The bibliography is BibTeX's, not a pass's: it stays until BibTeX runs again.
         for (const [rel, bytes] of this.#generated) if (rel.endsWith('.bbl') && !next.has(rel)) next.set(rel, bytes);
         return next;
     }
 
-    /** Runs BibTeX when the document asks for a bibliography that the project does not bring, and what BibTeX reads has
-     *  changed since it last ran; puts its .bbl into `generated`. Returns whether the .bbl changed. */
+    /** Runs BibTeX when the document asks for a bibliography and what BibTeX reads has changed since it last ran, and
+     *  settles which .bbl the next pass reads: BibTeX's, or the one the project brings when BibTeX could not open a
+     *  database (a project that brings its bibliography made, without what it was made from). Returns whether that
+     *  .bbl changed. */
     #bibliography(generated: Map<string, Uint8Array>): boolean {
         const module = this.#settings.bibtex;
         const session = this.#session;
@@ -231,7 +253,7 @@ export class Latex {
         const name = this.#name();
         const aux = generated.get(`${dir}${name}.aux`);
         const bbl = `${dir}${name}.bbl`;
-        if (aux === undefined || this.#sources.has(bbl) || !/\\bibdata\{/.test(decoder.decode(aux))) return false;
+        if (aux === undefined || !/\\bibdata\{/.test(decoder.decode(aux))) return false;
         const project = this.#merge(generated);
         if (this.#bibtex?.repeats(project) === true) return false;
         const job: JobSettings = {
@@ -247,12 +269,18 @@ export class Latex {
         run.go();
         this.#bibtex = run;
         const out = run.outputs();
-        this.#bibtexLog = decoder.decode(out.get(`${session.job.cwd}/${name}.blg`));
-        const made = out.get(`${session.job.cwd}/${bbl.slice(dir.length)}`);
-        if (made === undefined) return false;
-        const old = generated.get(bbl);
-        if (sameBytes(old, made)) return false;
-        generated.set(bbl, made.slice());
-        return true;
+        const log = decoder.decode(out.get(`${session.job.cwd}/${name}.blg`));
+        this.#bibtexLog = log;
+        const before = project.get(bbl);
+        const made = out.get(`${session.job.cwd}/${name}.bbl`);
+        if (made === undefined || (this.#sources.has(bbl) && log.includes("I couldn't open database file"))) {
+            generated.delete(bbl);
+        } else {
+            const old = generated.get(bbl);
+            generated.set(bbl, sameBytes(old, made) ? (old ?? made) : made.slice());
+            this.#wrote(bbl);
+        }
+        const after = this.#merge(generated).get(bbl);
+        return !(before === after || (before !== undefined && after !== undefined && sameBytes(before, after)));
     }
 }

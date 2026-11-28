@@ -120,6 +120,13 @@ jobs:
           PAPERS_TEST_TEXBIN: /usr/bin
         run: pnpm --filter @yukibana/papers-compiler run test
 
+      # The incremental engine is the same WebAssembly on every system; what differs is the disk it reads through
+      # (paths, links, file times), which these tests go through with a folder laid out as TeX Live.
+      - name: Incremental engine on this system's disk
+        run: |
+          pnpm --filter @yukibana/papers-tex-engine run test
+          pnpm --filter @yukibana/papers-cli run test
+
       - name: CLI
         shell: bash
         run: |

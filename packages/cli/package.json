@@ -23,6 +23,8 @@
     "@yukibana/papers-runner": "catalog:",
     "@yukibana/papers-sandbox": "catalog:",
     "@yukibana/papers-templates": "catalog:",
+    "@yukibana/papers-tex-engine": "catalog:",
+    "@yukibana/pdftex-wasm": "catalog:",
     "esbuild": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

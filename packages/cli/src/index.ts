@@ -1,16 +1,17 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, watch } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, mkdirSync, rmSync, watch, writeFileSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import type { Diagnostic } from '@yukibana/papers-compiler';
+import { prepareWrite, type Diagnostic } from '@yukibana/papers-compiler';
 import { ensureProgram, serverFor, startLanguageServer, TEXLAB, TINYMIST } from '@yukibana/papers-lsp';
 import { createPapersServer } from '@yukibana/papers-mcp';
 import { folderFiles, openProject, readProject, type Project, type ProjectDocument } from '@yukibana/papers-project';
 import { DEFAULT_PORT, startRunner } from '@yukibana/papers-runner';
 import { cacheDir, sandboxSupport, type SandboxChoice } from '@yukibana/papers-sandbox';
 import { createOnDisk } from '@yukibana/papers-templates/disk';
+import { engineFolder, IncrementalBuilds, incrementalFits, type IncrementalBuild } from './incremental.ts';
 import { buildLocal } from './local.ts';
 import { resolveToolchain } from './toolchain.ts';
 
@@ -19,14 +20,16 @@ const VERSION = '0.0.0-dev';
 const HELP = `papers ${VERSION}: build LaTeX papers on this computer, safely.
 
   papers build [dir] [--doc main.tex] [--tex <TeX folder>] [--sandbox auto|none]
-  papers watch [dir] [--doc main.tex] [--tex …] [--sandbox …]
-  papers serve [--port ${DEFAULT_PORT}] [--tex …] [--sandbox …] [--dev]   the build server for papers.yukibana.dev
+  papers watch [dir] [--doc main.tex] [--tex …] [--sandbox …] [--incremental]
+  papers serve [--port ${DEFAULT_PORT}] [--tex …] [--sandbox …] [--incremental] [--dev]   the build server for papers.yukibana.dev
   papers lsp                                                         texlab over stdio
   papers mcp [dir] [--tex …] [--sandbox …]                           an MCP server over stdio
   papers doctor [dir] [--tex …]
   papers new <template> [folder] [--title …]                        a paper from a template: latex-article, owner/repo/folder, @preview/name, a .zip
 
 --sandbox none runs TeX unconfined, with access to all your files: only for a toolchain you trust.
+--incremental builds pdfLaTeX documents with the engine of the site, which goes on from where the last build was
+still the same; documents it does not build (other engines, biber, an index, shell escape) are built as without it.
 --shell-escape lets documents whose papers.toml asks for it run shell commands (still in the sandbox); a project
 cannot turn this on by itself.
 `;
@@ -51,10 +54,43 @@ function sandboxOf(v: string | undefined): SandboxChoice {
     throw new Error(`--sandbox is auto or none, not ${v}`);
 }
 
-async function build(dir: string, doc: string | undefined, tex: string | undefined, sandbox: SandboxChoice, shellEscape: boolean): Promise<boolean> {
+/** Puts what an incremental build made into `<dir>/.papers/out/`, where no build reads: the PDF and its SyncTeX
+ *  under the document's name. Returns their paths. */
+function putOutputs(dir: string, root: string, b: IncrementalBuild): { pdf: string | null; synctex: string | null } {
+    const out = join(dir, '.papers', 'out');
+    const base = basename(root).replace(/\.tex$/, '');
+    const put = (name: string, bytes: Uint8Array | null): string | null => {
+        if (bytes === null) return null;
+        const file = join(out, name);
+        prepareWrite(dir, file);
+        writeFileSync(file, bytes);
+        return file;
+    };
+    return { pdf: put(`${base}.pdf`, b.pdf), synctex: put(`${base}.synctex.gz`, b.synctex) };
+}
+
+async function build(
+    dir: string,
+    doc: string | undefined,
+    tex: string | undefined,
+    sandbox: SandboxChoice,
+    shellEscape: boolean,
+    incremental: IncrementalBuilds | null = null,
+): Promise<boolean> {
     const project = openProject(dir);
     const d = pickDocument(project, doc);
     const toolchain = resolveToolchain(project.environment, tex);
+    if (incremental !== null && incrementalFits(d, toolchain, shellEscape)) {
+        const r = incremental.build(dir, project.files.list(), d, toolchain, p => process.stderr.write(`  ${p}\n`));
+        for (const x of r.diagnostics) if (x.severity !== 'info') console.log(line(x));
+        const boxes = r.diagnostics.filter(x => x.severity === 'info').length;
+        console.log(
+            `${r.ok ? 'built' : 'failed'} ${d.root}: ${r.pages} page${r.pages === 1 ? '' : 's'} in ${(r.ms / 1000).toFixed(1)} s (${r.steps.join(', ')}), ${toolchain.label}, incremental${boxes ? `, ${boxes} box notes` : ''}`,
+        );
+        const { pdf } = putOutputs(dir, d.root, r);
+        if (pdf !== null) console.log(pdf);
+        return r.ok;
+    }
     const b = await buildLocal(dir, project.files, d, toolchain, sandbox, p => process.stderr.write(`  ${p}\n`), shellEscape);
     const r = b.result;
     for (const x of r.diagnostics) if (x.severity !== 'info') console.log(line(x));
@@ -77,6 +113,7 @@ async function main(argv: string[]): Promise<number> {
             port: { type: 'string' },
             server: { type: 'string' },
             dev: { type: 'boolean' },
+            incremental: { type: 'boolean' },
             'shell-escape': { type: 'boolean' },
             title: { type: 'string' },
             help: { type: 'boolean', short: 'h' },
@@ -94,6 +131,12 @@ async function main(argv: string[]): Promise<number> {
     }
     const dir = resolve(arg ?? '.');
     const sandbox = sandboxOf(values.sandbox);
+    let incremental: IncrementalBuilds | null = null;
+    if (values.incremental) {
+        const engine = engineFolder();
+        incremental = engine === null ? null : new IncrementalBuilds(engine, join(cacheDir(), 'pdftex'));
+        if (incremental?.available !== true) throw new Error('--incremental: the engine is not installed with this program');
+    }
 
     switch (command) {
         case 'new': {
@@ -119,7 +162,7 @@ async function main(argv: string[]): Promise<number> {
                 }
                 running = true;
                 try {
-                    await build(dir, values.doc, values.tex, sandbox, values['shell-escape'] === true);
+                    await build(dir, values.doc, values.tex, sandbox, values['shell-escape'] === true, incremental);
                 } catch (e) {
                     console.error(e instanceof Error ? e.message : String(e));
                 }
@@ -148,6 +191,9 @@ async function main(argv: string[]): Promise<number> {
             rmSync(workRoot, { recursive: true, force: true, maxRetries: 3 });
             mkdirSync(workRoot, { recursive: true });
             let texlab: string | null = null;
+            // Folders in which the installation's programs have built: what they leave there (a .bbl, an .aux) would
+            // be taken for the project's own files by the incremental engine, so it does not build there again.
+            const native = new Set<string>();
             const runner = await startRunner({
                 port,
                 origins,
@@ -160,6 +206,11 @@ async function main(argv: string[]): Promise<number> {
                     const project = readProject(files);
                     const d = pickDocument(project, root);
                     const toolchain = resolveToolchain(project.environment, values.tex);
+                    if (incremental !== null && !native.has(workDir) && incrementalFits(d, toolchain, values['shell-escape'] === true)) {
+                        const r = incremental.build(workDir, files.list(), d, toolchain, onStep);
+                        return { ok: r.ok, pages: r.pages, ms: r.ms, diagnostics: r.diagnostics, ...putOutputs(workDir, d.root, r) };
+                    }
+                    native.add(workDir);
                     // The connection's folder is already a copy: build in place.
                     const b = await buildLocal(workDir, files, d, toolchain, sandbox, onStep, values['shell-escape'] === true);
                     return { ...b.result, diagnostics: b.result.diagnostics };

@@ -87,10 +87,30 @@ describe.runIf(engine !== null && bibtex !== null)('a LaTeX document', () => {
         expect(afterText.log).toBe(built(third).log);
     });
 
-    it('takes the bibliography the project brings as it is', () => {
-        const r = built(new Map([...sources, ['main.bbl', new TextEncoder().encode('\\pages{7}\n')]]));
-        expect(r.bibtexLog).toBeNull();
+    it('takes the bibliography the project brings when what it was made from is not there', () => {
+        const brought = new Map([...sources, ['main.bbl', new TextEncoder().encode('\\pages{7}\n')]]);
+        brought.delete('refs.bib');
+        const r = built(brought);
+        expect(r.bibtexLog).toContain("I couldn't open database file");
         expect(r.pass).toBe(1);
         expect(pdfPages(r.pdf ?? undefined)).toBe(9);
+    });
+
+    it('makes the bibliography again from a database the project has, whatever .bbl the project brings', () => {
+        const r = built(new Map([...sources, ['main.bbl', new TextEncoder().encode('\\pages{7}\n')]]));
+        const fresh = built(sources);
+        expect(r.pass).toBe(2);
+        expect(r.pdf).toEqual(fresh.pdf);
+        expect(pdfPages(r.pdf ?? undefined)).not.toBe(9);
+    });
+
+    it('reads what a pass wrote in place of a file of that path the project brings, until that file changes', () => {
+        // An .aux left in the project by a build elsewhere: the first pass reads it, the later ones their own.
+        const stale = new TextEncoder().encode('\\relax\n');
+        const r = built(new Map([...sources, ['main.aux', stale]]));
+        const fresh = built(sources);
+        expect(r.settled).toBe(true);
+        expect(r.pdf).toEqual(fresh.pdf);
+        expect(r.log).toBe(fresh.log);
     });
 });
