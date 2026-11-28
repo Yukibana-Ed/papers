@@ -23,7 +23,7 @@ interface CharAt {
     readonly x: number;
     readonly y: number;
 }
-import { lineOf, mergeLineRects, type Rect } from '#lib/rects.ts';
+import { lineBeside, lineOf, mergeLineRects, type Rect } from '#lib/rects.ts';
 import type { PageText, SourceMap } from '#lib/sourcemap.ts';
 import type { PageBox } from '@yukibana/papers-tex';
 
@@ -734,10 +734,7 @@ export class Viewer {
             .elementsFromPoint(x, y)
             .map(el => el.closest('.pv-page'))
             .find(el => el !== null && el !== undefined);
-        const runs = [...(pageEl?.querySelectorAll<HTMLElement>('.textLayer span[data-run]') ?? [])]
-            .filter(run => run.firstChild instanceof Text && run.firstChild.length > 0)
-            .map(el => ({ el, box: el.getBoundingClientRect() }))
-            .filter(run => run.box.width > 0 && run.box.height > 0);
+        const runs = pageEl instanceof Element ? textRuns(pageEl) : [];
         const line = lineOf(
             runs.map(run => run.box),
             x,
@@ -764,13 +761,20 @@ export class Viewer {
     /** With text selected here, the keys an editor moves a selection's end with do so: Shift with Left or Right by a
      *  character, with Ctrl too (Option on a Mac) by a word, Shift with Home or End to the line's ends. The page's text
      *  is not editable, so a browser would not do it by itself. Ctrl with Left or Right alone selects the word before
-     *  or after the selection instead. Repeated, a step by a word goes on word by word to the end of the text drawn. */
+     *  or after the selection instead. Repeated, a step by a word goes on word by word to the end of the text drawn.
+     *  Shift with Up or Down moves the end a typeset line up or down (`#extendByLine`). */
     #onKeydown = (e: KeyboardEvent): void => {
         const selection = window.getSelection();
         if (selection === null || !this.#hasSelection()) return;
         const mac = /Mac|iPhone|iPad/.test(navigator.platform);
         const byWord = mac ? e.altKey : e.ctrlKey;
         if (e.metaKey && !mac) return;
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+            if (!e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+            e.preventDefault();
+            this.#extendByLine(selection, e.key === 'ArrowDown');
+            return;
+        }
         const forward = e.key === 'ArrowRight' || e.key === 'End';
         let step: 'character' | 'word' | 'lineboundary';
         if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') step = mac && e.metaKey ? 'lineboundary' : byWord ? 'word' : 'character';
@@ -805,6 +809,67 @@ export class Viewer {
         if (forward) selection.setBaseAndExtent(start.node, start.offset, end.node, end.offset);
         else selection.setBaseAndExtent(end.node, end.offset, start.node, start.offset);
     };
+
+    /** Where the selection's moving end was put by the last step by a line, and the horizontal place (in the viewport,
+     *  as it was scrolled then) the steps started from: while the end is still there, the next step by a line aims at
+     *  the same place, so that a run of steps keeps its column over short lines. */
+    #goal: { node: Node | null; offset: number; x: number; scroll: number } | null = null;
+
+    /** Moves the selection's moving end to the typeset line below it (`down`) or above it, in the same column of the
+     *  page, to the place in that line nearest to where the end was horizontally when the steps by a line began. Past
+     *  the last line of a page it goes on in the next page drawn, and where no line is further that way, to the end
+     *  (or the start) of its own line. It never lands on the selection's other end, which would leave nothing selected
+     *  and no keys working: it goes a line further instead. The end is scrolled into view.
+     *  Precondition: `selection` has text of the pages selected. */
+    #extendByLine(selection: Selection, down: boolean): void {
+        const flat = flatText(this.#column);
+        const anchor = flat.position(selection.anchorNode, selection.anchorOffset);
+        const focus = flat.position(selection.focusNode, selection.focusOffset);
+        if (anchor === null || focus === null) return;
+        const scroll = document.scrollingElement?.scrollLeft ?? 0;
+        const kept = this.#goal !== null && this.#goal.node === selection.focusNode && this.#goal.offset === selection.focusOffset ? this.#goal : null;
+        let at = flat.point(focus, focus > anchor);
+        let moved = focus;
+        let x: number | null = kept === null ? null : kept.x + kept.scroll - scroll;
+        // A second step only where the first lands on the other end.
+        for (let step = 0; step < 2 && at !== null; step++) {
+            const run = at.node.parentElement;
+            const pageEl = run?.closest('.pv-page') ?? null;
+            if (run === null || pageEl === null) return;
+            const beside = down ? pageEl.nextElementSibling : pageEl.previousElementSibling;
+            const runs = [...textRuns(pageEl), ...(beside?.classList.contains('pv-page') === true ? textRuns(beside) : [])];
+            const boxes = runs.map(r => r.box);
+            const own = run.getBoundingClientRect();
+            x ??= caretX(at.node, at.offset);
+            const here = lineOf(boxes, Math.min(Math.max(x, own.left), own.right), (own.top + own.bottom) / 2)
+                .map(i => runs[i])
+                .filter(r => r !== undefined);
+            if (here.length === 0) return;
+            const from = {
+                left: Math.min(...here.map(r => r.box.left)),
+                right: Math.max(...here.map(r => r.box.right)),
+                top: Math.min(...here.map(r => r.box.top)),
+                bottom: Math.max(...here.map(r => r.box.bottom)),
+            };
+            const line = lineBeside(boxes, from, x, down)
+                .map(i => runs[i])
+                .filter(r => r !== undefined);
+            // No line further: the end of this one, as an editor's last line does.
+            const to = line.length > 0 ? pointAt(line, x) : pointAt(here, down ? Infinity : -Infinity);
+            const next = flat.position(to.node, to.offset);
+            if (next === null || next === moved) break;
+            moved = next;
+            if (moved !== anchor) break;
+            at = to;
+        }
+        if (moved === anchor || moved === focus) return;
+        const to = flat.point(moved, moved > anchor);
+        const from = flat.point(anchor, anchor > moved);
+        if (to === null || from === null || x === null) return;
+        selection.setBaseAndExtent(from.node, from.offset, to.node, to.offset);
+        this.#goal = { node: selection.focusNode, offset: selection.focusOffset, x, scroll };
+        to.node.parentElement?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+    }
 
     #hasSelection(): boolean {
         const selection = window.getSelection();
@@ -1018,6 +1083,56 @@ function box(r: Rect, scale: number, cls: string, pad: number): HTMLDivElement {
     el.style.width = `${r.width * scale + pad * 2}px`;
     el.style.height = `${r.height * scale + pad * 2}px`;
     return el;
+}
+
+/** A text run of a page's text layer that shows some text, with its box in the viewport. */
+interface TextRun {
+    readonly el: HTMLElement;
+    readonly text: Text;
+    readonly box: DOMRect;
+}
+
+/** The text runs of the page `pageEl` that show some text, in the text's order. */
+function textRuns(pageEl: Element): TextRun[] {
+    const runs: TextRun[] = [];
+    for (const el of pageEl.querySelectorAll<HTMLElement>('.textLayer span[data-run]')) {
+        const text = el.firstChild;
+        if (!(text instanceof Text) || text.length === 0) continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) runs.push({ el, text, box: rect });
+    }
+    return runs;
+}
+
+/** Where in the viewport, horizontally, the place before character `offset` of `node` is: the left edge of that
+ *  character, or the right edge of the last one for the place after it.
+ *  Precondition: `node` has text, and 0 ≤ offset ≤ node.length. */
+function caretX(node: Text, offset: number): number {
+    const range = document.createRange();
+    const last = offset >= node.length;
+    range.setStart(node, last ? node.length - 1 : offset);
+    range.setEnd(node, last ? node.length : offset + 1);
+    const rect = range.getBoundingClientRect();
+    return last ? rect.right : rect.left;
+}
+
+/** The place between characters of the line made of `runs` that is nearest to `x` horizontally (the line's start or
+ *  end for an `x` outside it).
+ *  Precondition: `runs` is not empty. */
+function pointAt(runs: readonly TextRun[], x: number): { node: Text; offset: number } {
+    let best: { node: Text; offset: number } | null = null;
+    let away = Infinity;
+    for (const run of runs) {
+        for (let offset = 0; offset <= run.text.length; offset++) {
+            const d = Math.abs(caretX(run.text, offset) - x);
+            if (d < away || best === null) {
+                away = d;
+                best = { node: run.text, offset };
+            }
+        }
+    }
+    if (best === null) throw new Error('a line has a run');
+    return best;
 }
 
 /** The word (letters and digits) under a viewport point, from the text layer, or null. */
