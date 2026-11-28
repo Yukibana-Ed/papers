@@ -188,31 +188,35 @@ function crossCodeEdge(dir: -1 | 1): Command {
     };
 }
 
-/** Marks the inline code that typing would add to (class `cm-code-on`), so that the two sides of its edge look different. */
+/** Draws the caret at an edge of inline code, where the browser's own caret looks the same on both sides: inside the
+ *  code when typing would add to it, outside when it would not. While it is drawn the editor has the class
+ *  `cm-own-caret`, which hides the browser's caret. */
 function codeCaret(): Plugin {
     const code = M['code'];
+    /** Whether the selection is a caret at an edge of inline code, and if so whether it is in the code. */
+    const atEdge = (state: EditorState): { inside: boolean } | null => {
+        const { $from, empty } = state.selection;
+        if (!empty || !$from.parent.inlineContent || $from.parent.type.spec.code) return null;
+        const before = $from.nodeBefore !== null && code.isInSet($from.nodeBefore.marks) !== undefined;
+        const after = $from.nodeAfter !== null && code.isInSet($from.nodeAfter.marks) !== undefined;
+        if (before === after) return null;
+        return { inside: code.isInSet(state.storedMarks ?? $from.marks()) !== undefined };
+    };
     return new Plugin({
         props: {
+            attributes: (state): Record<string, string> => (atEdge(state) === null ? {} : { class: 'cm-own-caret' }),
             decorations(state) {
-                const { $from, empty } = state.selection;
-                if (!empty || !$from.parent.inlineContent || code.isInSet(state.storedMarks ?? $from.marks()) === undefined) return null;
-                // The run of code that touches the caret.
-                const at = $from.parentOffset;
-                let from = -1;
-                let run: { from: number; to: number } | null = null;
-                $from.parent.forEach((child, offset) => {
-                    const isCode = code.isInSet(child.marks) !== undefined;
-                    if (isCode && from < 0) from = offset;
-                    const end = isCode ? offset + child.nodeSize : offset;
-                    if (from >= 0 && (!isCode || end === $from.parent.content.size)) {
-                        if (from <= at && at <= end) run = { from, to: end };
-                        from = -1;
-                    }
-                });
-                const found = run as { from: number; to: number } | null;
-                if (found === null) return null;
-                const start = $from.start();
-                return DecorationSet.create(state.doc, [Decoration.inline(start + found.from, start + found.to, { class: 'cm-code-on' })]);
+                const edge = atEdge(state);
+                if (edge === null) return null;
+                const caret = (): HTMLElement => {
+                    const el = document.createElement('span');
+                    el.className = 'cm-caret';
+                    return el;
+                };
+                const pos = state.selection.from;
+                // The widget's marks decide which side of the code's edge it is drawn on.
+                const spec = { key: edge.inside ? 'caret-in' : 'caret-out', marks: edge.inside ? [code.create()] : [], ignoreSelection: true };
+                return DecorationSet.create(state.doc, [Decoration.widget(pos, caret, spec)]);
             },
         },
     });

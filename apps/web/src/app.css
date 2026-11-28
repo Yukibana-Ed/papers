@@ -1211,10 +1211,31 @@ button {
     overflow: auto;
     font-size: 12px;
 }
-.cm-rich code.cm-code-on,
-.cm-rich code:has(.cm-code-on),
-.cm-rich .cm-code-on > code {
-    outline: 1px solid var(--yk-line-strong);
+.cm-rich.cm-own-caret {
+    caret-color: transparent;
+}
+.cm-caret {
+    display: none;
+    width: 0;
+    height: 1.15em;
+    margin: 0 -0.5px;
+    border-left: 1px solid var(--yk-ink);
+    vertical-align: text-bottom;
+    pointer-events: none;
+    animation: cm-caret-blink 1.06s steps(1) infinite;
+}
+.cm-rich.ProseMirror-focused .cm-caret {
+    display: inline-block;
+}
+@keyframes cm-caret-blink {
+    50% {
+        visibility: hidden;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .cm-caret {
+        animation: none;
+    }
 }
 .cm-body pre[data-lang]::before,
 .cm-rich pre[data-lang]::before {
