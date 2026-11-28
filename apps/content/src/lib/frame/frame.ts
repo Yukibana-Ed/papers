@@ -42,6 +42,7 @@ export class Frame {
         this.#onToolbar = onToolbar;
         this.#viewer = new Viewer(scroller, {
             scale: scale => this.#bridge.send({ type: 'scale', scale }),
+            zoomed: zoom => this.#bridge.send({ type: 'zoomed', zoom }),
             jump: (at, word) => this.#bridge.send({ type: 'jump', at, word }),
             selection: (lines, text, anchor) => {
                 this.#selection = { lines, text };

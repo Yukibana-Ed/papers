@@ -33,6 +33,9 @@ describe('guards', () => {
         expect(isFrameMessage({ type: 'selection', lines: { file: 'a', startLine: 5, endLine: 2 }, text: '' })).toBe(false);
         expect(isFrameMessage({ type: 'scale', scale: Number.NaN })).toBe(false);
         expect(isFrameMessage({ type: 'scale', scale: -1 })).toBe(false);
+        expect(isFrameMessage({ type: 'zoomed', zoom: 1.37 })).toBe(true);
+        expect(isFrameMessage({ type: 'zoomed', zoom: 9 })).toBe(false);
+        expect(isFrameMessage({ type: 'zoomed', zoom: Number.NaN })).toBe(false);
         expect(isFrameMessage({ type: 'key', key: 'k', code: 'KeyK', ctrl: 'yes', shift: false, alt: false })).toBe(false);
         expect(isFrameMessage({ type: 'lsp-status', server: 'texlab', status: 'ready' })).toBe(false);
         expect(isAppMessage({ type: 'built' })).toBe(false);

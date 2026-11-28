@@ -618,7 +618,13 @@ export class Session {
         this.updateThread(threadId, t => ({ ...t, quote: text, root: setResolved(t.root, commentId, true) }));
     }
 
+    /** A step of the preview's zoom, to the nearest tenth, within 0.5 to 4. */
     zoomBy(delta: number): void {
-        this.zoom = Math.min(2, Math.max(0.5, Math.round((this.zoom + delta) * 10) / 10));
+        this.zoom = Math.min(4, Math.max(0.5, Math.round((this.zoom + delta) * 10) / 10));
+    }
+
+    /** The preview's zoom as the person set it there, kept within 0.5 to 4. */
+    zoomTo(zoom: number): void {
+        this.zoom = Math.min(4, Math.max(0.5, zoom));
     }
 }

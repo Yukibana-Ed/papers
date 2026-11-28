@@ -21,6 +21,8 @@
         onKey: (m: Extract<FrameMessage, { type: 'key' }>) => void;
     } = $props();
 
+    /** The zoom the frame last said the person set there, until the session's zoom is another. */
+    let zoomed: number | null = null;
     let frame = $state<HTMLIFrameElement | null>(null);
     let client: FrameClient | null = null;
     let sent: Record<string, string> = {};
@@ -77,6 +79,10 @@
                 break;
             case 'scale':
                 session.scale = m.scale;
+                break;
+            case 'zoomed':
+                zoomed = m.zoom;
+                session.zoomTo(m.zoom);
                 break;
             case 'key':
                 onKey(m);
@@ -178,7 +184,11 @@
     });
 
     $effect(() => {
-        client?.send({ type: 'zoom', zoom: session.zoom });
+        // Not back to the frame what the frame has just said: in the middle of a pinch it is further already.
+        const zoom = session.zoom;
+        if (zoom === zoomed) return;
+        zoomed = null;
+        client?.send({ type: 'zoom', zoom });
     });
 
     $effect(() => {

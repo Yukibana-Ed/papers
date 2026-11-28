@@ -80,7 +80,7 @@ export type AppMessage =
     | { readonly type: 'mirror'; readonly lines: SourceLines | null }
     | { readonly type: 'marks'; readonly marks: readonly PreviewMark[] }
     | { readonly type: 'presence'; readonly presence: readonly PreviewPresence[] }
-    /** The zoom on top of fitting the pane's width, 0.5 to 2. */
+    /** The zoom on top of fitting the pane's width, 0.5 to 4. */
     | { readonly type: 'zoom'; readonly zoom: number }
     /** Asks for a `centre` reply: the source line in the middle of the view. */
     | { readonly type: 'centre?' }
@@ -145,6 +145,9 @@ export type FrameMessage =
     | { readonly type: 'selection'; readonly lines: SourceLines | null; readonly text: string }
     | { readonly type: 'action'; readonly action: SelectionAction; readonly lines: SourceLines; readonly text: string }
     | { readonly type: 'centre'; readonly at: SourcePoint | null }
+    /** The person zoomed in the frame (a pinch, Ctrl with the wheel): the zoom on top of fitting the pane's width that
+     *  the frame now shows, 0.5 to 4. */
+    | { readonly type: 'zoomed'; readonly zoom: number }
     /** The effective scale of the pages (fit times zoom), for the zoom readout. */
     | { readonly type: 'scale'; readonly scale: number }
     /** The frame wants the app's keyboard shortcut handled (the frame has focus, so the app does not see the key). */
@@ -334,6 +337,8 @@ function frameFieldsMatch(x: Record<string, unknown>): boolean {
             return x['at'] === null || isPoint(x['at']);
         case 'scale':
             return isNumber(x['scale']) && x['scale'] > 0;
+        case 'zoomed':
+            return isNumber(x['zoom']) && x['zoom'] >= 0.5 && x['zoom'] <= 4;
         case 'key':
             return isString(x['key']) && isString(x['code']) && isBool(x['ctrl']) && isBool(x['shift']) && isBool(x['alt']);
         case 'lsp':
