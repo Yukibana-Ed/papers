@@ -79,8 +79,19 @@ jobs:
       - name: Install dependencies
         run: pnpm --filter @yukibana/papers-content install --frozen-lockfile --fetch-timeout 100000
 
+      # rclone's own release, checked: Ubuntu 24.04 has 1.60.1 (2022), with which every upload to R2 ended in
+      # `501 Not Implemented` although the file was in the bucket as sent (2026-11-26 and 2026-11-28, with and
+      # without --no-update-modtime, with and without headers).
       - name: Install rclone
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends rclone
+        env:
+          RCLONE_VERSION: v1.71.2
+          RCLONE_SHA256: ab9fa5877cee91c64fdfd61a27028a458cf618b39259e5c371dc2ec34a12e415
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/rclone.zip" "https://github.com/rclone/rclone/releases/download/$RCLONE_VERSION/rclone-$RCLONE_VERSION-linux-amd64.zip"
+          echo "$RCLONE_SHA256  $RUNNER_TEMP/rclone.zip" | sha256sum -c -
+          unzip -q -j "$RUNNER_TEMP/rclone.zip" '*/rclone' -d "$RUNNER_TEMP/rclone"
+          echo "$RUNNER_TEMP/rclone" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/rclone/rclone" version
 
       - name: Check the snapshot name
         run: |
@@ -105,9 +116,8 @@ jobs:
           node scripts/typst.ts stage "$RUNNER_TEMP/typst-br"
           # Every file is sent again (--ignore-times): for a file already there, rclone would only set its time, by a
           # copy within the bucket that drops its Content-Encoding, and the origin then serves compressed bytes as
-          # the file (this left the preview without fonts on 2026-11-26). And --no-update-modtime: without it rclone
-          # sets the time of what it has just sent, R2 answers that copy with 501, and the step fails although every
-          # file is in the bucket as sent (2026-11-26 and 2026-11-28; the uploads with --no-update-modtime never failed).
+          # the file (this left the preview without fonts on 2026-11-26). --no-update-modtime keeps rclone from ever
+          # making that copy.
           rclone copy "$RUNNER_TEMP/typst-br" "r2:yukibana-papers-assets" --ignore-times --no-update-modtime \
             --header-upload "Content-Encoding: br" --header-upload "Cache-Control: public, max-age=31536000, immutable" \
             --transfers 8 --s3-upload-concurrency 8 --s3-chunk-size 16M --stats-one-line --stats 30s
