@@ -5,7 +5,8 @@ import { keymap } from 'prosemirror-keymap';
 import type { MarkType, Node as PMNode } from 'prosemirror-model';
 import { liftListItem, sinkListItem, splitListItem, wrapInList } from 'prosemirror-schema-list';
 import { EditorState, Plugin, PluginKey, TextSelection, type Command, type Transaction } from 'prosemirror-state';
-import { Decoration, DecorationSet, EditorView } from 'prosemirror-view';
+import { Decoration, DecorationSet, EditorView, type NodeView, type ViewMutationRecord } from 'prosemirror-view';
+import { highlight } from './highlight.ts';
 import { parseMarkdown, safeHref, schema, toMarkdown } from './markdown.ts';
 
 const S = schema.nodes;
@@ -186,6 +187,163 @@ function crossCodeEdge(dir: -1 | 1): Command {
         dispatch?.(inside ? state.tr.removeStoredMark(code) : state.tr.addStoredMark(code.create()));
         return true;
     };
+}
+
+/** Left or right one character, onto an edge of inline code: the caret stops on the side of the edge it came from, in
+ *  the code when it moved through code and beside it when it did not. The next press then crosses the edge
+ *  (`crossCodeEdge`), so both places at every edge are reached from either direction. Returns false, leaving the move
+ *  to the browser, when the character passed over is not text or the place reached is not an edge. */
+function stepOntoCodeEdge(dir: -1 | 1): Command {
+    const code = M['code'];
+    return (state, dispatch) => {
+        const { $from, empty } = state.selection;
+        if (!empty || !$from.parent.inlineContent || $from.parent.type.spec.code) return false;
+        const passed = dir === -1 ? $from.nodeBefore : $from.nodeAfter;
+        if (passed === null || passed.text === undefined) return false;
+        const chars = [...new Intl.Segmenter().segment(passed.text)];
+        const length = (dir === -1 ? chars.at(-1) : chars[0])?.segment.length ?? 1;
+        const $to = state.doc.resolve($from.pos + dir * length);
+        const before = $to.nodeBefore !== null && code.isInSet($to.nodeBefore.marks) !== undefined;
+        const after = $to.nodeAfter !== null && code.isInSet($to.nodeAfter.marks) !== undefined;
+        if (before === after) return false;
+        if (dispatch) {
+            const inside = code.isInSet(passed.marks) !== undefined;
+            const tr = state.tr.setSelection(TextSelection.create(state.doc, $to.pos));
+            const marks = code.removeFromSet($to.marks());
+            dispatch(tr.setStoredMarks(inside ? code.create().addToSet(marks) : marks).scrollIntoView());
+        }
+        return true;
+    };
+}
+
+/** Shiki's colours for the code blocks: inline decorations per block, replaced when that block's highlighting arrives. */
+const highlighted = new PluginKey<DecorationSet>('highlighted');
+
+/** Highlights the code blocks that have a language, off the main path: each changed block is highlighted when Shiki
+ *  answers, and until then keeps its previous colours, mapped through the edits. Also marks the code block that holds
+ *  the selection with `cm-code-here`. */
+function highlightCode(): Plugin<DecorationSet> {
+    const asked = new WeakSet<PMNode>();
+    const ask = (view: EditorView, node: PMNode, pos: number): void => {
+        asked.add(node);
+        const text = node.textContent;
+        const info = String(node.attrs['params']);
+        void highlight(text, info).then(runs => {
+            if (view.isDestroyed) return;
+            const now = view.state.doc.nodeAt(pos);
+            // A newer version of the block asks for its own colours.
+            if (now !== node) return;
+            const decos: Decoration[] = [];
+            let at = pos + 1;
+            for (const run of runs ?? []) {
+                if (run.classes !== '') decos.push(Decoration.inline(at, at + run.length, { class: run.classes }));
+                at += run.length;
+            }
+            view.dispatch(view.state.tr.setMeta(highlighted, { from: pos, to: pos + node.nodeSize, decos }).setMeta('addToHistory', false));
+        });
+    };
+    const askAll = (view: EditorView): void => {
+        view.state.doc.descendants((node, pos) => {
+            if (node.type !== S['code_block']) return true;
+            if (!asked.has(node)) ask(view, node, pos);
+            return false;
+        });
+    };
+    return new Plugin<DecorationSet>({
+        key: highlighted,
+        state: {
+            init: () => DecorationSet.empty,
+            apply(tr, set) {
+                let next = set.map(tr.mapping, tr.doc);
+                const meta = tr.getMeta(highlighted) as { from: number; to: number; decos: Decoration[] } | undefined;
+                if (meta !== undefined) next = next.remove(next.find(meta.from, meta.to)).add(tr.doc, meta.decos);
+                return next;
+            },
+        },
+        view(view) {
+            askAll(view);
+            return {
+                update(v, prev) {
+                    if (v.state.doc !== prev.doc) askAll(v);
+                },
+            };
+        },
+        props: {
+            decorations(state) {
+                const set = highlighted.getState(state) ?? DecorationSet.empty;
+                const { $from } = state.selection;
+                for (let d = $from.depth; d > 0; d--) {
+                    if ($from.node(d).type === S['code_block']) {
+                        return set.add(state.doc, [Decoration.node($from.before(d), $from.after(d), { class: 'cm-code-here' })]);
+                    }
+                }
+                return set;
+            },
+            nodeViews: {
+                code_block: (node, view, getPos) => new CodeBlockView(node, view, getPos),
+            },
+        },
+    });
+}
+
+/** A code block with its language in a field of its own at the top right: click it and type to change the language.
+ *  Enter, Escape, Tab or Down go back to the code; the field is shown when it has a language or the block holds the
+ *  caret. */
+class CodeBlockView implements NodeView {
+    readonly dom: HTMLElement;
+    readonly contentDOM: HTMLElement;
+    readonly #label: HTMLElement;
+    readonly #input: HTMLInputElement;
+
+    constructor(node: PMNode, view: EditorView, getPos: () => number | undefined) {
+        this.dom = document.createElement('pre');
+        this.contentDOM = document.createElement('code');
+        this.#label = document.createElement('span');
+        this.#label.className = 'cm-lang';
+        this.#label.contentEditable = 'false';
+        this.#input = document.createElement('input');
+        this.#input.type = 'text';
+        this.#input.spellcheck = false;
+        this.#input.autocomplete = 'off';
+        this.#input.placeholder = 'language';
+        this.#input.setAttribute('aria-label', 'Language');
+        this.#input.value = String(node.attrs['params']);
+        this.#label.append(this.#input);
+        this.dom.append(this.#label, this.contentDOM);
+        this.#input.addEventListener('input', () => {
+            const pos = getPos();
+            if (pos === undefined) return;
+            const value = this.#input.value.replace(/[\s`]/g, '');
+            view.dispatch(view.state.tr.setNodeAttribute(pos, 'params', value));
+        });
+        this.#input.addEventListener('keydown', e => {
+            const pos = getPos();
+            if (pos === undefined) return;
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                view.someProp('handleKeyDown', f => f(view, e));
+                return;
+            }
+            if (e.key !== 'Enter' && e.key !== 'Escape' && e.key !== 'Tab' && e.key !== 'ArrowDown') return;
+            e.preventDefault();
+            view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, pos + 1)));
+            view.focus();
+        });
+    }
+
+    update(node: PMNode): boolean {
+        if (node.type !== S['code_block']) return false;
+        const value = String(node.attrs['params']);
+        if (document.activeElement !== this.#input && this.#input.value !== value) this.#input.value = value;
+        return true;
+    }
+
+    stopEvent(e: Event): boolean {
+        return e.target instanceof Node && this.#label.contains(e.target);
+    }
+
+    ignoreMutation(m: ViewMutationRecord): boolean {
+        return m.type !== 'selection' && this.#label.contains(m.target);
+    }
 }
 
 /** Draws the caret at an edge of inline code, where the browser's own caret looks the same on both sides: inside the
@@ -372,6 +530,7 @@ export function createRichEditor(host: HTMLElement, o: RichEditorOptions): Edito
         plugins: [
             rules(),
             codeCaret(),
+            highlightCode(),
             tidyMadeParagraph(),
             history(),
             keymap({
@@ -388,8 +547,8 @@ export function createRichEditor(host: HTMLElement, o: RichEditorOptions): Edito
                 Enter: chainCommands(enterCode, splitListItem(S['list_item'])),
                 'Shift-Enter': chainCommands(enterCode, lineBreak),
                 Backspace: chainCommands(unwrapCode, backspaceBesideCode),
-                ArrowLeft: chainCommands(crossCodeEdge(-1), leaveCodeBlock(-1, 'char')),
-                ArrowRight: chainCommands(crossCodeEdge(1), leaveCodeBlock(1, 'char')),
+                ArrowLeft: chainCommands(crossCodeEdge(-1), stepOntoCodeEdge(-1), leaveCodeBlock(-1, 'char')),
+                ArrowRight: chainCommands(crossCodeEdge(1), stepOntoCodeEdge(1), leaveCodeBlock(1, 'char')),
                 ArrowUp: leaveCodeBlock(-1, 'line'),
                 ArrowDown: leaveCodeBlock(1, 'line'),
                 Tab: chainCommands(indentCode(1), sinkListItem(S['list_item'])),

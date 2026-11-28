@@ -61,6 +61,7 @@ catalog:
   prosemirror-state: 1.4.4
   prosemirror-transform: 1.12.5
   prosemirror-view: 1.42.9
+  shiki: 4.6.0
   smol-toml: 1.9.1
   svelte: 5.57.3
   svelte-check: 4.7.8

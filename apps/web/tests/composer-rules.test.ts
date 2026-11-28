@@ -66,8 +66,7 @@ describe('the rich editor', () => {
 
     it('opens a code block from a fence line on Enter, with its language, and closes it on a fence line', () => {
         const e = typeInto('hello\r```c++\nint a;\n```\nafter');
-        expect(e.html()).toContain('<p>hello</p><pre data-lang="c++">');
-        expect(e.html()).toContain('int a;</code></pre><p>after</p>');
+        expect(e.html()).toMatch(/<p>hello<\/p><pre[^>]*><span class="cm-lang"[^>]*><input[^>]*><\/span><code>int a;<\/code><\/pre><p>after<\/p>/);
         expect(e.markdown()).toBe('hello\n\n```c++\nint a;\n```\n\nafter');
     });
 
@@ -102,7 +101,7 @@ describe('the rich editor', () => {
 
     it('keeps the arrows for moving inside a code block', () => {
         expect(typeInto('```\nx←y').markdown()).toBe('```\nyx\n```');
-        expect(typeInto('a\n```\nx↑').html()).toBe('<p>a</p><pre><code>x</code></pre>');
+        expect(typeInto('a\n```\nx↑').markdown()).toBe('a\n\n```\nx\n```');
     });
 
     it('opens a code block on Shift+Enter too, and takes the rest of the paragraph into it', () => {
@@ -134,13 +133,13 @@ describe('the rich editor', () => {
     });
 
     it('takes the paragraph an arrow made away again when the caret leaves it empty', () => {
-        expect(typeInto('```\na↓←').html()).toBe('<pre><code>a</code></pre>');
-        expect(typeInto('```\na↑→').html()).toBe('<pre><code>a</code></pre>');
-        expect(typeInto('```\na↓y←←').html()).toBe('<pre><code>a</code></pre><p>y</p>');
+        expect(typeInto('```\na↓←').html()).not.toContain('<p>');
+        expect(typeInto('```\na↑→').html()).not.toContain('<p>');
+        expect(typeInto('```\na↓y←←').markdown()).toBe('```\na\n```\n\ny');
     });
 
     it('selects the code block first with Ctrl+A', () => {
-        expect(typeInto('a\n```\nb⎀Q').html()).toBe('<p>a</p><pre><code>Q</code></pre>');
+        expect(typeInto('a\n```\nb⎀Q').markdown()).toBe('a\n\n```\nQ\n```');
     });
 
     it('leaves the caret outside inline code after Backspace from outside, and ends the code at a line break', () => {
@@ -152,5 +151,18 @@ describe('the rich editor', () => {
         expect(typeInto('a `b`').html()).toMatch(/<code>b<\/code><span class="cm-caret/);
         expect(typeInto('a `b`←').html()).toMatch(/<code>b<span class="cm-caret[^>]*><\/span><\/code>/);
         expect(typeInto('a `b` c').html()).not.toContain('cm-caret');
+    });
+
+    it('stops at both places of each edge of inline code, moving left and moving right', () => {
+        // Leftwards from after the code: beside its end, in its end, in its start, beside its start.
+        expect(typeInto('a `bc` d←←x').markdown()).toBe('a `bc`x d');
+        expect(typeInto('a `bc` d←←←x').markdown()).toBe('a `bcx` d');
+        expect(typeInto('a `bc` d←←←←←x').markdown()).toBe('a `xbc` d');
+        expect(typeInto('a `bc` d←←←←←←x').markdown()).toBe('a x`bc` d');
+        // Rightwards from before it, the same places in the other order.
+        expect(typeInto('a `bc` d←←←←←←←→x').markdown()).toBe('a x`bc` d');
+        expect(typeInto('a `bc` d←←←←←←←→→x').markdown()).toBe('a `xbc` d');
+        expect(typeInto('a `bc` d←←←←←←←→→→→x').markdown()).toBe('a `bcx` d');
+        expect(typeInto('a `bc` d←←←←←←←→→→→→x').markdown()).toBe('a `bc`x d');
     });
 });
