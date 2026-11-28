@@ -33,6 +33,13 @@ GlobalWorkerOptions.workerSrc = workerUrl;
 const GUTTER = 76;
 /** Fitting never scales a page beyond this, so a wide pane does not blow a page up. */
 const MAX_FIT = 1.6;
+/** The zoom on top of fitting, at least and at most. */
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 4;
+/** A page's canvas has no more pixels than this: zoomed far in on a dense screen, it is drawn less densely. */
+const MAX_PIXELS = 24e6;
+/** One notch of a mouse's wheel, with Ctrl, zooms by this factor. */
+const NOTCH = 1.1;
 /** The selection toolbar's size with its gap to the text, in CSS pixels: lying across (above or below the selection)
  *  and standing up (in the margin beside the page). */
 const TOOLBAR = { width: 100, height: 42, side: 36 };
@@ -50,6 +57,8 @@ export interface ToolbarAnchor {
 /** What the viewer tells the frame. */
 export interface ViewerEvents {
     readonly scale: (scale: number) => void;
+    /** The person zoomed here, to `zoom` on top of fitting the width. */
+    readonly zoomed: (zoom: number) => void;
     /** A click without a selection, at a source position; `word` is the word under the pointer. */
     readonly jump: (at: SourcePoint, word: string | null) => void;
     /** The selection changed. `anchor` is where its toolbar goes; null while the pointer is still dragging, and with
@@ -133,6 +142,14 @@ export class Viewer {
         scroller.addEventListener('scroll', () => this.#scheduleRender(40), { passive: true });
         this.#resize = new ResizeObserver(() => this.#relayout());
         this.#resize.observe(scroller);
+        // Not passive: the browser would zoom the whole frame instead.
+        scroller.addEventListener('wheel', this.#onWheel, { passive: false });
+        scroller.addEventListener('touchstart', this.#onTouch, { passive: true });
+        scroller.addEventListener('touchmove', this.#onTouch, { passive: false });
+        scroller.addEventListener('touchend', this.#onTouch, { passive: true });
+        scroller.addEventListener('touchcancel', this.#onTouch, { passive: true });
+        scroller.addEventListener('gesturestart', this.#onGesture);
+        scroller.addEventListener('gesturechange', this.#onGesture);
         scroller.addEventListener('pointerdown', this.#onPointerDown);
         scroller.addEventListener('click', this.#onClick);
         // The third press would select the page's whole text before the click selects the line.
@@ -349,16 +366,93 @@ export class Viewer {
         return { el, canvas, marks, sel, text, decor, proxy, width, height, drawn: 0, rendering: null };
     }
 
-    /** The user's zoom on top of fitting the width, clamped to 0.5–2. */
+    /** The user's zoom on top of fitting the width, clamped to 0.5–4. */
     setZoom(zoom: number): void {
         const before = this.scale;
-        this.#zoom = Math.min(2, Math.max(0.5, zoom));
+        this.#zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
         this.#relayout(before);
     }
 
-    /** Lays the pages out at the current scale; `before` is the scale they were laid out at. */
-    #relayout(before = this.scale): void {
+    /** Zooms to `zoom` (clamped to 0.5–4) as the person's own doing: what is under the viewport point (`x`, `y`) stays
+     *  under it, as far as the pages can be scrolled, and the app is told the zoom. */
+    #zoomAt(zoom: number, x: number, y: number): void {
+        const before = this.scale;
+        const to = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
+        if (to === this.#zoom) return;
+        this.#zoom = to;
+        this.#relayout(before, { x, y });
+        this.#events.zoomed(to);
+    }
+
+    /** Ctrl with the wheel zooms about the pointer: a pinch on a touchpad arrives so (in small steps, which zoom
+     *  smoothly), and a mouse's wheel in notches. Without Ctrl the wheel scrolls, both ways. */
+    #onWheel = (e: WheelEvent): void => {
+        if (!e.ctrlKey) return;
+        e.preventDefault();
+        const pixels = e.deltaMode === WheelEvent.DOM_DELTA_PIXEL ? e.deltaY : e.deltaY * 40;
+        if (pixels === 0) return;
+        const notch = Math.abs(pixels) >= 50;
+        this.#zoomAt(this.#zoom * (notch ? NOTCH ** -Math.sign(pixels) : Math.exp(-pixels / 100)), e.clientX, e.clientY);
+    };
+
+    /** The zoom a pinch began at (Safari, which tells of a pinch by events of its own, with the factor since its
+     *  start). */
+    #pinchFrom = 1;
+    #onGesture = (e: Event): void => {
+        e.preventDefault();
+        if (e.type === 'gesturestart') this.#pinchFrom = this.#zoom;
+        const factor: unknown = Reflect.get(e, 'scale');
+        const x: unknown = Reflect.get(e, 'clientX');
+        const y: unknown = Reflect.get(e, 'clientY');
+        if (typeof factor === 'number' && factor > 0 && typeof x === 'number' && typeof y === 'number') this.#zoomAt(this.#pinchFrom * factor, x, y);
+    };
+
+    /** Two fingers on a touch screen: the zoom they began at, how far apart they were then, and where their middle
+     *  was at the last move. */
+    #touch: { zoom: number; apart: number; x: number; y: number } | null = null;
+
+    /** Two fingers on a touch screen zoom by how far they move apart and pan by how far their middle moves, at once:
+     *  what was between the fingers stays between them. One finger scrolls, as the browser does it. */
+    #onTouch = (e: TouchEvent): void => {
+        const a = e.touches[0];
+        const b = e.touches[1];
+        if (e.touches.length !== 2 || a === undefined || b === undefined) {
+            if (this.#touch !== null) this.#scheduleRender(120);
+            this.#touch = null;
+            return;
+        }
+        const apart = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+        const x = (a.clientX + b.clientX) / 2;
+        const y = (a.clientY + b.clientY) / 2;
+        if (e.type !== 'touchmove' || this.#touch === null) {
+            this.#touch = apart > 0 ? { zoom: this.#zoom, apart, x, y } : null;
+            return;
+        }
+        if (e.cancelable) e.preventDefault();
+        this.#scroller.scrollBy({ left: this.#touch.x - x, top: this.#touch.y - y, behavior: 'instant' });
+        this.#touch.x = x;
+        this.#touch.y = y;
+        this.#zoomAt((this.#touch.zoom * apart) / this.#touch.apart, x, y);
+    };
+
+    /** Lays the pages out at the current scale; `before` is the scale they were laid out at. What is under the
+     *  viewport point `at` stays there across a change of scale; without `at`, what is in the middle of the view,
+     *  vertically. */
+    #relayout(before = this.scale, at: { x: number; y: number } | null = null): void {
         const first = this.#pages[0];
+        // The page level with `at` (or the nearest), and where in it `at` is, as fractions of its size.
+        let held: { page: PageView; fx: number; fy: number } | null = null;
+        if (at !== null) {
+            let away = Infinity;
+            for (const page of this.#pages) {
+                const r = page.el.getBoundingClientRect();
+                const d = at.y < r.top ? r.top - at.y : at.y > r.bottom ? at.y - r.bottom : 0;
+                if (d < away && r.width > 0 && r.height > 0) {
+                    away = d;
+                    held = { page, fx: (at.x - r.left) / r.width, fy: (at.y - r.top) / r.height };
+                }
+            }
+        }
         const avail = Math.max(100, this.#scroller.clientWidth - GUTTER);
         const fit = first === undefined ? 1 : Math.min(MAX_FIT, avail / first.width);
         // The point in the middle of the view, as a fraction of the content, kept in the middle across the change.
@@ -373,7 +467,10 @@ export class Viewer {
             p.el.style.setProperty('--total-scale-factor', String(s));
         }
         if (Math.abs(before - s) > 1e-6) {
-            if (anchor !== null) this.#scroller.scrollTop = anchor * this.#scroller.scrollHeight - this.#scroller.clientHeight / 2;
+            if (held !== null && at !== null) {
+                const now = held.page.el.getBoundingClientRect();
+                this.#scroller.scrollBy({ left: now.left + held.fx * now.width - at.x, top: now.top + held.fy * now.height - at.y, behavior: 'instant' });
+            } else if (anchor !== null) this.#scroller.scrollTop = anchor * this.#scroller.scrollHeight - this.#scroller.clientHeight / 2;
             this.#events.scale(s);
             this.#drawOverlays();
             // The text scales with the page at once, and what is selected in it stays selected (see `#render`): its
@@ -385,7 +482,12 @@ export class Viewer {
 
     #scheduleRender(delay: number): void {
         clearTimeout(this.#renderTimer);
-        this.#renderTimer = window.setTimeout(() => void this.#renderVisible(), delay);
+        this.#renderTimer = window.setTimeout(() => {
+            // Not under two fingers: a page drawn anew replaces the text they are on, and a touch whose target has
+            // left the page is no longer told of here. The pages are drawn when the fingers lift.
+            if (this.#touch !== null) this.#scheduleRender(delay);
+            else void this.#renderVisible();
+        }, delay);
     }
 
     async #renderVisible(): Promise<void> {
@@ -404,7 +506,7 @@ export class Viewer {
             if (view.drawn === scale) return;
             const proxy = view.proxy;
             const vp = proxy.getViewport({ scale });
-            const dpr = window.devicePixelRatio || 1;
+            const dpr = Math.min(window.devicePixelRatio || 1, Math.sqrt(MAX_PIXELS / (vp.width * vp.height)));
             const canvas = document.createElement('canvas');
             canvas.width = Math.floor(vp.width * dpr);
             canvas.height = Math.floor(vp.height * dpr);
@@ -810,10 +912,11 @@ export class Viewer {
         else selection.setBaseAndExtent(end.node, end.offset, start.node, start.offset);
     };
 
-    /** Where the selection's moving end was put by the last step by a line, and the horizontal place (in the viewport,
-     *  as it was scrolled then) the steps started from: while the end is still there, the next step by a line aims at
-     *  the same place, so that a run of steps keeps its column over short lines. */
-    #goal: { node: Node | null; offset: number; x: number; scroll: number } | null = null;
+    /** Where in the text (as `flatText` counts) the selection's moving end was put by the last step by a line, and the
+     *  horizontal place the steps started from, as a distance from the middle of the pages in page units (so that it
+     *  holds across scrolling, zooming and a page drawn anew): while the end is still there, the next step by a line
+     *  aims at the same place, so that a run of steps keeps its column over short lines. */
+    #goal: { at: number; x: number } | null = null;
 
     /** Moves the selection's moving end to the typeset line below it (`down`) or above it, in the same column of the
      *  page, to the place in that line nearest to where the end was horizontally when the steps by a line began. Past
@@ -826,11 +929,12 @@ export class Viewer {
         const anchor = flat.position(selection.anchorNode, selection.anchorOffset);
         const focus = flat.position(selection.focusNode, selection.focusOffset);
         if (anchor === null || focus === null) return;
-        const scroll = document.scrollingElement?.scrollLeft ?? 0;
-        const kept = this.#goal !== null && this.#goal.node === selection.focusNode && this.#goal.offset === selection.focusOffset ? this.#goal : null;
+        const column = this.#column.getBoundingClientRect();
+        const middle = column.left + column.width / 2;
+        const kept = this.#goal !== null && this.#goal.at === focus ? this.#goal : null;
         let at = flat.point(focus, focus > anchor);
         let moved = focus;
-        let x: number | null = kept === null ? null : kept.x + kept.scroll - scroll;
+        let x: number | null = kept === null ? null : middle + kept.x * this.scale;
         // A second step only where the first lands on the other end.
         for (let step = 0; step < 2 && at !== null; step++) {
             const run = at.node.parentElement;
@@ -867,7 +971,7 @@ export class Viewer {
         const from = flat.point(anchor, anchor > moved);
         if (to === null || from === null || x === null) return;
         selection.setBaseAndExtent(from.node, from.offset, to.node, to.offset);
-        this.#goal = { node: selection.focusNode, offset: selection.focusOffset, x, scroll };
+        this.#goal = { at: moved, x: (x - middle) / this.scale };
         to.node.parentElement?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
     }
 

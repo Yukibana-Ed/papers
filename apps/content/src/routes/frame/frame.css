@@ -20,6 +20,8 @@ body {
     outline: none;
     scrollbar-width: thin;
     scrollbar-color: var(--yk-line-strong) transparent;
+    /* One finger scrolls; two fingers are the viewer's (they zoom the pages, not the browser the whole app). */
+    touch-action: pan-x pan-y;
 }
 
 .pv-pages {
