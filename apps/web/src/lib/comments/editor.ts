@@ -188,6 +188,33 @@ function crossCodeEdge(dir: -1 | 1): Command {
     };
 }
 
+/** Left or right one character, onto an edge of inline code: the caret stops on the side of the edge it came from, in
+ *  the code when it moved through code and beside it when it did not. The next press then crosses the edge
+ *  (`crossCodeEdge`), so both places at every edge are reached from either direction. Returns false, leaving the move
+ *  to the browser, when the character passed over is not text or the place reached is not an edge. */
+function stepOntoCodeEdge(dir: -1 | 1): Command {
+    const code = M['code'];
+    return (state, dispatch) => {
+        const { $from, empty } = state.selection;
+        if (!empty || !$from.parent.inlineContent || $from.parent.type.spec.code) return false;
+        const passed = dir === -1 ? $from.nodeBefore : $from.nodeAfter;
+        if (passed === null || passed.text === undefined) return false;
+        const chars = [...new Intl.Segmenter().segment(passed.text)];
+        const length = (dir === -1 ? chars.at(-1) : chars[0])?.segment.length ?? 1;
+        const $to = state.doc.resolve($from.pos + dir * length);
+        const before = $to.nodeBefore !== null && code.isInSet($to.nodeBefore.marks) !== undefined;
+        const after = $to.nodeAfter !== null && code.isInSet($to.nodeAfter.marks) !== undefined;
+        if (before === after) return false;
+        if (dispatch) {
+            const inside = code.isInSet(passed.marks) !== undefined;
+            const tr = state.tr.setSelection(TextSelection.create(state.doc, $to.pos));
+            const marks = code.removeFromSet($to.marks());
+            dispatch(tr.setStoredMarks(inside ? code.create().addToSet(marks) : marks).scrollIntoView());
+        }
+        return true;
+    };
+}
+
 /** Draws the caret at an edge of inline code, where the browser's own caret looks the same on both sides: inside the
  *  code when typing would add to it, outside when it would not. While it is drawn the editor has the class
  *  `cm-own-caret`, which hides the browser's caret. */
@@ -388,8 +415,8 @@ export function createRichEditor(host: HTMLElement, o: RichEditorOptions): Edito
                 Enter: chainCommands(enterCode, splitListItem(S['list_item'])),
                 'Shift-Enter': chainCommands(enterCode, lineBreak),
                 Backspace: chainCommands(unwrapCode, backspaceBesideCode),
-                ArrowLeft: chainCommands(crossCodeEdge(-1), leaveCodeBlock(-1, 'char')),
-                ArrowRight: chainCommands(crossCodeEdge(1), leaveCodeBlock(1, 'char')),
+                ArrowLeft: chainCommands(crossCodeEdge(-1), stepOntoCodeEdge(-1), leaveCodeBlock(-1, 'char')),
+                ArrowRight: chainCommands(crossCodeEdge(1), stepOntoCodeEdge(1), leaveCodeBlock(1, 'char')),
                 ArrowUp: leaveCodeBlock(-1, 'line'),
                 ArrowDown: leaveCodeBlock(1, 'line'),
                 Tab: chainCommands(indentCode(1), sinkListItem(S['list_item'])),

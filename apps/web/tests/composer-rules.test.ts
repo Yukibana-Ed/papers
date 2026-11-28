@@ -153,4 +153,17 @@ describe('the rich editor', () => {
         expect(typeInto('a `b`←').html()).toMatch(/<code>b<span class="cm-caret[^>]*><\/span><\/code>/);
         expect(typeInto('a `b` c').html()).not.toContain('cm-caret');
     });
+
+    it('stops at both places of each edge of inline code, moving left and moving right', () => {
+        // Leftwards from after the code: beside its end, in its end, in its start, beside its start.
+        expect(typeInto('a `bc` d←←x').markdown()).toBe('a `bc`x d');
+        expect(typeInto('a `bc` d←←←x').markdown()).toBe('a `bcx` d');
+        expect(typeInto('a `bc` d←←←←←x').markdown()).toBe('a `xbc` d');
+        expect(typeInto('a `bc` d←←←←←←x').markdown()).toBe('a x`bc` d');
+        // Rightwards from before it, the same places in the other order.
+        expect(typeInto('a `bc` d←←←←←←←→x').markdown()).toBe('a x`bc` d');
+        expect(typeInto('a `bc` d←←←←←←←→→x').markdown()).toBe('a `xbc` d');
+        expect(typeInto('a `bc` d←←←←←←←→→→→x').markdown()).toBe('a `bcx` d');
+        expect(typeInto('a `bc` d←←←←←←←→→→→→x').markdown()).toBe('a `bc`x d');
+    });
 });
