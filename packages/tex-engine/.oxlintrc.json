@@ -1,0 +1,8 @@
+{
+  "$schema": "../../node_modules/oxlint/configuration_schema.json",
+  "extends": ["../../oxlint.strict.json"],
+  "rules": {
+    // The names Emscripten gives two of the module's exports.
+    "eslint/no-underscore-dangle": ["error", { "allow": ["_initialize", "_emscripten_stack_restore"] }]
+  }
+}

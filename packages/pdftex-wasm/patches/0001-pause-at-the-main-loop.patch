@@ -1,0 +1,47 @@
+--- a/texk/web2c/pdftexdir/pdftex.web
++++ b/texk/web2c/pdftexdir/pdftex.web
+@@ -19154,8 +19154,9 @@
+   |goto done|@>;
+ @<Initialize variables as |pdf_ship_out| begins@>;
+ if type(p)=vlist_node then pdf_vlist_out@+else pdf_hlist_out;
+-if shipping_page then
+-    incr(total_pages);
++if shipping_page then begin
++    incr(total_pages); inc_page(total_pages);
++end;
+ cur_s:=-1;
+ @<Finish shipping@>;
+ done:
+@@ -28748,8 +28749,10 @@
+   append_normal_space,exit;
+ var@!t:integer; {general-purpose temporary variable}
+ tmp_k1, tmp_k2: pointer; {for testing whether an auto kern should be inserted}
+-begin if every_job<>null then begin_token_list(every_job,every_job_text);
+-big_switch: get_x_token;@/
++begin if inc_resumed then goto big_switch; {a paused run goes on}
++if every_job<>null then begin_token_list(every_job,every_job_text);
++big_switch: inc_tick; {the host may pause the run here: nothing of it is on the stack}
++get_x_token;@/
+ reswitch: @<Give diagnostic information, if requested@>;
+ case abs(mode)+cur_cmd of
+ hmode+letter,hmode+other_char,hmode+char_given: goto main_loop;
+--- a/texk/web2c/pdftexdir/pdftex.defines
++++ b/texk/web2c/pdftexdir/pdftex.defines
+@@ -146,5 +146,10 @@
+ { functions from pdftex.web (thanks Taco for the trick) }
+ @define function autoexpandvf();
+ 
++{ functions from inc.c }
++@define function incresumed;
++@define procedure inctick;
++@define procedure incpage();
++
+ { end of pdftex.defines }
+ { vim: set syntax=web : }
+--- a/texk/web2c/pdftexdir/pdftex.h
++++ b/texk/web2c/pdftexdir/pdftex.h
+@@ -62,3 +62,4 @@
+ #define pdfassert   assert
+ 
+ #include <pdftexdir/ptexlib.h>
++#include <pdftexdir/inc.h>

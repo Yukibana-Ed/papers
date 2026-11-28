@@ -1,0 +1,109 @@
+# Builds the pdfTeX the preview runs: pdfTeX and BibTeX of TeX Live's sources as WebAssembly modules that the host can
+# pause and go on with, with the patches of packages/pdftex-wasm. See that folder's README.md.
+#
+# On a pull request that touches the recipe: two builds on fresh runners, which must give the same archive, byte for
+# byte. Nothing is published. By hand on main with `release`: the same, and then the
+# archive becomes the asset of the release `pdftex-wasm-<pdfTeX version>-yb.<build>`, which the app depends on by URL
+# and hash. A release is never replaced: a new build is a new `build` number in upstream.json.
+#
+# No secrets. Only the release job can write, and only releases.
+name: pdfTeX engine
+
+on:
+  pull_request:
+    paths:
+      - packages/pdftex-wasm/**
+      - .github/workflows/pdftex-wasm.yml
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Publish the archive as a release (main only)
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (${{ matrix.copy }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        copy: [first, second]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm and Node.js
+        uses: ./.github/actions/setup
+
+      # What the build runs with: the pass that adds write tracking, and the host library whose tests check the modules.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --fetch-timeout 100000 --filter @yukibana/papers-pdftex-wasm --filter @yukibana/papers-tex-engine
+
+      # No cache: a build is rare, and a clean one keeps a cache out of what the release is trusted for.
+      - name: Build
+        run: pnpm --filter @yukibana/papers-pdftex-wasm exec ./build.sh "$RUNNER_TEMP/pdftex-wasm" "$RUNNER_TEMP/pdftex-wasm-out"
+
+      - name: Keep the archive
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pdftex-wasm-${{ matrix.copy }}
+          path: ${{ runner.temp }}/pdftex-wasm-out
+          if-no-files-found: error
+          retention-days: 7
+
+  same:
+    name: Both builds are the same
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Fetch both archives
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: pdftex-wasm-*
+          path: builds
+
+      - name: Compare
+        run: |
+          sha256sum builds/pdftex-wasm-first/*.tgz builds/pdftex-wasm-second/*.tgz
+          diff builds/pdftex-wasm-first/BUILDINFO.json builds/pdftex-wasm-second/BUILDINFO.json
+          cmp builds/pdftex-wasm-first/*.tgz builds/pdftex-wasm-second/*.tgz
+
+  release:
+    name: Release
+    needs: same
+    if: github.event_name == 'workflow_dispatch' && inputs.release && github.repository == 'Yukibana-Ed/papers' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Fetch the archive
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pdftex-wasm-first
+          path: build
+
+      # Fails if the release exists: a published build is not replaced.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          archive="$(basename build/*.tgz)"
+          tag="${archive%.tgz}"
+          gh release create "$tag" build/*.tgz build/BUILDINFO.json \
+            --target "$GITHUB_SHA" --latest=false \
+            --title "pdfTeX engine ${tag#pdftex-wasm-}" \
+            --notes "pdfTeX and BibTeX built from TeX Live's sources with the patches of packages/pdftex-wasm at this commit. BUILDINFO.json names the source archive, the tools and each file's SHA-256."
