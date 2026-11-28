@@ -147,4 +147,10 @@ describe('the rich editor', () => {
         expect(typeInto('a `bc`⌫x').markdown()).toBe('a `b`x');
         expect(typeInto('a `bc`←\rx').html()).toBe('<p>a <code>bc</code><br>x</p>');
     });
+
+    it('draws the caret outside inline code when typing would be plain, inside when it would add to the code', () => {
+        expect(typeInto('a `b`').html()).toMatch(/<code>b<\/code><span class="cm-caret/);
+        expect(typeInto('a `b`←').html()).toMatch(/<code>b<span class="cm-caret[^>]*><\/span><\/code>/);
+        expect(typeInto('a `b` c').html()).not.toContain('cm-caret');
+    });
 });
