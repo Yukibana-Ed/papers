@@ -912,10 +912,11 @@ export class Viewer {
         else selection.setBaseAndExtent(end.node, end.offset, start.node, start.offset);
     };
 
-    /** Where the selection's moving end was put by the last step by a line, and the horizontal place (in the viewport,
-     *  as it was scrolled then) the steps started from: while the end is still there, the next step by a line aims at
-     *  the same place, so that a run of steps keeps its column over short lines. */
-    #goal: { node: Node | null; offset: number; x: number; scroll: number } | null = null;
+    /** Where in the text (as `flatText` counts) the selection's moving end was put by the last step by a line, and the
+     *  horizontal place the steps started from, as a distance from the middle of the pages in page units (so that it
+     *  holds across scrolling, zooming and a page drawn anew): while the end is still there, the next step by a line
+     *  aims at the same place, so that a run of steps keeps its column over short lines. */
+    #goal: { at: number; x: number } | null = null;
 
     /** Moves the selection's moving end to the typeset line below it (`down`) or above it, in the same column of the
      *  page, to the place in that line nearest to where the end was horizontally when the steps by a line began. Past
@@ -928,11 +929,12 @@ export class Viewer {
         const anchor = flat.position(selection.anchorNode, selection.anchorOffset);
         const focus = flat.position(selection.focusNode, selection.focusOffset);
         if (anchor === null || focus === null) return;
-        const scroll = document.scrollingElement?.scrollLeft ?? 0;
-        const kept = this.#goal !== null && this.#goal.node === selection.focusNode && this.#goal.offset === selection.focusOffset ? this.#goal : null;
+        const column = this.#column.getBoundingClientRect();
+        const middle = column.left + column.width / 2;
+        const kept = this.#goal !== null && this.#goal.at === focus ? this.#goal : null;
         let at = flat.point(focus, focus > anchor);
         let moved = focus;
-        let x: number | null = kept === null ? null : kept.x + kept.scroll - scroll;
+        let x: number | null = kept === null ? null : middle + kept.x * this.scale;
         // A second step only where the first lands on the other end.
         for (let step = 0; step < 2 && at !== null; step++) {
             const run = at.node.parentElement;
@@ -969,7 +971,7 @@ export class Viewer {
         const from = flat.point(anchor, anchor > moved);
         if (to === null || from === null || x === null) return;
         selection.setBaseAndExtent(from.node, from.offset, to.node, to.offset);
-        this.#goal = { node: selection.focusNode, offset: selection.focusOffset, x, scroll };
+        this.#goal = { at: moved, x: (x - middle) / this.scale };
         to.node.parentElement?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
     }
 
