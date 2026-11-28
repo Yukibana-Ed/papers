@@ -28,9 +28,12 @@ test.describe('zooming in the preview', () => {
                 .evaluate(el => Number(getComputedStyle(el).getPropertyValue('--scale-factor')));
         // A line some way down and to the right of the page's middle: the pages have to scroll both ways to keep it.
         const run = frame.locator('.textLayer span[data-run]', { hasText: 'where most of them' }).first();
-        /** Where the pointer is in the run, as fractions of the run's box. */
+        /** Where the pointer is in the run, as fractions of the run's box. The run is looked up in the page each time,
+         *  in one go: a page drawn anew swaps its text in, and a run found a moment earlier may have left the page. */
         const held = (at: { x: number; y: number }): Promise<{ fx: number; fy: number }> =>
-            run.evaluate((el, p) => {
+            frame.locator('body').evaluate((body, p) => {
+                const el = [...body.querySelectorAll('.textLayer span[data-run]')].find(span => span.textContent.includes('where most of them'));
+                if (el === undefined) throw new Error('no run');
                 const r = el.getBoundingClientRect();
                 return { fx: (p.x - r.left) / r.width, fy: (p.y - r.top) / r.height };
             }, at);
@@ -102,9 +105,10 @@ test.describe('zooming in the preview', () => {
                     .locator('.pv-page')
                     .first()
                     .evaluate(el => Number(getComputedStyle(el).getPropertyValue('--scale-factor')));
-            const run = frame.locator('.textLayer span[data-run]', { hasText: 'where most of them' }).first();
-            const box = async (): Promise<{ x: number; y: number; width: number; height: number }> =>
-                run.evaluate(el => {
+            const box = (): Promise<{ x: number; y: number; width: number; height: number }> =>
+                frame.locator('body').evaluate(body => {
+                    const el = [...body.querySelectorAll('.textLayer span[data-run]')].find(span => span.textContent.includes('where most of them'));
+                    if (el === undefined) throw new Error('no run');
                     const r = el.getBoundingClientRect();
                     return { x: r.left, y: r.top, width: r.width, height: r.height };
                 });
