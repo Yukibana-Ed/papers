@@ -47,9 +47,9 @@ catalog:
   lib0: 0.2.120
   markdown-it: 14.3.3
   monaco-editor: 0.57.0
-  oxfmt: 0.75.0
-  oxlint: 1.90.0
-  oxlint-tsgolint: 7.0.2005
+  oxfmt: 0.78.0
+  oxlint: 1.93.0
+  oxlint-tsgolint: 7.0.2007
   pdfjs-dist: 6.5.438
   prosemirror-commands: 1.7.2
   prosemirror-history: 1.5.1
