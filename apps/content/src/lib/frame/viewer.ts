@@ -144,6 +144,10 @@ export class Viewer {
         this.#resize.observe(scroller);
         // Not passive: the browser would zoom the whole frame instead.
         scroller.addEventListener('wheel', this.#onWheel, { passive: false });
+        scroller.addEventListener('touchstart', this.#onTouch, { passive: true });
+        scroller.addEventListener('touchmove', this.#onTouch, { passive: false });
+        scroller.addEventListener('touchend', this.#onTouch, { passive: true });
+        scroller.addEventListener('touchcancel', this.#onTouch, { passive: true });
         scroller.addEventListener('gesturestart', this.#onGesture);
         scroller.addEventListener('gesturechange', this.#onGesture);
         scroller.addEventListener('pointerdown', this.#onPointerDown);
@@ -403,6 +407,34 @@ export class Viewer {
         if (typeof factor === 'number' && factor > 0 && typeof x === 'number' && typeof y === 'number') this.#zoomAt(this.#pinchFrom * factor, x, y);
     };
 
+    /** Two fingers on a touch screen: the zoom they began at, how far apart they were then, and where their middle
+     *  was at the last move. */
+    #touch: { zoom: number; apart: number; x: number; y: number } | null = null;
+
+    /** Two fingers on a touch screen zoom by how far they move apart and pan by how far their middle moves, at once:
+     *  what was between the fingers stays between them. One finger scrolls, as the browser does it. */
+    #onTouch = (e: TouchEvent): void => {
+        const a = e.touches[0];
+        const b = e.touches[1];
+        if (e.touches.length !== 2 || a === undefined || b === undefined) {
+            if (this.#touch !== null) this.#scheduleRender(120);
+            this.#touch = null;
+            return;
+        }
+        const apart = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+        const x = (a.clientX + b.clientX) / 2;
+        const y = (a.clientY + b.clientY) / 2;
+        if (e.type !== 'touchmove' || this.#touch === null) {
+            this.#touch = apart > 0 ? { zoom: this.#zoom, apart, x, y } : null;
+            return;
+        }
+        if (e.cancelable) e.preventDefault();
+        this.#scroller.scrollBy({ left: this.#touch.x - x, top: this.#touch.y - y, behavior: 'instant' });
+        this.#touch.x = x;
+        this.#touch.y = y;
+        this.#zoomAt((this.#touch.zoom * apart) / this.#touch.apart, x, y);
+    };
+
     /** Lays the pages out at the current scale; `before` is the scale they were laid out at. What is under the
      *  viewport point `at` stays there across a change of scale; without `at`, what is in the middle of the view,
      *  vertically. */
@@ -450,7 +482,12 @@ export class Viewer {
 
     #scheduleRender(delay: number): void {
         clearTimeout(this.#renderTimer);
-        this.#renderTimer = window.setTimeout(() => void this.#renderVisible(), delay);
+        this.#renderTimer = window.setTimeout(() => {
+            // Not under two fingers: a page drawn anew replaces the text they are on, and a touch whose target has
+            // left the page is no longer told of here. The pages are drawn when the fingers lift.
+            if (this.#touch !== null) this.#scheduleRender(delay);
+            else void this.#renderVisible();
+        }, delay);
     }
 
     async #renderVisible(): Promise<void> {

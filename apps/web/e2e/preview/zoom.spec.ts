@@ -89,4 +89,55 @@ test.describe('zooming in the preview', () => {
         await page.keyboard.press('Control+Equal');
         await expect.poll(percent).toBeGreaterThan(less);
     });
+
+    test.describe('on a touch screen', () => {
+        test.use({ hasTouch: true });
+
+        test('two fingers zoom by moving apart and pan by moving together, what is between them staying there', async ({ page }) => {
+            const frame = await preview(page);
+            const iframe = await page.locator('iframe.pv-frame').boundingBox();
+            if (iframe === null) throw new Error('no frame');
+            const scale = (): Promise<number> =>
+                frame
+                    .locator('.pv-page')
+                    .first()
+                    .evaluate(el => Number(getComputedStyle(el).getPropertyValue('--scale-factor')));
+            const run = frame.locator('.textLayer span[data-run]', { hasText: 'where most of them' }).first();
+            const box = async (): Promise<{ x: number; y: number; width: number; height: number }> =>
+                run.evaluate(el => {
+                    const r = el.getBoundingClientRect();
+                    return { x: r.left, y: r.top, width: r.width, height: r.height };
+                });
+            const cdp = await page.context().newCDPSession(page);
+            /** The two fingers, `apart` from one another across, their middle at (`x`, `y`) in the frame. */
+            const fingers = (type: 'touchStart' | 'touchMove', x: number, y: number, apart: number): Promise<unknown> =>
+                cdp.send('Input.dispatchTouchEvent', {
+                    type,
+                    touchPoints: [
+                        { x: iframe.x + x - apart / 2, y: iframe.y + y, id: 1 },
+                        { x: iframe.x + x + apart / 2, y: iframe.y + y, id: 2 },
+                    ],
+                });
+            const from = await scale();
+            const b = await box();
+            const mid = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+            // Apart to twice the distance, in steps: twice the scale, the line's middle still between the fingers.
+            await fingers('touchStart', mid.x, mid.y, 80);
+            for (let i = 1; i <= 16; i++) await fingers('touchMove', mid.x, mid.y, 80 + 5 * i);
+            await expect.poll(scale).toBeCloseTo(from * 2, 2);
+            let now = await box();
+            expect(now.width).toBeGreaterThan(b.width * 1.9);
+            expect(Math.abs(now.y + now.height / 2 - mid.y)).toBeLessThan(b.height);
+            // Zoomed, the pages scroll across: the fingers moved together take what is between them along.
+            const held = (mid.x - now.x) / now.width;
+            for (let i = 1; i <= 10; i++) await fingers('touchMove', mid.x - 4 * i, mid.y - 6 * i, 160);
+            await expect.poll(async () => Math.abs((await box()).y + (await box()).height / 2 - (mid.y - 60))).toBeLessThan(b.height);
+            now = await box();
+            expect(Math.abs(now.x + held * now.width - (mid.x - 40))).toBeLessThan(3);
+            expect(await scale()).toBeCloseTo(from * 2, 2);
+            await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+            // The browser has not zoomed the app or the frame.
+            expect(await page.evaluate(() => window.visualViewport?.scale ?? 1)).toBe(1);
+        });
+    });
 });
