@@ -80,3 +80,37 @@ export function lineOf(boxes: readonly { left: number; right: number; top: numbe
     while (to < level.length - 1 && (level[to + 1]?.b.left ?? Infinity) - edge < 0.8 * height) edge = Math.max(edge, level[++to]?.b.right ?? edge);
     return level.slice(from, to + 1).map(r => r.i);
 }
+
+/** The typeset line next to the line whose box is `from`, below it when `below` and else above, in the same column:
+ *  the indices in `boxes` (text runs' boxes, in the same units) of the runs of that line, as `lineOf` gives them. The
+ *  line is the nearest one whose runs lie wholly past `from`'s middle and share some of its width; of the lines
+ *  equally near (a wide line over two columns), the one nearest to `x`. Empty when there is no such line. */
+export function lineBeside(
+    boxes: readonly { left: number; right: number; top: number; bottom: number }[],
+    from: { left: number; right: number; top: number; bottom: number },
+    x: number,
+    below: boolean,
+): number[] {
+    const middle = (from.top + from.bottom) / 2;
+    let at = -1;
+    let away = Infinity;
+    let aside = Infinity;
+    boxes.forEach((b, i) => {
+        if (b.right <= from.left || b.left >= from.right) return;
+        const centre = (b.top + b.bottom) / 2;
+        // Past the line: not a part of it (a raised mark, an index), nor a line it overlaps.
+        if (below ? b.top < middle || centre <= from.bottom : b.bottom > middle || centre >= from.top) return;
+        const d = below ? centre - from.bottom : from.top - centre;
+        const height = b.bottom - b.top;
+        const side = x < b.left ? b.left - x : x > b.right ? x - b.right : 0;
+        // Runs of one line are as near as each other, give or take their heights.
+        if (d < away - height / 2 || (d < away + height / 2 && side < aside)) {
+            away = Math.min(away, d);
+            aside = side;
+            at = i;
+        }
+    });
+    const target = boxes[at];
+    if (target === undefined) return [];
+    return lineOf(boxes, Math.min(Math.max(x, target.left), target.right), (target.top + target.bottom) / 2);
+}

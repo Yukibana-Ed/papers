@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lineOf, mergeLineRects } from '#lib/rects.ts';
+import { lineBeside, lineOf, mergeLineRects } from '#lib/rects.ts';
 
 describe('mergeLineRects', () => {
     it('merges the runs of one line into one rectangle spanning them', () => {
@@ -81,5 +81,46 @@ describe('lineOf', () => {
         expect(lineOf(boxes, 70, 29)).toEqual([4]);
         expect(lineOf(boxes, 108, 29)).toEqual([]);
         expect(lineOf(boxes, 50, 60)).toEqual([]);
+    });
+});
+
+describe('lineBeside', () => {
+    const run = (left: number, top: number, width: number, height = 10): { left: number; right: number; top: number; bottom: number } => ({
+        left,
+        right: left + width,
+        top,
+        bottom: top + height,
+    });
+    // A title over two columns; in the left one three lines (the second in two runs with a raised mark after it), in
+    // the right one two.
+    const boxes = [run(0, -20, 220), run(0, 0, 100), run(0, 12, 40), run(43, 12, 57), run(100.5, 10, 3, 6), run(0, 24, 60), run(120, 0, 100), run(120, 12, 100)];
+    const box = (line: readonly number[]): { left: number; right: number; top: number; bottom: number } => {
+        const of = line.map(i => boxes[i]).filter(b => b !== undefined);
+        return {
+            left: Math.min(...of.map(b => b.left)),
+            right: Math.max(...of.map(b => b.right)),
+            top: Math.min(...of.map(b => b.top)),
+            bottom: Math.max(...of.map(b => b.bottom)),
+        };
+    };
+
+    it('is the next line of the same column, whole', () => {
+        expect(lineBeside(boxes, box([1]), 90, true)).toEqual([2, 3, 4]);
+        expect(lineBeside(boxes, box([2, 3, 4]), 90, true)).toEqual([5]);
+        expect(lineBeside(boxes, box([6]), 130, true)).toEqual([7]);
+        expect(lineBeside(boxes, box([5]), 10, false)).toEqual([2, 3, 4]);
+        expect(lineBeside(boxes, box([2, 3, 4]), 10, false)).toEqual([1]);
+    });
+
+    it('goes from a line over two columns into the column under x', () => {
+        expect(lineBeside(boxes, box([0]), 30, true)).toEqual([1]);
+        expect(lineBeside(boxes, box([0]), 180, true)).toEqual([6]);
+        expect(lineBeside(boxes, box([6]), 180, false)).toEqual([0]);
+    });
+
+    it('is empty past the last line and before the first', () => {
+        expect(lineBeside(boxes, box([5]), 10, true)).toEqual([]);
+        expect(lineBeside(boxes, box([7]), 150, true)).toEqual([]);
+        expect(lineBeside(boxes, box([0]), 10, false)).toEqual([]);
     });
 });

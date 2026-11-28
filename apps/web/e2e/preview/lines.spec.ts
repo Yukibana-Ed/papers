@@ -100,4 +100,55 @@ test.describe('three clicks in the preview', () => {
         for (const r of got.rects) expect(Math.abs(r.y + r.height / 2 - (box.y + box.height / 2))).toBeLessThan(box.height);
         expect(Math.max(...got.rects.map(r => r.x + r.width)) - Math.min(...got.rects.map(r => r.x))).toBeLessThan(pageBox.width / 2);
     });
+
+    test('Shift with Down and Up moves the end of the selection line by line, in its column and at its place across', async ({ page }) => {
+        const frame = await preview(page);
+        const iframe = await page.locator('iframe.pv-frame').boundingBox();
+        if (iframe === null) throw new Error('no frame');
+        const pageWidth = await frame
+            .locator('.pv-page')
+            .first()
+            .evaluate(el => el.getBoundingClientRect().width);
+        const run = frame.locator('.textLayer span[data-run]', { hasText: 'Paragraph 2' }).first();
+        const box = await run.evaluate(el => {
+            const r = el.getBoundingClientRect();
+            return { x: r.left, y: r.top, width: r.width, height: r.height };
+        });
+        await page.mouse.dblclick(iframe.x + box.x + box.width / 2, iframe.y + box.y + box.height / 2);
+        await expect.poll(async () => (await selected(frame)).text.length).toBeGreaterThan(0);
+        const word = await selected(frame);
+        const end = Math.max(...word.rects.map(r => r.x + r.width));
+        /** The lines the selection is drawn on (the middles of its rectangles, one per line), top to bottom. */
+        const lines = (rects: Box[]): number[] => {
+            const out: number[] = [];
+            for (const y of rects.map(r => r.y + r.height / 2).toSorted((a, b) => a - b)) if (out.length === 0 || y - (out.at(-1) ?? 0) > box.height / 2) out.push(y);
+            return out;
+        };
+        /** The right edge of the selection on its last line, or the left edge on its first. */
+        const edge = (rects: Box[], last: boolean): number => {
+            const ys = lines(rects);
+            const y = last ? ys.at(-1) : ys[0];
+            const on = rects.filter(r => Math.abs(r.y + r.height / 2 - (y ?? 0)) <= box.height / 2);
+            return last ? Math.max(...on.map(r => r.x + r.width)) : Math.min(...on.map(r => r.x));
+        };
+        for (const count of [2, 3, 4]) {
+            await page.keyboard.press('Shift+ArrowDown');
+            await expect.poll(async () => lines((await selected(frame)).rects).length, { message: `${count} lines` }).toBe(count);
+            const got = await selected(frame);
+            expect(got.text.startsWith(word.text)).toBe(true);
+            // Where the word ended, give or take a character, and still in the word's column.
+            expect(Math.abs(edge(got.rects, true) - end), `${count} lines: ${got.text}`).toBeLessThan(8);
+            expect(Math.max(...got.rects.map(r => r.x + r.width)) - Math.min(...got.rects.map(r => r.x))).toBeLessThan(pageWidth / 2);
+        }
+        // The source follows.
+        await expect.poll(async () => (await state(page)).selection.length).toBeGreaterThan(word.text.length + 100);
+        for (let i = 0; i < 3; i++) await page.keyboard.press('Shift+ArrowUp');
+        await expect.poll(async () => (await selected(frame)).text).toBe(word.text);
+        // Up past the line the selection started on: it turns over, its end in the line above at the same place.
+        await page.keyboard.press('Shift+ArrowUp');
+        await expect.poll(async () => lines((await selected(frame)).rects).length).toBe(2);
+        const above = await selected(frame);
+        expect(above.text.endsWith(word.text)).toBe(false);
+        expect(Math.abs(edge(above.rects, false) - end), above.text).toBeLessThan(8);
+    });
 });
