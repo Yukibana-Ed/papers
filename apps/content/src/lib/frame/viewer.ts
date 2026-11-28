@@ -23,7 +23,7 @@ interface CharAt {
     readonly x: number;
     readonly y: number;
 }
-import { lineBeside, lineOf, mergeLineRects, type Rect } from '#lib/rects.ts';
+import { lineBeside, lineOf, mergeLineRects, nearestBox, type Rect } from '#lib/rects.ts';
 import type { PageText, SourceMap } from '#lib/sourcemap.ts';
 import type { PageBox } from '@yukibana/papers-tex';
 
@@ -739,8 +739,16 @@ export class Viewer {
             text.classList.add('selecting');
             this.#dragging = true;
             this.#prevRange = null;
+            this.#dragAt = null;
+            const move = (at: PointerEvent): void => {
+                const over = at.target instanceof Element ? at.target : null;
+                this.#dragAt = { x: at.clientX, y: at.clientY, onText: over?.closest('.textLayer span[data-run]') != null };
+            };
+            window.addEventListener('pointermove', move);
             const up = (): void => {
                 this.#dragging = false;
+                this.#dragAt = null;
+                window.removeEventListener('pointermove', move);
                 for (const p of this.#pages) {
                     p.text.classList.remove('selecting');
                     const end = p.text.querySelector<HTMLElement>(':scope .endOfContent');
@@ -759,14 +767,51 @@ export class Viewer {
 
     #dragging = false;
     #prevRange: Range | null = null;
+    /** Where the pointer was last seen during the drag, and whether over a text run. */
+    #dragAt: { x: number; y: number; onText: boolean } | null = null;
+
+    /** The place in the text a pointer at the viewport point (`x`, `y`), over no text run, means as the end of a
+     *  selection: in the page there (or the nearest), in the line of the run beside or nearest to the point
+     *  (`nearestBox`), the place nearest to `x`. Null where no page with text is. */
+    #placeNear(x: number, y: number): { node: Text; offset: number } | null {
+        let pageEl: HTMLElement | null = null;
+        let away = Infinity;
+        for (const p of this.#pages) {
+            const r = p.el.getBoundingClientRect();
+            const d = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
+            if (d < away) {
+                away = d;
+                pageEl = p.el;
+            }
+        }
+        if (pageEl === null) return null;
+        const runs = textRuns(pageEl);
+        const boxes = runs.map(r => r.box);
+        const near = boxes[nearestBox(boxes, x, y, pageEl.getBoundingClientRect().width / 4)];
+        if (near === undefined) return null;
+        const line = lineOf(boxes, Math.min(Math.max(x, near.left), near.right), (near.top + near.bottom) / 2)
+            .map(i => runs[i])
+            .filter(r => r !== undefined);
+        return line.length === 0 ? null : pointAt(line, x);
+    }
 
     /** While dragging, keeps the text layer's end-of-content block right after the text the selection ends in, as
      *  PDF.js's own viewer does: the pointer over a gap between text runs then extends the selection to the nearest run
-     *  instead of to the end of the page. */
+     *  instead of to the end of the page. That does not hold everywhere (between two runs of a line that change font,
+     *  above a page's first line), so with the pointer over no run the selection's end is put where `#placeNear`
+     *  says, whatever the browser made of it. */
     #followSelectionEnd = (): void => {
         if (!this.#dragging) return;
         const selection = document.getSelection();
         if (selection === null || selection.rangeCount === 0) return;
+        if (this.#dragAt !== null && !this.#dragAt.onText && selection.anchorNode !== null && this.#column.contains(selection.anchorNode)) {
+            const to = this.#placeNear(this.#dragAt.x, this.#dragAt.y);
+            // Setting it tells of the change again: the second time round it is in place.
+            if (to !== null && (selection.focusNode !== to.node || selection.focusOffset !== to.offset)) {
+                selection.extend(to.node, to.offset);
+                return;
+            }
+        }
         const range = selection.getRangeAt(0);
         const prev = this.#prevRange;
         const modifyStart = prev !== null && (range.compareBoundaryPoints(Range.END_TO_END, prev) === 0 || range.compareBoundaryPoints(Range.START_TO_END, prev) === 0);
