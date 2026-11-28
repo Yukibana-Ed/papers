@@ -233,6 +233,9 @@ catalogs:
     '@yukibana/papers-tex-engine':
       specifier: workspace:*
       version: workspace:*
+    '@yukibana/pdftex-wasm':
+      specifier: https://github.com/Yukibana-Ed/papers/releases/download/pdftex-wasm-1.40.29-yb.1/pdftex-wasm-1.40.29-yb.1.tgz
+      version: https://github.com/Yukibana-Ed/papers/releases/download/pdftex-wasm-1.40.29-yb.1/pdftex-wasm-1.40.29-yb.1.tgz
     binaryen:
       specifier: 132.0.0
       version: 132.0.0
@@ -393,6 +396,9 @@ importers:
       '@yukibana/design':
         specifier: 'catalog:'
         version: https://codeload.github.com/Yukibana-Ed/Yukibana/tar.gz/d787bc4ae95999ec5cbc48820318753b59fe4fc6#path:packages/design
+      '@yukibana/pdftex-wasm':
+        specifier: 'catalog:'
+        version: https://github.com/Yukibana-Ed/papers/releases/download/pdftex-wasm-1.40.29-yb.1/pdftex-wasm-1.40.29-yb.1.tgz
       fast-check:
         specifier: 'catalog:'
         version: 4.10.2
@@ -590,6 +596,12 @@ importers:
       '@yukibana/papers-templates':
         specifier: 'catalog:'
         version: link:../templates
+      '@yukibana/papers-tex-engine':
+        specifier: 'catalog:'
+        version: link:../tex-engine
+      '@yukibana/pdftex-wasm':
+        specifier: 'catalog:'
+        version: https://github.com/Yukibana-Ed/papers/releases/download/pdftex-wasm-1.40.29-yb.1/pdftex-wasm-1.40.29-yb.1.tgz
       esbuild:
         specifier: 'catalog:'
         version: 0.28.2
@@ -764,6 +776,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
+      '@yukibana/pdftex-wasm':
+        specifier: 'catalog:'
+        version: https://github.com/Yukibana-Ed/papers/releases/download/pdftex-wasm-1.40.29-yb.1/pdftex-wasm-1.40.29-yb.1.tgz
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -1954,6 +1969,10 @@ packages:
   '@yukibana/design@https://codeload.github.com/Yukibana-Ed/Yukibana/tar.gz/d787bc4ae95999ec5cbc48820318753b59fe4fc6#path:packages/design':
     resolution: {gitHosted: true, integrity: sha512-pJrrDBWg4fYdoJ8C1jYAqHVKTv2hOg8GN+rbHqy1WO6BnMEMqSbHtsPBmW+FDYBO+8YHv3ezhRjiEvXzrnSy1A==, path: packages/design, tarball: https://codeload.github.com/Yukibana-Ed/Yukibana/tar.gz/d787bc4ae95999ec5cbc48820318753b59fe4fc6}
     version: 0.0.0-dev
+
+  '@yukibana/pdftex-wasm@https://github.com/Yukibana-Ed/papers/releases/download/pdftex-wasm-1.40.29-yb.1/pdftex-wasm-1.40.29-yb.1.tgz':
+    resolution: {integrity: sha512-0MqJQv+DTeEmRLpF9ZjIQR5tUpVp7vR1tAH6lft0YgZ739BPAmf/Ugs0gRADUnba7ySd0cr7eUBckYdXf+zxfA==, tarball: https://github.com/Yukibana-Ed/papers/releases/download/pdftex-wasm-1.40.29-yb.1/pdftex-wasm-1.40.29-yb.1.tgz}
+    version: 1.40.29-yb.1
 
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
@@ -3953,6 +3972,8 @@ snapshots:
   '@vitest/spy@5.0.5': {}
 
   '@yukibana/design@https://codeload.github.com/Yukibana-Ed/Yukibana/tar.gz/d787bc4ae95999ec5cbc48820318753b59fe4fc6#path:packages/design': {}
+
+  '@yukibana/pdftex-wasm@https://github.com/Yukibana-Ed/papers/releases/download/pdftex-wasm-1.40.29-yb.1/pdftex-wasm-1.40.29-yb.1.tgz': {}
 
   accepts@2.0.0:
     dependencies:
