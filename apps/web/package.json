@@ -52,6 +52,7 @@
     "prosemirror-state": "catalog:",
     "prosemirror-transform": "catalog:",
     "prosemirror-view": "catalog:",
+    "shiki": "catalog:",
     "y-protocols": "catalog:",
     "yjs": "catalog:"
   }
