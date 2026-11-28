@@ -1,11 +1,15 @@
 # Fills the content origin's R2 bucket (yukibana-papers-assets) with what /engine/* and /tl/* serve:
 #   engine/<version>/<file>   texlyre-busytex's release files for the version in the lockfile, brotli-compressed
-#   tl/<snapshot>/...         the TeX Live store: objects/<xx>/<sha256> (brotli) and index/<xx>.json
+#   tl/<snapshot>/...         the TeX Live store: objects/<xx>/<sha256> (brotli), index/<xx>.json (files by name) and
+#                             paths/<xxx>.json (files by path, with a file database for what the store has)
+#   pdftex/<build>/<file>     our pdfTeX's modules (packages/pdftex-wasm), brotli-compressed, and
+#   pdftex/<build>/<snapshot>/pdflatex.fmt   the LaTeX format that build dumps from the snapshot's installation
 #   typst/<v>/, tinymist/<v>/, typst-fonts/<v>/   the Typst compiler (typst.ts), tinymist's web build and Typst's
 #                             default fonts, brotli-compressed (apps/content/src/lib/typst-assets.ts pins the versions)
 # Typst Universe packages need no upload: the Worker reads them through into typst-packages/ on first use.
 # Everything is immutable once uploaded: a new engine release or TeX Live snapshot is a new folder, and the Worker serves
-# the one wrangler.jsonc names (ENGINE_VERSION, TL_SNAPSHOT), so a page loaded before a deploy keeps working.
+# the one wrangler.jsonc names (ENGINE_VERSION, TL_SNAPSHOT, PDFTEX_SNAPSHOT), so a page loaded before a deploy keeps
+# working.
 #
 # By hand only (Actions, Assets, Run workflow), on main. Run it once before the first deploy can compile, and again
 # with `engine` for a new texlyre-busytex, or with `texlive` and a new snapshot name for a newer TeX Live. The TeX Live
@@ -28,12 +32,16 @@ on:
         description: Upload the Typst compiler, tinymist and Typst's fonts
         type: boolean
         default: true
+      pdftex:
+        description: Upload our pdfTeX's modules
+        type: boolean
+        default: true
       texlive:
-        description: Build and upload a TeX Live snapshot
+        description: Build and upload a TeX Live snapshot, with the LaTeX format our pdfTeX dumps from it
         type: boolean
         default: false
       snapshot:
-        description: The snapshot's folder name, as TL_SNAPSHOT in apps/content/wrangler.jsonc
+        description: The snapshot's folder name, as TL_SNAPSHOT or PDFTEX_SNAPSHOT in apps/content/wrangler.jsonc
         type: string
         default: '2026'
 
@@ -102,6 +110,15 @@ jobs:
             --header-upload "Content-Encoding: br" --header-upload "Cache-Control: public, max-age=31536000, immutable" \
             --transfers 8 --s3-upload-concurrency 8 --s3-chunk-size 16M --stats-one-line --stats 30s
 
+      - name: Upload pdfTeX
+        if: inputs.pdftex
+        working-directory: apps/content
+        run: |
+          node scripts/pdftex.ts stage "$RUNNER_TEMP/pdftex-br"
+          rclone copy "$RUNNER_TEMP/pdftex-br" "r2:yukibana-papers-assets" --ignore-times \
+            --header-upload "Content-Encoding: br" --header-upload "Cache-Control: public, max-age=31536000, immutable" \
+            --transfers 8 --stats-one-line --stats 30s
+
       # TeX Live from a CTAN mirror, runtime files only: what kpathsea can be asked for.
       - name: Install TeX Live
         if: inputs.texlive
@@ -126,6 +143,9 @@ jobs:
         working-directory: apps/content
         run: |
           node scripts/tlstore.ts build "$RUNNER_TEMP/texlive" "$RUNNER_TEMP/tlstore"
+          # The LaTeX format of this installation, dumped by our pdfTeX as the installation's own fmtutil dumps its own.
+          node scripts/pdftex.ts format "$RUNNER_TEMP/texlive" "$RUNNER_TEMP/pdflatex.fmt"
+          node scripts/pdftex.ts stage "$RUNNER_TEMP/format-br" "$RUNNER_TEMP/pdflatex.fmt" "$SNAPSHOT"
           rm -rf "$RUNNER_TEMP/texlive"
           # The objects first, then the index that names them: a reader never sees a name without its object.
           rclone copy "$RUNNER_TEMP/tlstore/objects" "r2:yukibana-papers-assets/tl/$SNAPSHOT/objects" --no-update-modtime \
@@ -133,3 +153,6 @@ jobs:
             --transfers 64 --checkers 64 --size-only --stats-one-line --stats 60s
           rclone copy "$RUNNER_TEMP/tlstore" "r2:yukibana-papers-assets/tl/$SNAPSHOT" --exclude "objects/**" \
             --transfers 32 --stats-one-line --stats 60s
+          rclone copy "$RUNNER_TEMP/format-br" "r2:yukibana-papers-assets" --ignore-times \
+            --header-upload "Content-Encoding: br" --header-upload "Cache-Control: public, max-age=31536000, immutable" \
+            --transfers 8 --stats-one-line --stats 30s

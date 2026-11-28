@@ -39,6 +39,7 @@
     "@myriaddreamin/typst-ts-web-compiler": "catalog:",
     "@myriaddreamin/typst.ts": "catalog:",
     "@yukibana/papers-frame-protocol": "catalog:",
+    "@yukibana/papers-tex-engine": "catalog:",
     "@yukibana/papers-tex": "catalog:"
   }
 }

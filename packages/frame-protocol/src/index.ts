@@ -88,6 +88,9 @@ export type AppMessage =
     /** Who builds: `browser` (the frame's own engine, the default) or `external` (the user's computer, through the app):
      *  then the frame keeps the files only for display and shows the `output`s it is sent. */
     | { readonly type: 'builder'; readonly builder: 'browser' | 'external' }
+    /** Whether the frame's own builds of a LaTeX document go on from where the last build was still the same, or start
+     *  again each time, with the engine that keeps nothing between builds (so until this is sent). */
+    | { readonly type: 'incremental'; readonly on: boolean }
     /** A build made elsewhere: the PDF, its SyncTeX (gzip as the engine writes it, or plain), and its diagnostics. The
      *  frame renders it as one of its own builds; `ok` false keeps the last good pages. */
     | {
@@ -288,6 +291,8 @@ function appFieldsMatch(x: Record<string, unknown>): boolean {
             return isBool(x['dark']);
         case 'builder':
             return oneOf(x['builder'], 'browser', 'external');
+        case 'incremental':
+            return isBool(x['on']);
         case 'output':
             return (
                 isBool(x['ok']) &&

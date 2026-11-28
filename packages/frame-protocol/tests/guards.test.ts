@@ -24,6 +24,8 @@ describe('guards', () => {
         for (const mode of ['follow', 'jump', 'stay']) expect(isAppMessage({ type: 'reveal', at: { file: 'a.tex', line: 1 }, mode })).toBe(true);
         expect(isAppMessage({ type: 'reveal', at: { file: 'a.tex', line: 1 }, mode: 'leap' })).toBe(false);
         expect(isAppMessage({ type: 'lsp-stop', server: 'tinymist' })).toBe(true);
+        expect(isAppMessage({ type: 'incremental', on: true })).toBe(true);
+        expect(isAppMessage({ type: 'incremental' })).toBe(false);
     });
 
     it('reject shapes that only have the right type', () => {

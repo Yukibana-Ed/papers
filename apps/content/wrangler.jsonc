@@ -19,6 +19,10 @@
         // bucket that .github/workflows/assets.yml fills. Changing either is a deploy; old folders stay for old pages.
         "ENGINE_VERSION": "1.4.1",
         "TL_SNAPSHOT": "2026",
+        // The snapshot our pdfTeX runs on (/tl-file/*, by path, and the LaTeX format dumped from it): one that
+        // assets.yml built since it also makes the file database and the format. A page whose engine cannot be loaded
+        // builds with the engine above.
+        "PDFTEX_SNAPSHOT": "2026-11-28",
     },
 
     // The engine (busytex.wasm is 32 MB, above the Workers static asset limit) and the TeX Live store: immutable

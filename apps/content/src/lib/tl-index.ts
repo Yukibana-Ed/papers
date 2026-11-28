@@ -6,9 +6,14 @@
  *  by a hash of the requested name: the shard of a name holds the file of that exact name and every file whose name
  *  without its extension is that name, so one small read answers any request.
  *
+ *  Our own pdfTeX asks for files as an installation has them, by path (`GET /tl-file/<path from TeX Live's root>`): it
+ *  searches with kpathsea's own file database, `ls-R`, which the store makes for exactly the files it holds. That index
+ *  is split by a hash of the path.
+ *
  *  R2 layout of a snapshot `<snap>`:
  *  - `tl/<snap>/objects/<sha256[0..2]>/<sha256>`: a file's bytes, brotli-compressed (stored with Content-Encoding br);
- *  - `tl/<snap>/index/<shard>.json`: a `Shard`, `<shard>` two lowercase hex digits. */
+ *  - `tl/<snap>/index/<shard>.json`: a `Shard`, `<shard>` two lowercase hex digits;
+ *  - `tl/<snap>/paths/<shard>.json`: a `PathShard`, `<shard>` three lowercase hex digits. */
 
 /** A file: its content hash, its size before compression, and its name as TeX Live spells it. */
 export type IndexedFile = readonly [sha256: string, size: number, name: string];
@@ -111,4 +116,64 @@ export function buildShards(files: Iterable<IndexedFile>): Map<string, { n: Reco
         if (stem !== k) (get(stem).s[stem] ??= []).push(f);
     }
     return shards;
+}
+
+/** Files by their path from TeX Live's root (`texmf-dist/tex/latex/base/article.cls`): content hash and size. */
+export type PathShard = Readonly<Record<string, readonly [sha256: string, size: number]>>;
+
+/** Reads a path shard as the upload script wrote it; null when the text is not one. The entries are not checked one
+ *  by one: the bucket is ours. */
+export function parsePathShard(text: string): PathShard | null {
+    const x: unknown = JSON.parse(text);
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- see above
+    return typeof x === 'object' && x !== null && !Array.isArray(x) ? (x as PathShard) : null;
+}
+
+/** The shard of a path: FNV-1a over its UTF-16 code units, low 12 bits, as three hex digits. */
+export function pathShardOf(path: string): string {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < path.length; i++) {
+        h ^= path.charCodeAt(i);
+        h = Math.imul(h, 0x01000193);
+    }
+    return (h & 0xfff).toString(16).padStart(3, '0');
+}
+
+/** The path shards of a snapshot's files. */
+export function buildPathShards(files: Iterable<readonly [path: string, sha256: string, size: number]>): Map<string, Record<string, [string, number]>> {
+    const shards = new Map<string, Record<string, [string, number]>>();
+    for (const [path, sha, size] of files) {
+        const id = pathShardOf(path);
+        let shard = shards.get(id);
+        if (shard === undefined) {
+            shard = {};
+            shards.set(id, shard);
+        }
+        shard[path] = [sha, size];
+    }
+    return shards;
+}
+
+/** kpathsea's file database (`ls-R`) of a tree that has exactly `files`, given by their paths from the tree's root, and
+ *  the database itself: a block for every directory, with its entries in code unit order, as `mktexlsr` writes it. */
+export function lsR(files: Iterable<string>): string {
+    const dirs = new Map<string, Set<string>>([['', new Set(['ls-R'])]]);
+    const entries = (dir: string): Set<string> => {
+        let e = dirs.get(dir);
+        if (e === undefined) {
+            e = new Set();
+            dirs.set(dir, e);
+            const slash = dir.lastIndexOf('/');
+            entries(slash < 0 ? '' : dir.slice(0, slash)).add(dir.slice(slash + 1));
+        }
+        return e;
+    };
+    for (const path of files) {
+        const slash = path.lastIndexOf('/');
+        entries(slash < 0 ? '' : path.slice(0, slash)).add(path.slice(slash + 1));
+    }
+    const order = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+    let out = '% ls-R -- filename database for kpathsea; do not change this line.\n';
+    for (const dir of [...dirs.keys()].toSorted(order)) out += `./${dir}:\n${[...(dirs.get(dir) ?? [])].toSorted(order).join('\n')}\n\n`;
+    return out;
 }

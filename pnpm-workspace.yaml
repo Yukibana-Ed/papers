@@ -77,7 +77,10 @@ catalog:
   '@myriaddreamin/typst-ts-web-compiler': https://github.com/Yukibana-Ed/papers/releases/download/typst-wasm-0.8.0-rc4-yb.1/typst-ts-web-compiler-0.8.0-rc4-yb.1.tgz
   '@myriaddreamin/typst.ts': 0.8.0-rc4
   '@yukibana/papers-templates': workspace:*
+  '@yukibana/papers-tex-engine': workspace:*
   '@playwright/test': 1.65.0
+  # Rewrites the built pdfTeX module so that it marks the pages it writes (packages/pdftex-wasm/src/dirty.mjs).
+  binaryen: 132.0.0
 catalogs:
   # The SvelteKit apps only: svelte-check supports TypeScript 6 at most (its peer dependency is ^5 || ^6).
   ts6:

@@ -3,6 +3,7 @@
     import { keepInView } from '#lib/ui/place.ts';
     import { pair } from '#lib/runner/client.ts';
     import type { Session } from '#lib/session.svelte.ts';
+    import { buildSettings } from './settings.svelte.ts';
     import Icon from '#lib/ui/Icon.svelte';
     import { tip } from '#lib/ui/tooltip.ts';
 
@@ -40,6 +41,16 @@
     >
         <Icon name="globe" size={14} />
         Browser
+    </button>
+    <button
+        type="button"
+        class="row-btn"
+        aria-pressed={buildSettings.incremental}
+        onclick={() => buildSettings.toggle()}
+        {...tip('Incremental', null, buildSettings.incremental ? 'each build goes on from the last' : 'every build starts again')}
+    >
+        <span style:visibility={buildSettings.incremental ? 'visible' : 'hidden'}><Icon name="check" size={14} /></span>
+        Incremental
     </button>
     <button type="button" class="row-btn" class:is-current={s.builder === 'computer'} disabled={s.computer === null} onclick={() => (s.builder = 'computer')} {...tip('This computer', null, 'papers serve, sandboxed')}>
         <Icon name="doc" size={14} />

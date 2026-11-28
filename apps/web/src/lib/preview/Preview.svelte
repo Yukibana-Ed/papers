@@ -4,6 +4,7 @@
     import { onDestroy } from 'svelte';
     import { RunnerClient } from '#lib/runner/client.ts';
     import { FrameClient } from './frame-client.ts';
+    import { buildSettings } from './settings.svelte.ts';
 
     /** The preview: the content frame, fed with the session's files and told where the cursor is. Everything it
      *  says back is untrusted (it runs user content) and only ever used as positions and plain text. */
@@ -100,6 +101,8 @@
     function sendAll(reconnected: boolean): void {
         if (!client) return;
         sent = { ...session.files };
+        // Before the project, whose build it decides.
+        client.send({ type: 'incremental', on: buildSettings.incremental });
         client.send({ type: 'project', files: { ...session.assets, ...sent }, root: session.root, engine });
         client.send({ type: 'theme', dark: session.dark });
         client.send({ type: 'zoom', zoom: session.zoom });
@@ -230,6 +233,10 @@
 
     $effect(() => {
         client?.send({ type: 'builder', builder: session.builder === 'computer' ? 'external' : 'browser' });
+    });
+
+    $effect(() => {
+        client?.send({ type: 'incremental', on: buildSettings.incremental });
     });
 
     // On this computer: the files and a build, shortly after every change.
